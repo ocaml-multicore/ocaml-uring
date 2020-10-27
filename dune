@@ -1,0 +1,7 @@
+(library
+ (name            uring)
+ (public_name     uring)
+ (foreign_stubs
+  (language c)
+  (names uring_stubs)
+  (flags -Iliburing/src/include)))
