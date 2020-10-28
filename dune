@@ -1,8 +1,28 @@
+(data_only_dirs liburing)
+
+(rule
+ (deps (source_tree built))
+ (targets liburing.a dlluring.so)
+ (action
+ (no-infer
+  (progn
+   (copy built/liburing.a liburing.a)
+   (copy built/dlluring.so dlluring.so)
+   ))))
+
 (library
  (name            uring)
  (public_name     uring)
  (libraries       bigstringaf)
+ (modules         uring)
+ (foreign_archives uring)
  (foreign_stubs
   (language c)
+  (flags (:standard -O0))
   (names uring_stubs)
-  (flags -Iliburing/src/include)))
+  (include_dirs liburing/src/include)))
+
+(executable
+ (name uring_test)
+ (modules uring_test)
+ (libraries bigstringaf unix uring))
