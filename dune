@@ -1,6 +1,7 @@
 (library
  (name            uring)
  (public_name     uring)
+ (libraries       bigstringaf)
  (foreign_stubs
   (language c)
   (names uring_stubs)
