@@ -31,6 +31,7 @@ struct request {
     int event_type;
     value callback;
     value buffer; // used by READ and WRITE
+    struct iovec iov; // used by READ and WRITE
     struct sockaddr* sockaddr; // used by ACCEPT
     socklen_t socklen; // used by ACCEPT
 };
@@ -56,20 +57,25 @@ value ring_setup(value entries) {
     }
 }
 
-void ring_queue_write(value ring_custom, value fd, value callback, value buffer_bigarray, value nbytes, value offset) {
+// For now we use writev instead because it's available in 5.1
+void ring_queue_write(value ring_custom, value fd, value callback, value buffer_bigarray, value nbytes) {
     CAMLparam5(ring_custom, fd, callback, buffer_bigarray, nbytes);
-    CAMLxparam1(offset);
 
     struct io_uring* ring = Ring_val(ring_custom);
     struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
 
     char* buf = (char*)Caml_ba_data_val(buffer_bigarray);
 
-    io_uring_prep_write(sqe, Int_val(fd), buf, Long_val(nbytes), Long_val(offset));
-
     struct request* req = (struct request*)caml_stat_alloc(sizeof(struct request));
 
+    req->iov.iov_base = buf;
+    req->iov.iov_len = Long_val(nbytes);
+
+    io_uring_prep_writev(sqe, Int_val(fd), &req->iov, 1, 0);
+
     req->event_type = EVENT_TYPE_WRITE;
+    req->callback = callback;
+    req->buffer = buffer_bigarray;
 
     caml_register_generational_global_root(&req->buffer);
     caml_register_generational_global_root(&req->callback);
@@ -79,20 +85,26 @@ void ring_queue_write(value ring_custom, value fd, value callback, value buffer_
     CAMLreturn0;
 }
 
-void ring_queue_read(value ring_custom, value fd, value callback, value buffer_bigarray, value nbytes, value offset) {
-    CAMLparam5(ring_custom, fd, callback, buffer_bigarray, nbytes);
-    CAMLxparam1(offset);
+// For now we use readv instead because it's available in 5.1
+void ring_queue_read(value ring_custom, value fd, value callback, value buffer_bigarray, value offset) {
+    CAMLparam5(ring_custom, fd, callback, buffer_bigarray, offset);
 
     struct io_uring* ring = Ring_val(ring_custom);
     struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
 
     char* buf = (char*)Caml_ba_data_val(buffer_bigarray);
-
-    io_uring_prep_read(sqe, Int_val(fd), buf, Long_val(nbytes), Long_val(offset));
+    size_t buf_len = Caml_ba_array_val(buffer_bigarray)->dim[0];
 
     struct request* req = (struct request*)caml_stat_alloc(sizeof(struct request));
 
+    req->iov.iov_base = buf;
+    req->iov.iov_len = buf_len;
+
+    io_uring_prep_readv(sqe, Int_val(fd), &req->iov, 1, Long_val(offset));
+
     req->event_type = EVENT_TYPE_READ;
+    req->callback = callback;
+    req->buffer = buffer_bigarray;
 
     caml_register_generational_global_root(&req->buffer);
     caml_register_generational_global_root(&req->callback);
