@@ -29,8 +29,11 @@ static struct custom_operations ring_ops = {
 
 struct request {
     int event_type;
+    int fd; // used by READ and WRITE
     value callback;
     value buffer; // used by READ and WRITE
+    int write_length; // used by WRITE
+    int written_length; // used by WRITE
     struct iovec iov; // used by READ and WRITE
     struct sockaddr* sockaddr; // used by ACCEPT
     socklen_t socklen; // used by ACCEPT
@@ -57,8 +60,7 @@ value ring_setup(value entries) {
     }
 }
 
-// For now we use writev instead because it's available in 5.1
-void ring_queue_write(value ring_custom, value fd, value callback, value buffer_bigarray, value nbytes) {
+void ring_queue_write_full(value ring_custom, value fd, value callback, value buffer_bigarray, value nbytes) {
     CAMLparam5(ring_custom, fd, callback, buffer_bigarray, nbytes);
 
     struct io_uring* ring = Ring_val(ring_custom);
@@ -68,10 +70,13 @@ void ring_queue_write(value ring_custom, value fd, value callback, value buffer_
 
     struct request* req = (struct request*)caml_stat_alloc(sizeof(struct request));
 
+    req->fd = Int_val(fd);
+    req->write_length = Long_val(nbytes);
+    req->written_length = 0;
     req->iov.iov_base = buf;
-    req->iov.iov_len = Long_val(nbytes);
+    req->iov.iov_len = req->write_length;
 
-    io_uring_prep_writev(sqe, Int_val(fd), &req->iov, 1, 0);
+    io_uring_prep_writev(sqe, req->fd, &req->iov, 1, 0);
 
     req->event_type = EVENT_TYPE_WRITE;
     req->callback = callback;
@@ -95,12 +100,15 @@ void ring_queue_read(value ring_custom, value fd, value callback, value buffer_b
     char* buf = (char*)Caml_ba_data_val(buffer_bigarray);
     size_t buf_len = Caml_ba_array_val(buffer_bigarray)->dim[0];
 
+    printf("buf_len: %ld\n", buf_len);
+
     struct request* req = (struct request*)caml_stat_alloc(sizeof(struct request));
 
+    req->fd = Int_val(fd);
     req->iov.iov_base = buf;
     req->iov.iov_len = buf_len;
 
-    io_uring_prep_readv(sqe, Int_val(fd), &req->iov, 1, Long_val(offset));
+    io_uring_prep_readv(sqe, req->fd, &req->iov, 1, Long_val(offset));
 
     req->event_type = EVENT_TYPE_READ;
     req->callback = callback;
@@ -176,13 +184,44 @@ void ring_wait(value ring_custom) {
         caml_failwith(strerror(-cqe->res));
     }
 
+    int cleanup_req = 0;
+
     if( req->event_type == EVENT_TYPE_READ || req->event_type == EVENT_TYPE_WRITE ) {
-        if( req->event_type == EVENT_TYPE_READ ) {
-            caml_callback2(req->callback, req->buffer, Val_long(cqe->res));
+        switch( req->event_type ) {
+            case EVENT_TYPE_READ:
+                caml_callback2(req->callback, req->buffer, Val_long(cqe->res));
+
+                cleanup_req = 1;
+                break;
+            case EVENT_TYPE_WRITE:
+                /* check we actually wrote the full length we tried to write */
+                if(cqe->res + req->written_length == req->write_length) {
+                    /* call the callback if it exists */
+                    if( Is_block(req->callback) ) {
+                        caml_callback2(req->callback, req->buffer, req->write_length);
+                    }
+
+                    cleanup_req = 1;
+                } else {
+                    // Here we wrote less than the amount we requested
+
+                    // Store how much we wrote
+                    req->written_length += cqe->res;
+
+                    // Now we queue up a new write
+                    req->iov.iov_base = req->iov.iov_base + cqe->res;
+                    req->iov.iov_len = req->write_length - req->written_length;
+
+                    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+
+                    io_uring_prep_writev(sqe, req->fd, &req->iov, 1, 0);
+                }
         }
 
-        caml_remove_generational_global_root(&req->callback);
-        caml_remove_generational_global_root(&req->buffer);
+        if( cleanup_req ) {
+            caml_remove_generational_global_root(&req->callback);
+            caml_remove_generational_global_root(&req->buffer);
+        }
     }
     else if( req->event_type == EVENT_TYPE_ACCEPT ) {
         caml_callback(req->callback, Val_int(cqe->res));
@@ -192,7 +231,11 @@ void ring_wait(value ring_custom) {
         caml_remove_generational_global_root(&req->callback);
     }
 
-    caml_stat_free(req);
+    io_uring_cqe_seen(ring, cqe);
+
+    if( cleanup_req ) {
+        caml_stat_free(req);
+    }
 
     CAMLreturn0;
 }

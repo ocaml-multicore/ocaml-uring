@@ -8,15 +8,27 @@ let rec server_loop () =
     match !client_fd with
     | None -> server_loop ()
     | Some(client) ->
-    begin
+    let exit_loop = ref false in
     let read_buf = Bigstringaf.create 4096 in
         Uring.ring_queue_read ring client (fun buf len -> 
-            Printf.printf "Read %d bytes: %s\n%!" len (Bigstringaf.substring buf ~off:0 ~len)
+            if len == 0 then
+                begin
+                    Printf.printf "Client disconnected!";
+                    exit_loop := true
+                end
+            else
+                begin
+                    Printf.printf "Read %d bytes: %s\n%!" len (Bigstringaf.substring buf ~off:0 ~len);
+                    Uring.ring_queue_write_full ring client (fun _ _ -> ()) buf len;
+                    Uring.ring_submit ring |> ignore;
+                end
         ) read_buf 0;
         Uring.ring_submit ring |> ignore;
     Uring.ring_wait ring;
-    server_loop ()
-    end
+    if !exit_loop then
+        ()
+    else
+        server_loop ()
 
 let () =
     Unix.bind server_fd (ADDR_INET (Unix.inet_addr_any, 8081));
