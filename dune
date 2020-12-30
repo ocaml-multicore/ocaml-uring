@@ -1,15 +1,5 @@
 (data_only_dirs liburing)
 
-(rule
- (deps (source_tree built))
- (targets liburing.a dlluring.so)
- (action
- (no-infer
-  (progn
-   (copy built/liburing.a liburing.a)
-   (copy built/dlluring.so dlluring.so)
-   ))))
-
 (library
  (name            uring)
  (public_name     uring)
@@ -20,9 +10,35 @@
   (language c)
   (flags (:standard -O0))
   (names uring_stubs)
-  (include_dirs liburing/src/include)))
+  (include_dirs include)
+  (extra_deps include/liburing/compat.h)
+ ))
 
 (executable
  (name uring_test)
  (modules uring_test)
  (libraries bigstringaf unix uring))
+
+(rule
+ (deps
+  (source_tree liburing))
+ (targets liburing.a dlluring.so barrier.h compat.h io_uring.h liburing.h)
+ (action
+  (no-infer
+   (progn
+    (chdir
+     liburing
+     (progn
+      (run ./configure)
+      ;; TODO discover.ml for liburing cflags
+      (setenv
+       CFLAGS
+       "-g -fomit-frame-pointer -O0 -fPIC"
+       (run make -j -C src))))
+    (copy liburing/src/liburing.a liburing.a)
+    (copy liburing/src/liburing.so.2.0.0 dlluring.so)
+    (copy liburing/src/include/liburing.h liburing.h)
+    (copy liburing/src/include/liburing/io_uring.h io_uring.h)
+    (copy liburing/src/include/liburing/barrier.h barrier.h)
+    (copy liburing/src/include/liburing/compat.h compat.h)
+))))

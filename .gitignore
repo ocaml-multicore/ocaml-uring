@@ -1,4 +1,4 @@
 .merlin
 .vscode
 _build
-built
+.*.swp
