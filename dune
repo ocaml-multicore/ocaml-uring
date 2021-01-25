@@ -19,6 +19,12 @@
  (modules uring_test)
  (libraries bigstringaf unix uring))
 
+(executable
+ (name urcat)
+ (modules urcat)
+ (libraries bigstringaf unix uring))
+
+
 (rule
  (deps
   (source_tree liburing))

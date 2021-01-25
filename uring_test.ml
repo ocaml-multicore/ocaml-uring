@@ -1,5 +1,17 @@
-let ring = Uring.ring_setup 1024
+let () =
+  let t = Uring.create ~queue_depth:1 () in
+  let fd = Unix.(handle_unix_error (openfile "test.txt" [O_RDONLY]) 0) in
+  let b1 = Uring.iobuf_alloc 3 in
+  let b2 = Uring.iobuf_alloc 5 in
+  Uring.submit_readv t fd [|b1;b2|];
+  let res = Uring.submit t in
+  Printf.eprintf "submitted %d\n%!" res;
+  let _,res = Uring.wait_cqe t in
+  Printf.eprintf "res %d\n%!" res;
+  Printf.eprintf "%s -- %s\n%!" (Bigstringaf.to_string b1) (Bigstringaf.to_string b2);
+  ()
 
+(*
 let server_fd = Unix.socket PF_INET SOCK_STREAM 0
 
 let client_fd = ref None
@@ -10,8 +22,8 @@ let rec server_loop () =
     | Some(client) ->
     let exit_loop = ref false in
     let read_buf = Bigstringaf.create 4096 in
-        Uring.ring_queue_read ring client (fun buf len -> 
-            if len == 0 then
+    Uring.ring_queue_read ring client (fun buf len -> 
+        if len = 0 then
                 begin
                     Printf.printf "Client disconnected!";
                     exit_loop := true
@@ -37,3 +49,4 @@ let () =
     Printf.printf "Go connection!\n%!";
     client_fd := Some(new_client_fd);
     server_loop ()
+    *)
