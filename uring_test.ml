@@ -1,12 +1,14 @@
 let () =
-  let t = Uring.create ~queue_depth:1 () in
+  let t = Uring.create ~queue_depth:1 ~default:() () in
   let fd = Unix.(handle_unix_error (openfile "test.txt" [O_RDONLY]) 0) in
-  let b1 = Uring.iobuf_alloc 3 in
-  let b2 = Uring.iobuf_alloc 5 in
-  Uring.submit_readv t fd [|b1;b2|];
+  let b1 = Uring.Iovec.alloc_buf 3 in
+  let b2 = Uring.Iovec.alloc_buf 7 in
+  let iov = Uring.Iovec.alloc [|b1;b2|] in
+  Uring.submit_readv t fd iov ();
   let res = Uring.submit t in
   Printf.eprintf "submitted %d\n%!" res;
-  let _,res = Uring.wait_cqe t in
+  let (), res = Uring.wait t in
+  Uring.Iovec.free iov;
   Printf.eprintf "res %d\n%!" res;
   Printf.eprintf "%s -- %s\n%!" (Bigstringaf.to_string b1) (Bigstringaf.to_string b2);
   ()

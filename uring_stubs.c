@@ -61,6 +61,7 @@ value ocaml_uring_setup(value entries) {
 value ocaml_uring_register_ba(value v_uring, value v_ba) {
   CAMLparam2(v_uring, v_ba);
   struct io_uring *ring = Ring_val(v_uring);
+  // TODO broken needs malloc
   struct iovec iov[1];
   iov[0].iov_base = Caml_ba_data_val(v_ba);
   iov[0].iov_len = Caml_ba_array_val(v_ba)->dim[0];
@@ -105,15 +106,32 @@ ocaml_uring_free_iovecs(value iovecs)
 }
 
 value
-ocaml_uring_submit_readv(value v_uring, value v_fd, value iovecs, value v_len) {
+ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, value v_off) {
   CAMLparam1(v_uring);
   struct io_uring *ring = Ring_val(v_uring);
-  struct iovec *iovs = (struct iovec *) (iovecs & ~1);
+  struct iovec *iovs = (struct iovec *) (Field(v_iov, 0)  & ~1);
+  int len = Wosize_val(Field(v_iov, 1));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe)
     caml_failwith("unable to allocate SQE");
-  io_uring_prep_readv(sqe, Int_val(v_fd), iovs, Int_val(v_len), 0);
-  io_uring_sqe_set_data(sqe, iovs);
+  fprintf(stderr, "submit_readv: %d ents off %lu\n", len, Int64_val(v_off));
+  io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int64_val(v_off)); /* TODO add offset to intf */
+  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  CAMLreturn(Val_unit);
+}
+
+value
+ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, value v_off) {
+  CAMLparam1(v_uring);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct iovec *iovs = (struct iovec *) (Field(v_iov, 0) & ~1);
+  int len = Wosize_val(Field(v_iov, 1));
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe)
+    caml_failwith("unable to allocate SQE");
+  fprintf(stderr, "submit_writev: %d ents off %lu\n", len, Int64_val(v_off));
+  io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int64_val(v_off)); /* TODO add offset to intf */
+  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
   CAMLreturn(Val_unit);
 }
 
@@ -129,18 +147,18 @@ value ocaml_uring_wait_cqe(value v_uring)
 {
   CAMLparam1(v_uring);
   CAMLlocal1(v_ret);
+  long id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
   fprintf(stderr, "cqe: waiting\n");
   io_uring_wait_cqe(ring, &cqe);
-  fprintf(stderr, "cqe: %p res = %d\n", cqe, cqe->res);
   if (cqe->res < 0)
     caml_failwith(strerror(-cqe->res));
-  fprintf(stderr, "ceq %p: res=%d\n", cqe, cqe->res);
-  struct iovec *iovs = io_uring_cqe_get_data(cqe);
+  fprintf(stderr, "cqe %p: res=%d\n", cqe, cqe->res);
+  id = (long)io_uring_cqe_get_data(cqe);
   io_uring_cqe_seen(ring, cqe);
-  v_ret = caml_alloc(3, 0);
-  Store_field(v_ret, 0, (value)iovs | 1);
+  v_ret = caml_alloc(2, 0);
+  Store_field(v_ret, 0, Val_int(id));
   Store_field(v_ret, 1, Val_int(cqe->res));
   CAMLreturn(v_ret);
 }

@@ -1,9 +1,11 @@
+module Iovec = Iovec
 
-type t
-type iobuf = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+type 'a t
 
-val iobuf_alloc : int -> iobuf
-val create : queue_depth:int -> unit -> t
-val submit_readv : t -> Unix.file_descr -> iobuf array -> unit
-val submit : t -> int
-val wait_cqe : t -> iobuf array * int
+val create : queue_depth:int -> default:'a -> unit -> 'a t
+
+val submit_readv : 'a t -> Unix.file_descr -> Iovec.t -> 'a -> unit
+val submit_writev : 'a t -> Unix.file_descr -> Iovec.t -> 'a -> unit
+val submit : 'a t -> int
+
+val wait : 'a t -> 'a * int

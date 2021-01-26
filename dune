@@ -3,8 +3,7 @@
 (library
  (name            uring)
  (public_name     uring)
- (libraries       bigstringaf)
- (modules         uring)
+ (modules         iovec uring)
  (foreign_archives uring)
  (foreign_stubs
   (language c)

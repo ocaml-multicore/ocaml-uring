@@ -9,7 +9,8 @@ let get_file_size fd =
 (* TODO make this work with ST_ISBLK *)
 
 let get_completion_and_print uring =
-  let bufs, len = Uring.wait_cqe uring in
+  let iov, len = Uring.wait uring in
+  let bufs = Uring.Iovec.bufs iov in
   let remaining = ref len in
   Printf.eprintf "%d bytes read\n%!" len;
   Array.iter (fun buf ->
@@ -29,15 +30,15 @@ let submit_read_request fname uring =
   let fd = Unix.(handle_unix_error (openfile fname [O_RDONLY]) 0) in
   let file_sz = get_file_size fd in
   let blocks = if file_sz mod block_size <> 0 then (file_sz / block_size)+1 else file_sz/block_size in
-  let bufs = Array.init blocks (fun _ -> Uring.iobuf_alloc block_size) in
-  Uring.submit_readv uring fd bufs;
+  let bufs = Array.init blocks (fun _ -> Uring.Iovec.alloc_buf block_size) in
+  let iov = Uring.Iovec.alloc bufs in
+  Uring.submit_readv uring fd iov (iov :> Uring.Iovec.t);
   let numreq = Uring.submit uring in
   assert(numreq=1);
   ()
 
 let () =
    let fname = Sys.argv.(1) in
-   let uring = Uring.create ~queue_depth:1 () in
+   let uring = Uring.create ~queue_depth:1 ~default:Uring.Iovec.empty () in
    submit_read_request fname uring;
    get_completion_and_print uring
-   
