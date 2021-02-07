@@ -1,4 +1,4 @@
-(*
+/*
  * Copyright (C) 2020-2021 Anil Madhavapeddy
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -12,16 +12,4 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *)
-
-type buf = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-type iovec
-type t
-
-val alloc : buf array -> t
-val alloc_buf : int -> buf
-val free : t -> unit
-val nr_vecs : t -> int
-val bufs : t -> buf array
-val empty : t
-val advance : t -> idx:int -> adj:int -> unit
+ */

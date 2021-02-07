@@ -1,3 +1,19 @@
+(*
+ * Copyright (C) 2020-2021 Anil Madhavapeddy
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *)
+
 module Iovec = Iovec
 
 type uring
@@ -11,12 +27,16 @@ external uring_submit_readv : uring -> Unix.file_descr -> id -> Iovec.t -> int -
 external uring_submit_writev : uring -> Unix.file_descr -> id -> Iovec.t -> int -> unit = "ocaml_uring_submit_writev"
 
 external uring_wait_cqe : uring -> id * int = "ocaml_uring_wait_cqe"
+external uring_peek_cqe : uring -> id * int = "ocaml_uring_peek_cqe"
+
 
 type 'a t = {
   uring: uring;
   iobuf: Iovec.buf;
   mutable id_freelist: int list;
   user_data: 'a array;
+  queue_depth: int;
+  mutable dirty: bool; (* has outstanding requests that need to be submitted *)
 }
 
 let default_iobuf_len = 1024 * 1024 (* 1MB *)
@@ -29,7 +49,9 @@ let create ~queue_depth ~default () =
   Gc.finalise uring_exit uring;
   let id_freelist = List.init queue_depth (fun i -> i) in
   let user_data = Array.init queue_depth (fun _ -> default) in
-  { uring; iobuf; id_freelist; user_data }
+  { uring; iobuf; id_freelist; user_data; dirty=false; queue_depth }
+
+let exit {uring;_} = uring_exit uring
 
 let get_id t =
   match t.id_freelist with
@@ -42,28 +64,38 @@ let put_id t v =
 let readv t ?(offset=0) fd iovec user_data =
   let id = get_id t in
   uring_submit_readv t.uring fd id iovec offset;
+  t.dirty <- true;
   t.user_data.(id) <- user_data
 
 let writev t ?(offset=0) fd iovec user_data =
   let id = get_id t in
   uring_submit_writev t.uring fd id iovec offset;
+  t.dirty <- true;
   t.user_data.(id) <- user_data
 
-let submit {uring;_} =
-  uring_submit uring
+let submit t =
+  if t.dirty then begin
+    t.dirty <- false;
+    uring_submit t.uring
+  end else
+    0
 
-let wait t =
-   let id, res = uring_wait_cqe t.uring in
-   let data = t.user_data.(id) in
-   put_id t id;
-   data, res
+(* TODO use unixsupport.h *)
+let errno_is_retry = function -11 | -4 -> true |_ -> false
 
-(*
-external ring_queue_write_full : t -> Unix.file_descr -> (Bigstringaf.t -> int -> unit) -> Bigstringaf.t -> int -> unit = "ring_queue_write_full"
-external ring_queue_read : t -> Unix.file_descr -> (Bigstringaf.t -> int -> unit) -> Bigstringaf.t -> int -> unit = "ring_queue_read"
-external ring_queue_accept : t -> Unix.file_descr -> (Unix.file_descr -> unit) -> unit = "ring_queue_accept"
-external ring_queue_close : t -> Unix.file_descr -> unit = "ring_queue_close"
-external ring_submit : t -> int = "ring_submit"
-external ring_exit : t -> unit = "ring_exit"
-external ring_wait : t -> unit = "ring_wait"
-*) 
+let fn_on_ring fn t =
+   let id, res = fn t.uring in
+   match id, res with
+   | -1, res when errno_is_retry res ->
+     None
+   | -1, res when res < 0 ->
+     failwith ("wait error " ^ (string_of_int res))
+     (* TODO switch to unixsupport.h to raise Unix_error *)
+   | id, res ->
+     let data = t.user_data.(id) in
+     put_id t id;
+     Some (data, res)
+
+let peek t = fn_on_ring uring_peek_cqe t
+let wait t = fn_on_ring uring_wait_cqe t
+let queue_depth {queue_depth;_} = queue_depth

@@ -1,0 +1,11 @@
+(executable
+ (name urcat)
+ (modules urcat)
+ (public_name urcat)
+ (libraries bigstringaf unix uring))
+
+(executable
+ (name urcp)
+ (modules urcp)
+ (public_name urcp)
+ (libraries fmt bigstringaf unix uring))

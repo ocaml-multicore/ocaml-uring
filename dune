@@ -13,21 +13,6 @@
   (extra_deps include/liburing/compat.h)
  ))
 
-(executable
- (name uring_test)
- (modules uring_test)
- (libraries bigstringaf unix uring))
-
-(executable
- (name urcat)
- (modules urcat)
- (libraries bigstringaf unix uring))
-
-(executable
- (name urcp)
- (modules urcp)
- (libraries bigstringaf unix uring))
-
 (rule
  (deps
   (source_tree liburing))

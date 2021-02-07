@@ -1,0 +1,4 @@
+(executable
+ (name basic_file_read)
+ (modules basic_file_read)
+ (libraries bigstringaf unix uring alcotest))

@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2020-2021 Anil Madhavapeddy
+ * Copyright (C) 2020-2021 Sadiq Jaffer
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
 #include <liburing.h>
 #include <caml/alloc.h>
 #include <caml/bigarray.h>
@@ -7,14 +24,17 @@
 #include <caml/memory.h>
 #include <caml/mlvalues.h>
 #include <caml/signals.h>
+#include <caml/unixsupport.h>
 #include <string.h>
 
-#define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
+#undef URING_DEBUG
+#ifdef URING_DEBUG
+#define dprintf(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+#else
+#define dprintf(fmt, ...) ((void)0)
+#endif
 
-#define EVENT_TYPE_READ 0
-#define EVENT_TYPE_WRITE 1
-#define EVENT_TYPE_ACCEPT 2
-#define EVENT_TYPE_CLOSE 3
+#define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
 
 static struct custom_operations ring_ops = {
   "uring.ring",
@@ -51,9 +71,8 @@ value ocaml_uring_setup(value entries) {
       value ring_custom = caml_alloc_custom_mem(&ring_ops, sizeof(struct io_uring*), sizeof(struct io_uring));
       *((struct io_uring**)Data_custom_val(ring_custom)) = ring;
       CAMLreturn(ring_custom);
-  } else {
-     caml_failwith(strerror(-status));
-  }
+  } else
+     unix_error(-status, "io_uring_queue_init", Nothing);
 }
 
 // TODO also add an unregister ba 
@@ -65,19 +84,20 @@ value ocaml_uring_register_ba(value v_uring, value v_ba) {
   struct iovec iov[1];
   iov[0].iov_base = Caml_ba_data_val(v_ba);
   iov[0].iov_len = Caml_ba_array_val(v_ba)->dim[0];
-  fprintf(stderr,"uring %p: registering iobuf base %p len %lu\n", ring, iov[0].iov_base, iov[0].iov_len);
+  dprintf("uring %p: registering iobuf base %p len %lu\n", ring, iov[0].iov_base, iov[0].iov_len);
   int ret = io_uring_register_buffers(ring, iov, 1);
   if (ret)
-    caml_failwith(strerror(-ret));
+    unix_error(-ret, "io_uring_register_buffers", Nothing);
   CAMLreturn(Val_unit);
 }
 
 value ocaml_uring_exit(value v_uring) {
   CAMLparam1(v_uring);
   struct io_uring *ring = Ring_val(v_uring);
-  fprintf(stderr, "uring %p: exit\n", ring);
+  dprintf("uring %p: exit\n", ring);
   io_uring_queue_exit(ring);
   caml_stat_free(ring);
+  ring = NULL;
   CAMLreturn(Val_unit);
 }
 
@@ -90,7 +110,7 @@ ocaml_uring_alloc_iovecs(value v_ba_arr) {
     value v_ba = Field(v_ba_arr,i);
     iovs[i].iov_base = Caml_ba_data_val(v_ba);
     iovs[i].iov_len = Caml_ba_array_val(v_ba)->dim[0];
-    fprintf(stderr, "iov %d: %p %lu\n", i, iovs[i].iov_base, iovs[i].iov_len);
+    dprintf( "iov %d: %p %lu\n", i, iovs[i].iov_base, iovs[i].iov_len);
   }
   if (((uintptr_t) iovs & 1) == 1) caml_failwith("unaligned alloc??"); 
   CAMLreturn ((value) iovs | 1);
@@ -125,7 +145,7 @@ ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, val
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe)
     caml_failwith("unable to allocate SQE");
-  fprintf(stderr, "submit_readv: %d ents off %d\n", len, Int_val(v_off));
+  dprintf("submit_readv: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int_val(v_off));
   io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int_val(v_off)); /* TODO add offset to intf */
   io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
   CAMLreturn(Val_unit);
@@ -140,7 +160,7 @@ ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, va
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe)
     caml_failwith("unable to allocate SQE");
-  fprintf(stderr, "submit_writev: %d ents off %d\n", len, Int_val(v_off));
+  dprintf("submit_writev: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int_val(v_off));
   io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int_val(v_off)); /* TODO add offset to intf */
   io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
   CAMLreturn(Val_unit);
@@ -161,210 +181,43 @@ value ocaml_uring_wait_cqe(value v_uring)
   long id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
-  fprintf(stderr, "cqe: waiting\n");
-  io_uring_wait_cqe(ring, &cqe);
-  if (cqe->res < 0)
-    caml_failwith(strerror(-cqe->res));
-  fprintf(stderr, "cqe %p: res=%d\n", cqe, cqe->res);
-  id = (long)io_uring_cqe_get_data(cqe);
-  io_uring_cqe_seen(ring, cqe);
-  v_ret = caml_alloc(2, 0);
-  Store_field(v_ret, 0, Val_int(id));
-  Store_field(v_ret, 1, Val_int(cqe->res));
+  int res;
+  dprintf("cqe: waiting\n");
+  res = io_uring_wait_cqe(ring, &cqe);
+  if (res < 0) {
+    v_ret = caml_alloc(2, 0);
+    Store_field(v_ret, 0, Val_int(-1));
+    Store_field(v_ret, 1, Val_int(res));
+  } else {
+    id = (long)io_uring_cqe_get_data(cqe);
+    io_uring_cqe_seen(ring, cqe);
+    v_ret = caml_alloc(2, 0);
+    Store_field(v_ret, 0, Val_int(id));
+    Store_field(v_ret, 1, Val_int(cqe->res));
+  }
   CAMLreturn(v_ret);
 }
-#if 0
 
-void ring_queue_write_full(value ring_custom, value fd, value callback, value buffer_bigarray, value nbytes) {
-    CAMLparam5(ring_custom, fd, callback, buffer_bigarray, nbytes);
-
-    struct io_uring* ring = Ring_val(ring_custom);
-    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-
-    char* buf = (char*)Caml_ba_data_val(buffer_bigarray);
-
-    struct request* req = (struct request*)caml_stat_alloc(sizeof(struct request));
-
-    req->fd = Int_val(fd);
-    req->write_length = Long_val(nbytes);
-    req->written_length = 0;
-    req->iov.iov_base = buf;
-    req->iov.iov_len = req->write_length;
-
-    io_uring_prep_writev(sqe, req->fd, &req->iov, 1, 0);
-
-    req->event_type = EVENT_TYPE_WRITE;
-    req->callback = callback;
-    req->buffer = buffer_bigarray;
-
-    caml_register_generational_global_root(&req->buffer);
-    caml_register_generational_global_root(&req->callback);
-
-    io_uring_sqe_set_data(sqe, req);
-
-    CAMLreturn0;
-}
-
-// For now we use readv instead because it's available in 5.1
-void ring_queue_read(value ring_custom, value fd, value callback, value buffer_bigarray, value offset) {
-    CAMLparam5(ring_custom, fd, callback, buffer_bigarray, offset);
-
-    struct io_uring* ring = Ring_val(ring_custom);
-    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-
-    char* buf = (char*)Caml_ba_data_val(buffer_bigarray);
-    size_t buf_len = Caml_ba_array_val(buffer_bigarray)->dim[0];
-
-    printf("buf_len: %ld\n", buf_len);
-
-    struct request* req = (struct request*)caml_stat_alloc(sizeof(struct request));
-
-    req->fd = Int_val(fd);
-    req->iov.iov_base = buf;
-    req->iov.iov_len = buf_len;
-
-    io_uring_prep_readv(sqe, req->fd, &req->iov, 1, Long_val(offset));
-
-    req->event_type = EVENT_TYPE_READ;
-    req->callback = callback;
-    req->buffer = buffer_bigarray;
-
-    caml_register_generational_global_root(&req->buffer);
-    caml_register_generational_global_root(&req->callback);
-
-    io_uring_sqe_set_data(sqe, req);
-
-    CAMLreturn0;
-}
-
-
-void ring_queue_close(value ring_custom, value fd) {
-    CAMLparam2(ring_custom, fd);
-
-    struct io_uring* ring = Ring_val(ring_custom);
-    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-
-    io_uring_prep_close(sqe, Int_val(fd));
-
-    struct request* req = (struct request*)caml_stat_alloc(sizeof(struct request));
-
-    req->event_type = EVENT_TYPE_CLOSE;
-
-    io_uring_sqe_set_data(sqe, req);
-
-    CAMLreturn0;
-}
-
-void ring_queue_accept(value ring_custom, value fd, value callback) {
-    CAMLparam3(ring_custom, fd, callback);
-
-    struct io_uring* ring = Ring_val(ring_custom);
-    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-
-    struct request* req = (struct request*)caml_stat_alloc(sizeof(struct request));
-    req->sockaddr = (struct sockaddr*)caml_stat_alloc(sizeof(struct sockaddr));
-    req->socklen = sizeof(struct sockaddr);
-
-    io_uring_prep_accept(sqe, Int_val(fd), req->sockaddr, &req->socklen, 0);
-
-    req->event_type = EVENT_TYPE_ACCEPT;
-    req->callback = callback;
-
-    caml_register_generational_global_root(&req->caml_callback);
-
-    io_uring_sqe_set_data(sqe, req);
-
-    CAMLreturn0;
-}
-
-void ring_wait(value ring_custom) {
-    CAMLparam1(ring_custom);
-
-    struct io_uring* ring = Ring_val(ring_custom);
-    struct io_uring_cqe *cqe;
-
-    caml_enter_blocking_section();
-    int ret = io_uring_wait_cqe(ring, &cqe);
-    caml_leave_blocking_section();
-
-    printf("got event! ret: %d, cqe->res: %d\n", ret, cqe->res);
-
-    if( ret < 0 ) {
-        caml_failwith(strerror(-ret));
-    }
-
-    struct request* req = io_uring_cqe_get_data(cqe);
-
-    if( cqe->res < 0 ) {
-        caml_failwith(strerror(-cqe->res));
-    }
-
-    int cleanup_req = 0;
-
-    if( req->event_type == EVENT_TYPE_READ || req->event_type == EVENT_TYPE_WRITE ) {
-        switch( req->event_type ) {
-            case EVENT_TYPE_READ:
-                caml_callback2(req->callback, req->buffer, Val_long(cqe->res));
-
-                cleanup_req = 1;
-                break;
-            case EVENT_TYPE_WRITE:
-                /* check we actually wrote the full length we tried to write */
-                if(cqe->res + req->written_length == req->write_length) {
-                    /* call the callback if it exists */
-                    if( Is_block(req->callback) ) {
-                        caml_callback2(req->callback, req->buffer, req->write_length);
-                    }
-
-                    cleanup_req = 1;
-                } else {
-                    // Here we wrote less than the amount we requested
-
-                    // Store how much we wrote
-                    req->written_length += cqe->res;
-
-                    // Now we queue up a new write
-                    req->iov.iov_base = req->iov.iov_base + cqe->res;
-                    req->iov.iov_len = req->write_length - req->written_length;
-
-                    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-
-                    io_uring_prep_writev(sqe, req->fd, &req->iov, 1, 0);
-                }
-        }
-
-        if( cleanup_req ) {
-            caml_remove_generational_global_root(&req->callback);
-            caml_remove_generational_global_root(&req->buffer);
-        }
-    }
-    else if( req->event_type == EVENT_TYPE_ACCEPT ) {
-        caml_callback(req->callback, Val_int(cqe->res));
-
-        free(req->sockaddr);
-
-        caml_remove_generational_global_root(&req->callback);
-    }
-
+value ocaml_uring_peek_cqe(value v_uring)
+{
+  CAMLparam1(v_uring);
+  CAMLlocal1(v_ret);
+  long id;
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_cqe *cqe;
+  int res;
+  dprintf("cqe: peeking\n");
+  res = io_uring_peek_cqe(ring, &cqe);
+  if (res < 0) {
+    v_ret = caml_alloc(2, 0);
+    Store_field(v_ret, 0, Val_int(-1));
+    Store_field(v_ret, 1, Val_int(res));
+  } else {
+    id = (long)io_uring_cqe_get_data(cqe);
     io_uring_cqe_seen(ring, cqe);
-
-    if( cleanup_req ) {
-        caml_stat_free(req);
-    }
-
-    CAMLreturn0;
+    v_ret = caml_alloc(2, 0);
+    Store_field(v_ret, 0, Val_int(id));
+    Store_field(v_ret, 1, Val_int(cqe->res));
+  }
+  CAMLreturn(v_ret);
 }
-
-value ring_submit(value ring_custom) {
-    CAMLparam1(ring_custom);
-
-    struct io_uring* ring = Ring_val(ring_custom);
-
-    int submitted = io_uring_submit(ring);
-
-    printf("submitted: %d\n", submitted);
-
-    CAMLreturn(Val_int(submitted));
-}
-
-#endif

@@ -7,7 +7,13 @@ let () =
   Uring.readv t fd iov ();
   let res = Uring.submit t in
   Printf.eprintf "submitted %d\n%!" res;
-  let (), res = Uring.wait t in
+  let (), res =
+    let rec retry () =
+      match Uring.wait t with
+      | None -> retry ()
+      | Some v -> v
+    in retry ()
+  in
   Uring.Iovec.free iov;
   Printf.eprintf "res %d\n%!" res;
   Printf.eprintf "%s -- %s\n%!" (Bigstringaf.to_string b1) (Bigstringaf.to_string b2);
