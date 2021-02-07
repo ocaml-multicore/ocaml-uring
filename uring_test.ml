@@ -4,7 +4,7 @@ let () =
   let b1 = Uring.Iovec.alloc_buf 3 in
   let b2 = Uring.Iovec.alloc_buf 7 in
   let iov = Uring.Iovec.alloc [|b1;b2|] in
-  Uring.submit_readv t fd iov ();
+  Uring.readv t fd iov ();
   let res = Uring.submit t in
   Printf.eprintf "submitted %d\n%!" res;
   let (), res = Uring.wait t in

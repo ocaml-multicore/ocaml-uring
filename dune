@@ -23,6 +23,10 @@
  (modules urcat)
  (libraries bigstringaf unix uring))
 
+(executable
+ (name urcp)
+ (modules urcp)
+ (libraries bigstringaf unix uring))
 
 (rule
  (deps

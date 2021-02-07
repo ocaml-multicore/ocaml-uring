@@ -97,6 +97,17 @@ ocaml_uring_alloc_iovecs(value v_ba_arr) {
 }
 
 value
+ocaml_iovec_advance_offset(value v_iovecs, value v_idx, value v_adj)
+{
+  struct iovec *iovs = (struct iovec *) (v_iovecs & ~1);
+  int idx = Int_val(v_idx);
+  int adj = Int_val(v_adj);
+  iovs[idx].iov_base += adj;
+  iovs[idx].iov_len -= adj;
+  return(Val_unit);
+}
+
+value
 ocaml_uring_free_iovecs(value iovecs)
 {
    struct iovec *iovs = (struct iovec *) (iovecs & ~1);
@@ -114,8 +125,8 @@ ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, val
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe)
     caml_failwith("unable to allocate SQE");
-  fprintf(stderr, "submit_readv: %d ents off %lu\n", len, Int64_val(v_off));
-  io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int64_val(v_off)); /* TODO add offset to intf */
+  fprintf(stderr, "submit_readv: %d ents off %d\n", len, Int_val(v_off));
+  io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int_val(v_off)); /* TODO add offset to intf */
   io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
   CAMLreturn(Val_unit);
 }
@@ -129,8 +140,8 @@ ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, va
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe)
     caml_failwith("unable to allocate SQE");
-  fprintf(stderr, "submit_writev: %d ents off %lu\n", len, Int64_val(v_off));
-  io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int64_val(v_off)); /* TODO add offset to intf */
+  fprintf(stderr, "submit_writev: %d ents off %d\n", len, Int_val(v_off));
+  io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int_val(v_off)); /* TODO add offset to intf */
   io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
   CAMLreturn(Val_unit);
 }

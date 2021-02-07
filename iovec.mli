@@ -8,3 +8,4 @@ val free : t -> unit
 val nr_vecs : t -> int
 val bufs : t -> buf array
 val empty : t
+val advance : t -> idx:int -> adj:int -> unit

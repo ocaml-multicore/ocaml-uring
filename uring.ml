@@ -7,8 +7,8 @@ external uring_exit : uring -> unit = "ocaml_uring_exit"
 external uring_submit : uring -> int = "ocaml_uring_submit"
 
 type id = int
-external uring_submit_readv : uring -> Unix.file_descr -> id -> Iovec.t -> int64 -> unit = "ocaml_uring_submit_readv"
-external uring_submit_writev : uring -> Unix.file_descr -> id -> Iovec.t -> int64 -> unit = "ocaml_uring_submit_writev"
+external uring_submit_readv : uring -> Unix.file_descr -> id -> Iovec.t -> int -> unit = "ocaml_uring_submit_readv"
+external uring_submit_writev : uring -> Unix.file_descr -> id -> Iovec.t -> int -> unit = "ocaml_uring_submit_writev"
 
 external uring_wait_cqe : uring -> id * int = "ocaml_uring_wait_cqe"
 
@@ -39,14 +39,14 @@ let get_id t =
 let put_id t v =
   t.id_freelist <- v :: t.id_freelist
 
-let submit_readv t fd iovec user_data =
+let readv t ?(offset=0) fd iovec user_data =
   let id = get_id t in
-  uring_submit_readv t.uring fd id iovec 0L;
+  uring_submit_readv t.uring fd id iovec offset;
   t.user_data.(id) <- user_data
 
-let submit_writev t fd iovec user_data =
+let writev t ?(offset=0) fd iovec user_data =
   let id = get_id t in
-  uring_submit_writev t.uring fd id iovec 0L;
+  uring_submit_writev t.uring fd id iovec offset;
   t.user_data.(id) <- user_data
 
 let submit {uring;_} =
