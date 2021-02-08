@@ -1,4 +1,21 @@
 (executable
+ (name urcat)
+ (modules urcat)
+ (public_name urcat)
+ (libraries bigstringaf unix uring))
+
+(executable
+ (name urcp)
+ (modules urcp)
+ (public_name urcp)
+ (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli fmt bigstringaf unix uring))
+
+(executable
  (name basic_file_read)
  (modules basic_file_read)
  (libraries bigstringaf unix uring alcotest))
+
+(executable
+ (name cptest)
+ (modules cptest)
+ (libraries uring bos bechamel notty.unix bechamel-notty))

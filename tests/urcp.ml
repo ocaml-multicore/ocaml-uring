@@ -42,7 +42,7 @@ let queue_read uring t len =
   let ba = Uring.Iovec.alloc_buf len in
   let iov = Uring.Iovec.alloc [|ba|] in
   let req = { op=`R; iov; fileoff=t.offset; len; off=0; t } in
-  Fmt.epr "queue_read: %a\n%!" pp_req req;
+  Logs.debug (fun l -> l "queue_read: %a" pp_req req);
   Uring.readv uring ~offset:t.offset t.infd iov req;
   t.offset <- t.offset + len;
   t.read_left <- t.read_left - len;
@@ -55,15 +55,15 @@ let eintr = -4
 (* Check that a read has completely finished, and if not
  * queue it up for completing the remaining amount *)
 let handle_read_completion uring req res =
-  Fmt.epr "read_completion: res=%d %a\n%!" res pp_req req;
+  Logs.debug (fun l -> l "read_completion: res=%d %a" res pp_req req);
   let bytes_to_read = req.len - req.off in
   match res with
   | 0 ->
-    Fmt.epr "eof %a\n%!" pp_req req
+    Logs.debug (fun l -> l "eof %a" pp_req req);
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
     Uring.readv ~offset:req.fileoff uring req.t.infd req.iov req;
-    Fmt.epr "requeued eintr read: %a\n%!" pp_req req
+    Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < 0 ->
     raise (Failure ("unix errorno " ^ (string_of_int n)))
   | n when n < bytes_to_read ->
@@ -71,7 +71,7 @@ let handle_read_completion uring req res =
     Uring.Iovec.advance req.iov ~idx:0 ~adj:n;
     req.off <-req.off + n;
     Uring.readv ~offset:req.off uring req.t.infd req.iov req;
-    Fmt.epr "requeued short read: %a\n%!" pp_req req
+    Logs.debug (fun l -> l "requeued short read: %a" pp_req req);
   | n when n = bytes_to_read ->
     (* Read is complete, all bytes are read, turn it into a write *)
     req.t.reads <- req.t.reads - 1;
@@ -80,28 +80,28 @@ let handle_read_completion uring req res =
     Uring.Iovec.advance req.iov ~idx:0 ~adj:(req.off * -1);
     let req = { req with op=`W; off=0 } in
     Uring.writev uring ~offset:req.fileoff req.t.outfd req.iov req;
-    Fmt.epr "queued write: %a\n%!" pp_req req
+    Logs.debug (fun l -> l "queued write: %a" pp_req req);
   | n -> raise (Failure (Printf.sprintf "unexpected readv result %d > %d " bytes_to_read n))
 
 let handle_write_completion uring req res =
-  Fmt.epr "write_completion: res=%d %a\n%!" res pp_req req;
+  Logs.debug (fun l -> l "write_completion: res=%d %a" res pp_req req);
   let bytes_to_write = req.len - req.off in
   match res with
   | 0 -> raise End_of_file
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
     Uring.writev ~offset:req.fileoff uring req.t.infd req.iov req;
-    Fmt.epr "requeued eintr read: %a\n%!" pp_req req
+    Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < bytes_to_write ->
     (* handle short write so new iovec and resubmit *)
     Uring.Iovec.advance req.iov ~idx:0 ~adj:n;
     req.off <-req.off + n;
     Uring.writev ~offset:req.off uring req.t.infd req.iov req;
-    Fmt.epr "requeued write read: %a\n%!" pp_req req
+    Logs.debug (fun l -> l "requeued write read: %a" pp_req req);
   | n when n = bytes_to_write ->
     req.t.writes <- req.t.writes - 1;
     req.t.write_left <- req.t.write_left - req.len;
-    Fmt.epr "write done: %a\n%!" pp_req req;
+    Logs.debug (fun l -> l "write done: %a" pp_req req);
     Uring.Iovec.free req.iov
   | n -> raise (Failure (Printf.sprintf "unexpected writev result %d > %d " bytes_to_write n))
 
@@ -125,14 +125,14 @@ let copy_file uring t =
     in
     submit_reads ();
     let num = Uring.submit uring in
-    Fmt.(epr "%a: %d\n%!" (styled `Yellow string) "submit") num;
+    Logs.debug (fun l -> l "%a: %d" Fmt.(styled `Yellow string) "submit" num);
     (* Queue now full, find at least one completion *)
     let got_completion = ref false in
     let rec handle_completions () =
       if t.write_left > 0 then begin
         let check_q = if !got_completion then Uring.peek uring else Uring.wait uring  in
         match check_q with
-        |None -> Fmt.epr "completions: retry so finishing loop\n%!"
+        |None -> Logs.debug (fun l -> l "completions: retry so finishing loop")
         |Some (req, res) ->  
           handle_completion uring req res;
           got_completion := true;
@@ -141,21 +141,50 @@ let copy_file uring t =
     in
     handle_completions ();
     let num = Uring.submit uring in
-    Fmt.(epr "%a: %d\n%!" (styled `Yellow string) "submit") num;
+    Logs.debug (fun l -> l "%a: %d" Fmt.(styled `Yellow string) "submit" num);
   done
 
-let () =
-   let infile = Sys.argv.(1) in
-   let outfile = Sys.argv.(2) in
+let setup_log style_renderer level =
+  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Logs.set_level level;
+  Logs.set_reporter (Logs_fmt.reporter ())
+
+open Cmdliner
+
+let run_cp infile outfile () =
    let infd = Unix.(handle_unix_error (openfile infile [O_RDONLY]) 0) in
    let outfd = Unix.(handle_unix_error (openfile outfile [O_WRONLY; O_CREAT; O_TRUNC]) 0o644) in
    let insize = get_file_size infd in
    let block_size = 32 * 1024 in
    let queue_depth = 64 in
    let t = { block_size; insize; offset=0; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
-   Fmt.epr "\nstarting: %a bs=%d qd=%d\n%!" pp t block_size queue_depth;
+   Logs.debug (fun l -> l "starting: %a bs=%d qd=%d" pp t block_size queue_depth);
    let uring = Uring.create ~queue_depth ~default:(empty_req t) () in
    copy_file uring t;
    Unix.close infd;
    Unix.close outfd;
    Uring.exit uring
+
+let cmd =
+  let setup_log =
+    Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ()) in
+  let infile =
+    let doc = "Source filename to copy from" in
+    Arg.(required & pos 0 (some file) None & info [] ~docv:"SOURCE_FILE" ~doc) in
+  let outfile =
+    let doc = "Target filename to copy to" in
+    Arg.(required & pos 1 (some string) None & info [] ~docv:"TARGET_FILE" ~doc) in
+  let doc = "copy a file using async io_uring" in
+  let man =
+      [
+        `S "DESCRIPTION";
+        `P "$(tname) copies a file using Linux io_uring.";
+      ]
+    in
+    ( Term.(pure run_cp $ infile $ outfile $ setup_log),
+      Term.info "urcp" ~version:"1.0.0" ~doc ~man )
+  
+let () =
+  match Term.eval cmd with
+  | `Error _ -> exit 1
+  | _ -> exit (if Logs.err_count () > 0 then 1 else 0)

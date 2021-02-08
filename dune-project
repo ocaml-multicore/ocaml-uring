@@ -9,4 +9,9 @@
  (name uring)
  (synopsis "OCaml bindings for Linux io_uring")
  (description "Bindings to the Linux io_uring kernel IO interfaces.")
- (depends (fmt (>= 0.8.4)) bigstringaf (alcotest :with-test)))
+ (depends
+  (logs (>= 0.5.0))
+  cmdliner
+  (fmt (>= 0.8.4))
+  bigstringaf
+  (alcotest :with-test)))
