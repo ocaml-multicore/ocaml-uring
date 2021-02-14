@@ -16,12 +16,12 @@ let block_size = 32 * 1024
 let queue_depth = 64
 let count = 50000
 
-let run_cp_test ~block_size ~queue_depth count =
+let run_cp_test impl ~block_size ~queue_depth count =
   let fname_in = Fmt.strf "cptest-%d.in" count in
   let fname_out = Fmt.strf "cptest-%d.out" count in
   (if Sys.file_exists fname_in then Ok () else
   fill_file_with_random ~count fname_in) >>= fun () ->
-  Urcp_lib.run_cp block_size queue_depth fname_in fname_out ();
+  impl block_size queue_depth fname_in fname_out ();
   (* TODO check they are the same file *)
   at_exit (fun () -> try Sys.remove fname_in with _ -> ());
   Sys.remove fname_out;
@@ -30,25 +30,29 @@ let run_cp_test ~block_size ~queue_depth count =
 open Bechamel
 open Toolkit
 
-let run ~block_size ~queue_depth count =
+let run_test impl ~block_size ~queue_depth count =
   Staged.stage @@ fun () ->
-  run_cp_test ~block_size ~queue_depth count
+  run_cp_test impl ~block_size ~queue_depth count
 
-let test_size =
+let test_size impl =
   Test.make_indexed ~name:"size" ~fmt:"%s %d" ~args:[ 1000; 10000; 50000 ]
-    (run ~block_size ~queue_depth)
+    (run_test impl ~block_size ~queue_depth)
 
-let test_queue_depth =
+let test_queue_depth impl =
   Test.make_indexed ~name:"queue_depth" ~fmt:"%s %d" ~args:[ 1; 16; 32; 64; 96 ]
-    (fun queue_depth -> run ~block_size ~queue_depth count)
+    (fun queue_depth -> run_test impl ~block_size ~queue_depth count)
 
-let test_block_size =
+let test_block_size impl =
   Test.make_indexed ~name:"block_size" ~fmt:"%s %d" ~args:[ 1024; (32 * 1024); (256 * 1024) ]
-  (fun block_size -> run ~block_size ~queue_depth count)
+  (fun block_size -> run_test impl ~block_size ~queue_depth count)
 
-let test =
-  Test.make_grouped ~name:"urcp" [test_size; test_queue_depth; test_block_size]
- 
+let urcp_test =
+  Test.make_grouped ~name:"urcp_alloc" (List.map (fun l -> l Urcp_lib.run_cp) [test_size; test_queue_depth; test_block_size])
+let lwt_bytes_test =
+  Test.make_grouped ~name:"lwt_bytes" (List.map (fun l -> l Lwtcp_lib.run_cp) [test_size; test_queue_depth; test_block_size])
+
+let test = Test.make_grouped ~name:"cp" [  lwt_bytes_test; urcp_test ]
+
 let benchmark () =
   let ols = Analyze.ols ~bootstrap:0 ~r_square:true ~predictors:Measure.[| run |] in
    let instances =

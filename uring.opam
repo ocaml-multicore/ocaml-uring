@@ -9,6 +9,7 @@ homepage: "https://github.com/ocaml-multicore/ocaml-uring"
 bug-reports: "https://github.com/ocaml-multicore/ocaml-uring/issues"
 depends: [
   "dune" {>= "2.7"}
+  "lwt" {>= "5.0.0"}
   "notty" {>= "0.2.2" & with-test}
   "bos" {>= "0.2.0" & with-test}
   "bechamel-notty" {>= "0.1.0" & with-test}

@@ -3,6 +3,11 @@
   (modules urcp_lib)
   (libraries fmt bigstringaf unix uring logs))
 
+(library
+  (name lwtcp_lib)
+  (modules lwtcp_lib)
+  (libraries lwt.unix logs))
+
 (executable
  (name urcat)
  (modules urcat)
@@ -16,6 +21,12 @@
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli urcp_lib))
 
 (executable
+ (name lwtcp)
+ (modules lwtcp)
+ (public_name lwtcp)
+ (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli lwtcp_lib))
+
+(executable
  (name basic_file_read)
  (modules basic_file_read)
  (libraries bigstringaf unix uring alcotest))
@@ -23,7 +34,7 @@
 (executable
  (name cptest)
  (modules cptest)
- (libraries urcp_lib uring bos bechamel notty.unix bechamel-notty))
+ (libraries urcp_lib lwtcp_lib uring bos bechamel notty.unix bechamel-notty))
 
 (rule
  (alias runtest)
