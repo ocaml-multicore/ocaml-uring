@@ -28,6 +28,8 @@ type id = int
 external uring_submit_readv : uring -> Unix.file_descr -> id -> Iovec.t -> int -> unit = "ocaml_uring_submit_readv"
 external uring_submit_writev : uring -> Unix.file_descr -> id -> Iovec.t -> int -> unit = "ocaml_uring_submit_writev"
 
+external uring_submit_readv_fixed : uring -> Unix.file_descr -> id -> Iovec.buf -> int -> int -> int -> unit = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native"
+
 external uring_wait_cqe : uring -> id * int = "ocaml_uring_wait_cqe"
 external uring_peek_cqe : uring -> id * int = "ocaml_uring_peek_cqe"
 
@@ -53,7 +55,7 @@ let create ~queue_depth ~default () =
   let user_data = Array.init queue_depth (fun _ -> default) in
   { uring; fixed_iobuf; id_freelist; user_data; dirty=false; queue_depth }
 
-let realloc_fixed_iobuf t iobuf =
+let realloc t iobuf =
   uring_unregister_bigarray t.uring;
   t.fixed_iobuf <- iobuf;
   uring_register_bigarray t.uring iobuf
@@ -71,6 +73,18 @@ let put_id t v =
 let readv t ?(offset=0) fd iovec user_data =
   let id = get_id t in
   uring_submit_readv t.uring fd id iovec offset;
+  t.dirty <- true;
+  t.user_data.(id) <- user_data
+
+let read t ?(file_offset=0) fd off len user_data =
+  let id = get_id t in
+  uring_submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset;
+  t.dirty <- true;
+  t.user_data.(id) <- user_data
+
+let write t ?(file_offset=0) fd off len user_data =
+  let id = get_id t in
+  uring_submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset;
   t.dirty <- true;
   t.user_data.(id) <- user_data
 
@@ -106,3 +120,4 @@ let fn_on_ring fn t =
 let peek t = fn_on_ring uring_peek_cqe t
 let wait t = fn_on_ring uring_wait_cqe t
 let queue_depth {queue_depth;_} = queue_depth
+let buf {fixed_iobuf;_} = fixed_iobuf
