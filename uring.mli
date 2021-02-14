@@ -28,3 +28,5 @@ val submit : 'a t -> int
 
 val wait : 'a t -> ('a * int) option
 val peek : 'a t -> ('a * int) option
+
+val realloc_fixed_iobuf : 'a t -> Iovec.buf -> unit

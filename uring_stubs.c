@@ -47,19 +47,6 @@ static struct custom_operations ring_ops = {
   custom_fixed_length_default
 };
 
-struct request {
-    int event_type;
-    int fd; // used by READ and WRITE
-    value callback;
-    value buffer; // used by READ and WRITE
-    int write_length; // used by WRITE
-    int written_length; // used by WRITE
-    struct iovec iov; // used by READ and WRITE
-    struct sockaddr* sockaddr; // used by ACCEPT
-    socklen_t socklen; // used by ACCEPT
-};
-
-
 value ocaml_uring_setup(value entries) {
   CAMLparam1(entries);
   CAMLlocal1(v_uring);
@@ -76,17 +63,24 @@ value ocaml_uring_setup(value entries) {
      unix_error(-status, "io_uring_queue_init", Nothing);
 }
 
-// TODO also add an unregister ba 
-
 value ocaml_uring_register_ba(value v_uring, value v_ba) {
   CAMLparam2(v_uring, v_ba);
   struct io_uring *ring = Ring_val(v_uring);
-  // TODO broken needs malloc
   struct iovec iov[1];
   iov[0].iov_base = Caml_ba_data_val(v_ba);
   iov[0].iov_len = Caml_ba_array_val(v_ba)->dim[0];
   dprintf("uring %p: registering iobuf base %p len %lu\n", ring, iov[0].iov_base, iov[0].iov_len);
   int ret = io_uring_register_buffers(ring, iov, 1);
+  if (ret)
+    unix_error(-ret, "io_uring_register_buffers", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+value ocaml_uring_unregister_ba(value v_uring, value v_ba) {
+  CAMLparam2(v_uring, v_ba);
+  struct io_uring *ring = Ring_val(v_uring);
+  dprintf("uring %p: unregistering buffer");
+  int ret = io_uring_unregister_buffers(ring);
   if (ret)
     unix_error(-ret, "io_uring_register_buffers", Nothing);
   CAMLreturn(Val_unit);

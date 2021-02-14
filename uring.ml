@@ -19,7 +19,9 @@ module Iovec = Iovec
 type uring
 external uring_create : int -> uring = "ocaml_uring_setup"
 external uring_exit : uring -> unit = "ocaml_uring_exit"
-(* external uring_register_bigarray : uring ->  iobuf -> unit = "ocaml_uring_register_ba" *)
+
+external uring_unregister_bigarray : uring -> unit = "ocaml_uring_unregister_ba"
+external uring_register_bigarray : uring ->  Iovec.buf -> unit = "ocaml_uring_register_ba"
 external uring_submit : uring -> int = "ocaml_uring_submit"
 
 type id = int
@@ -32,7 +34,7 @@ external uring_peek_cqe : uring -> id * int = "ocaml_uring_peek_cqe"
 
 type 'a t = {
   uring: uring;
-  iobuf: Iovec.buf;
+  mutable fixed_iobuf: Iovec.buf;
   mutable id_freelist: int list;
   user_data: 'a array;
   queue_depth: int;
@@ -44,12 +46,17 @@ let default_iobuf_len = 1024 * 1024 (* 1MB *)
 let create ~queue_depth ~default () =
   let uring = uring_create queue_depth in
   (* TODO posix memalign this to page *)
-  let iobuf = Iovec.alloc_buf default_iobuf_len in
-  (* uring_register_bigarray uring iobuf; *)
+  let fixed_iobuf = Iovec.alloc_buf default_iobuf_len in
+  uring_register_bigarray uring fixed_iobuf; 
   Gc.finalise uring_exit uring;
   let id_freelist = List.init queue_depth (fun i -> i) in
   let user_data = Array.init queue_depth (fun _ -> default) in
-  { uring; iobuf; id_freelist; user_data; dirty=false; queue_depth }
+  { uring; fixed_iobuf; id_freelist; user_data; dirty=false; queue_depth }
+
+let realloc_fixed_iobuf t iobuf =
+  uring_unregister_bigarray t.uring;
+  t.fixed_iobuf <- iobuf;
+  uring_register_bigarray t.uring iobuf
 
 let exit {uring;_} = uring_exit uring
 
