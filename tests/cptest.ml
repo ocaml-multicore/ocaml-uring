@@ -7,22 +7,76 @@ let _reset_buffer_cache () =
    OS.Cmd.run shc
 
 let fill_file_with_random ~count dst =
-   let ofile = Fmt.strf "of=%a" Fpath.pp dst in
+   let ofile = Fmt.strf "of=%s" dst in
    let count = Fmt.strf "count=%d" count in
-   Cmd.(v "dd" % "if=/dev/random" % ofile % "bs=27k" % count) |>
+   Cmd.(v "dd" % "if=/dev/urandom" % ofile % "bs=27k" % count) |>
    OS.Cmd.run
 
-let run_cp_test ~label ~count () =
-  let fname_in = Fmt.strf "cptest-%s-%d.in" label count |> Fpath.v in
-  let fname_out = Fmt.strf "cptest-%s-%d.out" label count |> Fpath.v in
-  let cmd = Cmd.(v Sys.argv.(1) % p fname_in % p fname_out) in
-  fill_file_with_random ~count fname_in >>= fun () ->
-  OS.Cmd.run cmd >>= fun () ->
-  OS.Cmd.run cmd >>= fun () ->
+let block_size = 32 * 1024
+let queue_depth = 64
+let count = 50000
+
+let run_cp_test ~block_size ~queue_depth count =
+  let fname_in = Fmt.strf "cptest-%d.in" count in
+  let fname_out = Fmt.strf "cptest-%d.out" count in
+  (if Sys.file_exists fname_in then Ok () else
+  fill_file_with_random ~count fname_in) >>= fun () ->
+  Urcp_lib.run_cp block_size queue_depth fname_in fname_out ();
   (* TODO check they are the same file *)
-  OS.Path.delete fname_in >>= fun () ->
-  OS.Path.delete fname_out
+  at_exit (fun () -> try Sys.remove fname_in with _ -> ());
+  Sys.remove fname_out;
+  Ok ()
+
+open Bechamel
+open Toolkit
+
+let run ~block_size ~queue_depth count =
+  Staged.stage @@ fun () ->
+  run_cp_test ~block_size ~queue_depth count
+
+let test_size =
+  Test.make_indexed ~name:"size" ~fmt:"%s %d" ~args:[ 1000; 10000; 50000 ]
+    (run ~block_size ~queue_depth)
+
+let test_queue_depth =
+  Test.make_indexed ~name:"queue_depth" ~fmt:"%s %d" ~args:[ 1; 16; 32; 64; 96 ]
+    (fun queue_depth -> run ~block_size ~queue_depth count)
+
+let test_block_size =
+  Test.make_indexed ~name:"block_size" ~fmt:"%s %d" ~args:[ 1024; (32 * 1024); (256 * 1024) ]
+  (fun block_size -> run ~block_size ~queue_depth count)
+
+let test =
+  Test.make_grouped ~name:"urcp" [test_size; test_queue_depth; test_block_size]
+ 
+let benchmark () =
+  let ols = Analyze.ols ~bootstrap:0 ~r_square:true ~predictors:Measure.[| run |] in
+   let instances =
+        Instance.[ minor_allocated; major_allocated; monotonic_clock ] in
+      let cfg =
+        Benchmark.cfg ~limit:2000 ~quota:(Time.second 0.5) ~kde:(Some 1000) () in
+      let raw_results = Benchmark.all cfg instances test in
+      let results =
+        List.map (fun instance -> Analyze.all ols instance raw_results) instances
+      in
+      let results = Analyze.merge ols instances results in
+      (results, raw_results)
 
 let () =
-  run_cp_test ~label:"async-ocaml-uring" ~count:1000 () |>
-  function Ok () -> () | Error (`Msg m) -> failwith m
+  List.iter
+    (fun v -> Bechamel_notty.Unit.add v (Measure.unit v))
+    Instance.[ minor_allocated; major_allocated; monotonic_clock ]
+
+let img (window, results) =
+  Bechamel_notty.Multiple.image_of_ols_results ~rect:window
+    ~predictor:Measure.run results
+
+open Notty_unix
+    
+let () =
+  let window =
+    match winsize Unix.stdout with
+    | Some (w, h) -> { Bechamel_notty.w; h }
+    | None -> { Bechamel_notty.w = 80; h = 1 } in
+  let results, _ = benchmark () in
+  img (window, results) |> eol |> output_image

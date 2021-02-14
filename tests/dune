@@ -1,3 +1,8 @@
+(library
+  (name urcp_lib)
+  (modules urcp_lib)
+  (libraries fmt bigstringaf unix uring logs))
+
 (executable
  (name urcat)
  (modules urcat)
@@ -8,7 +13,7 @@
  (name urcp)
  (modules urcp)
  (public_name urcp)
- (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli fmt bigstringaf unix uring))
+ (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli urcp_lib))
 
 (executable
  (name basic_file_read)
@@ -18,4 +23,9 @@
 (executable
  (name cptest)
  (modules cptest)
- (libraries uring bos bechamel notty.unix bechamel-notty))
+ (libraries urcp_lib uring bos bechamel notty.unix bechamel-notty))
+
+(rule
+ (alias runtest)
+ (deps urcp.exe)
+ (action (run ./cptest.exe ./urcp.exe)))

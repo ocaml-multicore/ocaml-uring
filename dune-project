@@ -10,6 +10,10 @@
  (synopsis "OCaml bindings for Linux io_uring")
  (description "Bindings to the Linux io_uring kernel IO interfaces.")
  (depends
+  (notty (and (>= 0.2.2) :with-test))
+  (bos (and (>= 0.2.0) :with-test))
+  (bechamel-notty (and (>= 0.1.0) :with-test))
+  (bechamel (and (>= 0.1.0) :with-test))
   (logs (>= 0.5.0))
   cmdliner
   (fmt (>= 0.8.4))
