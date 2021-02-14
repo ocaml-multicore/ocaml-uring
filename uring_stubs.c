@@ -62,15 +62,16 @@ struct request {
 
 value ocaml_uring_setup(value entries) {
   CAMLparam1(entries);
+  CAMLlocal1(v_uring);
 
   struct io_uring* ring = (struct io_uring*)caml_stat_alloc(sizeof(struct io_uring));
 
   int status = io_uring_queue_init(Long_val(entries), ring, 0);
 
   if (status == 0) {
-      value ring_custom = caml_alloc_custom_mem(&ring_ops, sizeof(struct io_uring*), sizeof(struct io_uring));
-      *((struct io_uring**)Data_custom_val(ring_custom)) = ring;
-      CAMLreturn(ring_custom);
+      v_uring = caml_alloc_custom_mem(&ring_ops, sizeof(struct io_uring*), sizeof(struct io_uring));
+      Ring_val(v_uring) = ring;
+      CAMLreturn(v_uring);
   } else
      unix_error(-status, "io_uring_queue_init", Nothing);
 }
@@ -95,9 +96,11 @@ value ocaml_uring_exit(value v_uring) {
   CAMLparam1(v_uring);
   struct io_uring *ring = Ring_val(v_uring);
   dprintf("uring %p: exit\n", ring);
-  io_uring_queue_exit(ring);
-  caml_stat_free(ring);
-  ring = NULL;
+  if (ring) {
+    io_uring_queue_exit(ring);
+    caml_stat_free(ring);
+    Ring_val(v_uring) = NULL;
+  }
   CAMLreturn(Val_unit);
 }
 
