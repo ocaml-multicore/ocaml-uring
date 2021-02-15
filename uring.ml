@@ -29,6 +29,7 @@ external uring_submit_readv : uring -> Unix.file_descr -> id -> Iovec.t -> int -
 external uring_submit_writev : uring -> Unix.file_descr -> id -> Iovec.t -> int -> unit = "ocaml_uring_submit_writev"
 
 external uring_submit_readv_fixed : uring -> Unix.file_descr -> id -> Iovec.buf -> int -> int -> int -> unit = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native"
+external uring_submit_writev_fixed : uring -> Unix.file_descr -> id -> Iovec.buf -> int -> int -> int -> unit = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native"
 
 external uring_wait_cqe : uring -> id * int = "ocaml_uring_wait_cqe"
 external uring_peek_cqe : uring -> id * int = "ocaml_uring_peek_cqe"
@@ -45,10 +46,10 @@ type 'a t = {
 
 let default_iobuf_len = 1024 * 1024 (* 1MB *)
 
-let create ~queue_depth ~default () =
+let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth ~default () =
   let uring = uring_create queue_depth in
   (* TODO posix memalign this to page *)
-  let fixed_iobuf = Iovec.alloc_buf default_iobuf_len in
+  let fixed_iobuf = Iovec.alloc_buf fixed_buf_len in
   uring_register_bigarray uring fixed_iobuf; 
   Gc.finalise uring_exit uring;
   let id_freelist = List.init queue_depth (fun i -> i) in
@@ -84,7 +85,7 @@ let read t ?(file_offset=0) fd off len user_data =
 
 let write t ?(file_offset=0) fd off len user_data =
   let id = get_id t in
-  uring_submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset;
+  uring_submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset;
   t.dirty <- true;
   t.user_data.(id) <- user_data
 

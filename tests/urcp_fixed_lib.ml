@@ -8,6 +8,7 @@ let get_file_size fd =
 (* TODO make this work with ST_ISBLK *)
 
 type t = {
+  freelist: int Queue.t;
   mutable insize: int;
   mutable offset: int;
   mutable reads: int;
@@ -25,25 +26,24 @@ let pp ppf {insize;offset;reads;writes;write_left; read_left;_} =
 
 type req = {
   op: [`R | `W ];
-  iov: Uring.Iovec.t;
-  len: int;
+  fixed_off: int;
+  mutable len: int;
   fileoff: int;
   mutable off: int;
   t : t;
 }
 
-let pp_req ppf {op; len; off; fileoff; t; _ } =
-  Fmt.pf ppf "[%s fileoff %d len %d off %d] [%a]" (match op with |`R -> "r" |`W -> "w") fileoff len off pp t
+let pp_req ppf {op; len; off; fixed_off; fileoff; t; _ } =
+  Fmt.pf ppf "[%s fileoff %d len %d off %d fixedoff %d] [%a]" (match op with |`R -> "r" |`W -> "w") fileoff len off fixed_off pp t
 
-let empty_req t = { op=`R; iov=Uring.Iovec.empty; len=0; off=0; fileoff=0; t}
+let empty_req t = { op=`R; fixed_off=0; len=0; off=0; fileoff=0; t}
 
 (* Perform a complete read into bufs. *)
 let queue_read uring t len =
-  let ba = Uring.Iovec.alloc_buf len in
-  let iov = Uring.Iovec.alloc [|ba|] in
-  let req = { op=`R; iov; fileoff=t.offset; len; off=0; t } in
+  let fixed_off = Queue.pop t.freelist in
+  let req = { op=`R; fixed_off; fileoff=t.offset; len; off=0; t } in
   Logs.debug (fun l -> l "queue_read: %a" pp_req req);
-  Uring.readv uring ~offset:t.offset t.infd iov req;
+  Uring.read uring ~file_offset:t.offset t.infd fixed_off len req;
   t.offset <- t.offset + len;
   t.read_left <- t.read_left - len;
   t.reads <- t.reads + 1
@@ -62,26 +62,24 @@ let handle_read_completion uring req res =
     Logs.debug (fun l -> l "eof %a" pp_req req);
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
-    Uring.readv ~offset:req.fileoff uring req.t.infd req.iov req;
+    Uring.read ~file_offset:req.fileoff uring req.t.infd req.fixed_off req.len req;
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < 0 ->
     raise (Failure ("unix errorno " ^ (string_of_int n)))
   | n when n < bytes_to_read ->
-    (* handle short read so new iovec and resubmit *)
-    Uring.Iovec.advance req.iov ~idx:0 ~adj:n;
-    req.off <-req.off + n;
-    Uring.readv ~offset:req.off uring req.t.infd req.iov req;
+    (* handle short read *)
+    req.off <- req.off + n;
+    req.len <- req.len - n;
+    Uring.read ~file_offset:req.off uring req.t.infd (req.fixed_off+req.off) req.len req;
     Logs.debug (fun l -> l "requeued short read: %a" pp_req req);
   | n when n = bytes_to_read ->
     (* Read is complete, all bytes are read, turn it into a write *)
     req.t.reads <- req.t.reads - 1;
     req.t.writes <- req.t.writes + 1;
-    (* reset the iovec *)
-    Uring.Iovec.advance req.iov ~idx:0 ~adj:(req.off * -1);
-    let req = { req with op=`W; off=0 } in
-    Uring.writev uring ~offset:req.fileoff req.t.outfd req.iov req;
+    let req = { req with op=`W; off=0; len=req.len+req.off } in
+    Uring.write uring ~file_offset:req.fileoff req.t.outfd req.fixed_off req.len req;
     Logs.debug (fun l -> l "queued write: %a" pp_req req);
-  | n -> raise (Failure (Printf.sprintf "unexpected readv result %d > %d " bytes_to_read n))
+  | n -> raise (Failure (Printf.sprintf "unexpected read result %d > %d " bytes_to_read n))
 
 let handle_write_completion uring req res =
   Logs.debug (fun l -> l "write_completion: res=%d %a" res pp_req req);
@@ -90,19 +88,20 @@ let handle_write_completion uring req res =
   | 0 -> raise End_of_file
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
-    Uring.writev ~offset:req.fileoff uring req.t.infd req.iov req;
+    Uring.write ~file_offset:req.fileoff uring req.t.outfd req.fixed_off req.len req;
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
+  | n when n < 0 -> failwith (Fmt.strf "unix error %d" (-n))
   | n when n < bytes_to_write ->
-    (* handle short write so new iovec and resubmit *)
-    Uring.Iovec.advance req.iov ~idx:0 ~adj:n;
+    (* handle short write  *)
     req.off <- req.off + n;
-    Uring.writev ~offset:req.fileoff uring req.t.infd req.iov req;
-    Logs.debug (fun l -> l "requeued write read: %a" pp_req req);
+    req.len <- req.len - n;
+    Uring.write ~file_offset:req.fileoff uring req.t.outfd (req.fixed_off+req.off) req.len req;
+    Logs.debug (fun l -> l "requeued short write: %a" pp_req req);
   | n when n = bytes_to_write ->
     req.t.writes <- req.t.writes - 1;
     req.t.write_left <- req.t.write_left - req.len;
+    Queue.push req.fixed_off req.t.freelist;
     Logs.debug (fun l -> l "write done: %a" pp_req req);
-    Uring.Iovec.free req.iov
   | n -> raise (Failure (Printf.sprintf "unexpected writev result %d > %d " bytes_to_write n))
 
 let handle_completion uring req res =
@@ -148,9 +147,12 @@ let run_cp block_size queue_depth infile outfile () =
    let infd = Unix.(handle_unix_error (openfile infile [O_RDONLY]) 0) in
    let outfd = Unix.(handle_unix_error (openfile outfile [O_WRONLY; O_CREAT; O_TRUNC]) 0o644) in
    let insize = get_file_size infd in
-   let t = { block_size; insize; offset=0; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
+   let freelist = Queue.create () in
+   for i = 0 to queue_depth - 1 do Queue.push (block_size * i) freelist; done;
+   let t = { freelist; block_size; insize; offset=0; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
    Logs.debug (fun l -> l "starting: %a bs=%d qd=%d" pp t block_size queue_depth);
-   let uring = Uring.create ~queue_depth ~default:(empty_req t) () in
+   let fixed_buf_len = queue_depth * block_size in
+   let uring = Uring.create ~fixed_buf_len ~queue_depth ~default:(empty_req t) () in
    copy_file uring t;
    Unix.close infd;
    Unix.close outfd;

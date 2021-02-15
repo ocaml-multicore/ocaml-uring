@@ -18,7 +18,7 @@ module Iovec = Iovec
 
 type 'a t
 
-val create : queue_depth:int -> default:'a -> unit -> 'a t
+val create : ?fixed_buf_len:int -> queue_depth:int -> default:'a -> unit -> 'a t
 val queue_depth : 'a t -> int
 val exit : 'a t -> unit
 

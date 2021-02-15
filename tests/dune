@@ -1,7 +1,12 @@
 (library
   (name urcp_lib)
   (modules urcp_lib)
-  (libraries fmt bigstringaf unix uring logs))
+  (libraries fmt unix uring logs))
+
+(library
+  (name urcp_fixed_lib)
+  (modules urcp_fixed_lib)
+  (libraries fmt unix uring logs))
 
 (library
   (name lwtcp_lib)
@@ -18,7 +23,7 @@
  (name urcp)
  (modules urcp)
  (public_name urcp)
- (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli urcp_lib))
+ (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli urcp_fixed_lib urcp_lib))
 
 (executable
  (name lwtcp)
