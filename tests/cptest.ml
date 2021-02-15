@@ -39,19 +39,21 @@ let test_size impl =
     (run_test impl ~block_size ~queue_depth)
 
 let test_queue_depth impl =
-  Test.make_indexed ~name:"queue_depth" ~fmt:"%s %d" ~args:[ 1; 16; 32; 64; 96 ]
+  Test.make_indexed ~name:"queue_depth" ~fmt:"%s %d" ~args:[ 1; 16; 32; 64 ]
     (fun queue_depth -> run_test impl ~block_size ~queue_depth count)
 
 let test_block_size impl =
-  Test.make_indexed ~name:"block_size" ~fmt:"%s %d" ~args:[ 1024; (32 * 1024); (256 * 1024) ]
+  Test.make_indexed ~name:"block_size" ~fmt:"%s %d" ~args:[ 1024; (32 * 1024); (64 * 1024) ]
   (fun block_size -> run_test impl ~block_size ~queue_depth count)
 
 let urcp_test =
   Test.make_grouped ~name:"urcp_alloc" (List.map (fun l -> l Urcp_lib.run_cp) [test_size; test_queue_depth; test_block_size])
+let urcp_fixed_test =
+    Test.make_grouped ~name:"urcp_fixed" (List.map (fun l -> l Urcp_fixed_lib.run_cp) [test_size; test_queue_depth; test_block_size])
 let lwt_bytes_test =
   Test.make_grouped ~name:"lwt_bytes" (List.map (fun l -> l Lwtcp_lib.run_cp) [test_size; test_queue_depth; test_block_size])
 
-let test = Test.make_grouped ~name:"cp" [  lwt_bytes_test; urcp_test ]
+let test = Test.make_grouped ~name:"cp" [  lwt_bytes_test; urcp_test; urcp_fixed_test ]
 
 let benchmark () =
   let ols = Analyze.ols ~bootstrap:0 ~r_square:true ~predictors:Measure.[| run |] in
