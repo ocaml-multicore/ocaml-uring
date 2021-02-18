@@ -13,6 +13,19 @@
   (extra_deps include/liburing/compat.h)
  ))
 
+(library
+ (name baregion)
+ (public_name uring.baregion)
+ (modules baregion)
+ (libraries bigstringaf)
+)
+
+(library
+ (name euring)
+ (public_name uring.effects)
+ (modules euring)
+ (libraries uring logs fmt bigstringaf uring.baregion))
+
 (rule
  (deps
   (source_tree liburing))

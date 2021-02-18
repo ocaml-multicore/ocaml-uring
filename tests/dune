@@ -37,6 +37,11 @@
  (libraries bigstringaf unix uring alcotest))
 
 (executable
+ (name basic_eunix)
+ (modules basic_eunix)
+ (libraries bigstringaf euring fmt fmt.cli logs.fmt fmt.tty))
+
+(executable
  (name cptest)
  (modules cptest)
  (libraries urcp_fixed_lib urcp_lib lwtcp_lib uring bos bechamel notty.unix bechamel-notty))
