@@ -1,8 +1,11 @@
 type t
 
-val fork : (t -> unit) -> unit
+val fork : (unit -> unit) -> unit
+
 val yield : unit -> unit
 
-val read : t -> ?file_offset:int -> Unix.file_descr -> int -> Bigstringaf.t
-val write : t -> ?file_offset:int -> Unix.file_descr -> int -> unit
-val run : (t -> unit) -> unit
+val read : ?file_offset:int -> Unix.file_descr -> int -> Baregion.chunk * int
+
+val write : ?file_offset:int -> Unix.file_descr -> int -> Baregion.chunk * int
+
+val run : (unit -> unit) -> unit

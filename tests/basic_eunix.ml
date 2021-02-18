@@ -11,10 +11,9 @@ let () =
   setup_log (Some Logs.Debug);
   (* TODO expose openfile from euring *)
   let fd = Unix.(handle_unix_error (openfile "test.txt" [O_RDONLY]) 0) in
-  run (fun t ->
-    let buf = read t fd 5 in
-    print_endline (Bigstringaf.to_string buf);
-    let buf = read t fd 3 in
-    print_endline (Bigstringaf.to_string buf);
-
+  run (fun () ->
+    let buf, _ = read fd 5 in
+    print_endline (Baregion.to_string buf);
+    let buf, _ = read fd 3 in
+    print_endline (Baregion.to_string buf);
   );

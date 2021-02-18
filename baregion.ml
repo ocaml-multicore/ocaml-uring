@@ -9,7 +9,7 @@ type t = {
   freelist: int Queue.t;
 }
 
-type chunk = int
+type chunk = t * int
 
 exception No_space
 
@@ -20,18 +20,18 @@ let init ~blocksize buf slots =
   done;
   { freelist; slots; blocksize; buf }
 
-let alloc {freelist;_} =
-  match Queue.pop freelist with
-  | r -> r
+let alloc t =
+  match Queue.pop t.freelist with
+  | r -> t, r
   | exception Queue.Empty -> raise No_space
 
-let free {freelist; _} v =
+let free ({freelist; _}, v) =
   Queue.push v freelist
 
-let to_bigstring {buf;blocksize;_} chunk =
+let to_bigstring ({buf;blocksize;_}, chunk) =
   Bigstringaf.sub buf ~off:chunk ~len:blocksize
 
-let to_string {buf; blocksize;_} chunk =
+let to_string ({buf; blocksize;_},chunk) =
   Bigstringaf.substring buf ~off:chunk ~len:blocksize
 
-let to_offset t = t
+let to_offset (_,t) = t

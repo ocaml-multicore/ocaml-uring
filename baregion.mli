@@ -6,10 +6,10 @@ val init: blocksize:int -> Bigstringaf.t -> int -> t
 
 val alloc : t -> chunk
 
-val free : t -> chunk -> unit
+val free : chunk -> unit
 
 val to_offset : chunk -> int
 
-val to_bigstring : t -> chunk -> Bigstringaf.t
+val to_bigstring : chunk -> Bigstringaf.t
 
-val to_string : t -> chunk -> string
+val to_string : chunk -> string
