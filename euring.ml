@@ -1,29 +1,44 @@
-type runnable =
+type io_job =
 | Noop
+| Read : Baregion.chunk * (Baregion.chunk * int, unit) continuation -> io_job
+| Write : Baregion.chunk * (Baregion.chunk * int, unit) continuation -> io_job
+
+type runnable =
 | Thread : ('a, unit) continuation * 'a -> runnable
-| Read : Baregion.chunk * (Baregion.chunk * int, unit) continuation -> runnable
-| Write : Baregion.chunk * (Baregion.chunk * int, unit) continuation -> runnable
 
 type t = {
-  uring: runnable Uring.t;
+  uring: io_job Uring.t;
   mem: Baregion.t;
   run_q : runnable Queue.t;
+  sleep_q: Zzz.t;
+  mutable io_jobs: int;
 }
 
-effect Fork  : (unit -> unit) -> unit
-effect Yield : unit
+let rec wakeup_paused run_q =
+  match Queue.take run_q with
+  | Thread (k, v) ->
+      continue k v;
+      wakeup_paused run_q
+  | exception Queue.Empty -> ()
 
-let rec schedule st =
-  Logs.debug (fun l -> l "entering scheduler, blocking on Uring");
-  (* FIXME when do we submit? idle thread? *)
-  let _ = Uring.submit st.uring in
-  (* FIXME if res < 1 then deadlock *)
-  (* FIXME assumes this is just for IO for now *)
-  match Uring.wait st.uring with
+let rec schedule ({run_q; sleep_q; uring; _} as st) =
+  (* This is not a fair scheduler *)
+  (* Wakeup any paused fibres *)
+  wakeup_paused run_q;
+  Zzz.restart_threads sleep_q;
+  let num_jobs = Uring.submit uring in
+  st.io_jobs <- st.io_jobs + num_jobs;
+  let timeout = Zzz.select_next sleep_q in
+  Logs.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
+    (match timeout with None -> "inf" | Some v -> string_of_float v));
+  if Queue.length run_q = 0 && timeout = None && st.io_jobs = 0 then begin
+    Logs.debug (fun l -> l "schedule: exiting");
+  end else match Uring.wait ?timeout uring with
   | None -> 
      Logs.debug (fun l -> l "wait returned none");
      schedule st (* TODO this is a bad situation to be in, likely fatal *)
   | Some (runnable, res) -> begin
+     st.io_jobs <- st.io_jobs - 1;
      match runnable with
      | Read (chunk, k) -> 
         Logs.debug (fun l -> l "read returned");
@@ -32,15 +47,20 @@ let rec schedule st =
         Logs.debug (fun l -> l "write returned");
         continue k (chunk, res)
      | Noop -> ()
-     | Thread _ -> assert false
   end
 
 let enqueue_thread st k x =
   Queue.push (Thread (k, x)) st.run_q
 
+effect Sleep : float -> unit
+let sleep d =
+  perform (Sleep d)
+
+effect Fork  : (unit -> unit) -> unit
 let fork f =
   perform (Fork f)
 
+effect Yield : unit
 let yield () =
   perform Yield
 
@@ -65,7 +85,7 @@ effect EWrite : (int option * Unix.file_descr * int) -> (Baregion.chunk * int)
 let enqueue_write {uring; mem; _} k (file_offset,fd,len) =
   let chunk = Baregion.alloc mem in
   Logs.debug (fun l -> l "write: submitting call");
-  Uring.read uring ?file_offset fd (Baregion.to_offset chunk) len (Write (chunk, k))
+  Uring.write uring ?file_offset fd (Baregion.to_offset chunk) len (Write (chunk, k))
   (* TODO hint to a uring submit thread *)
  
 let write ?file_offset fd len =
@@ -87,7 +107,8 @@ let run main =
   let buf = Uring.buf uring in 
   let mem = Baregion.init ~blocksize buf slots in
   let run_q = Queue.create () in
-  let st = { mem; uring; run_q } in
+  let sleep_q = Zzz.init () in
+  let st = { mem; uring; run_q; sleep_q; io_jobs = 0 } in
   Logs.debug (fun l -> l "starting main thread");
   let rec fork fn =
     match fn () with
@@ -99,15 +120,19 @@ let run main =
        schedule st
     | effect (ERead args) k ->
        enqueue_read st k args;
+       schedule st
     | effect (EWrite args) k ->
        enqueue_write st k args;
+       schedule st
     | effect Yield k ->
        enqueue_thread st k ();
+       schedule st
+    | effect (Sleep d) k ->
+       Zzz.sleep sleep_q d (Some k);
        schedule st
     | effect (Fork f) k ->
        enqueue_thread st k ();
        fork f
    in
    fork main;
-   schedule st;
    Logs.debug (fun l -> l "exit")

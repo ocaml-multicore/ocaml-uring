@@ -19,6 +19,7 @@ module Iovec = Iovec
 type 'a t
 
 val create : ?fixed_buf_len:int -> queue_depth:int -> default:'a -> unit -> 'a t
+
 val queue_depth : 'a t -> int
 val exit : 'a t -> unit
 
@@ -31,7 +32,7 @@ val write : 'a t -> ?file_offset:int -> Unix.file_descr -> int -> int -> 'a -> u
 
 val submit : 'a t -> int
 
-val wait : 'a t -> ('a * int) option
+val wait : ?timeout:float -> 'a t -> ('a * int) option
 val peek : 'a t -> ('a * int) option
 
 val realloc : 'a t -> Iovec.buf -> unit

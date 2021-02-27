@@ -23,8 +23,8 @@
 (library
  (name euring)
  (public_name uring.effects)
- (modules euring)
- (libraries uring logs fmt bigstringaf uring.baregion))
+ (modules euring zzz)
+ (libraries unix uring bheap logs fmt bigstringaf uring.baregion))
 
 (rule
  (deps

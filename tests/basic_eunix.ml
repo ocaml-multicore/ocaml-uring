@@ -17,3 +17,11 @@ let () =
     let buf, _ = read fd 3 in
     print_endline (Baregion.to_string buf);
   );
+  run (fun () ->
+    let buf, _ = read fd 5 in
+    Logs.debug (fun l -> l "sleeping at %f" (Unix.gettimeofday ()));
+    sleep 1.0;
+    print_endline (Baregion.to_string buf);
+    let buf, _ = read fd 3 in
+    print_endline (Baregion.to_string buf);
+  );

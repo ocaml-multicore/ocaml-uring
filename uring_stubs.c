@@ -199,6 +199,34 @@ value ocaml_uring_submit(value v_uring)
   CAMLreturn(Val_int(num));
 }
 
+value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
+{
+  CAMLparam2(v_uring, v_timeout);
+  CAMLlocal1(v_ret);
+  double timeout = Double_val(v_timeout);
+  struct __kernel_timespec t;
+  t.tv_sec = (time_t) timeout;
+  t.tv_nsec = (timeout - t.tv_sec) * 1e9;
+  long id;
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_cqe *cqe;
+  int res;
+  dprintf("cqe: waiting, timeout %fs\n", timeout);
+  res = io_uring_wait_cqe_timeout(ring, &cqe, &t);
+  if (res < 0) {
+    v_ret = caml_alloc(2, 0);
+    Store_field(v_ret, 0, Val_int(-1));
+    Store_field(v_ret, 1, Val_int(res));
+  } else {
+    id = (long)io_uring_cqe_get_data(cqe);
+    io_uring_cqe_seen(ring, cqe);
+    v_ret = caml_alloc(2, 0);
+    Store_field(v_ret, 0, Val_int(id));
+    Store_field(v_ret, 1, Val_int(cqe->res));
+  }
+  CAMLreturn(v_ret);
+}
+
 value ocaml_uring_wait_cqe(value v_uring)
 {
   CAMLparam1(v_uring);

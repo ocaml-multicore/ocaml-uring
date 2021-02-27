@@ -32,6 +32,7 @@ external uring_submit_readv_fixed : uring -> Unix.file_descr -> id -> Iovec.buf 
 external uring_submit_writev_fixed : uring -> Unix.file_descr -> id -> Iovec.buf -> int -> int -> int -> unit = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native"
 
 external uring_wait_cqe : uring -> id * int = "ocaml_uring_wait_cqe"
+external uring_wait_cqe_timeout : float -> uring -> id * int = "ocaml_uring_wait_cqe_timeout"
 external uring_peek_cqe : uring -> id * int = "ocaml_uring_peek_cqe"
 
 
@@ -103,7 +104,7 @@ let submit t =
     0
 
 (* TODO use unixsupport.h *)
-let errno_is_retry = function -11 | -4 -> true |_ -> false
+let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
 let fn_on_ring fn t =
    let id, res = fn t.uring in
@@ -119,6 +120,10 @@ let fn_on_ring fn t =
      Some (data, res)
 
 let peek t = fn_on_ring uring_peek_cqe t
-let wait t = fn_on_ring uring_wait_cqe t
+let wait ?timeout t =
+  match timeout with
+  | None -> fn_on_ring uring_wait_cqe t
+  | Some timeout -> fn_on_ring (uring_wait_cqe_timeout timeout) t
+
 let queue_depth {queue_depth;_} = queue_depth
 let buf {fixed_iobuf;_} = fixed_iobuf

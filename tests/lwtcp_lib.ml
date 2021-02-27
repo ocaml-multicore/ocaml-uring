@@ -22,7 +22,8 @@ let copy_file infd outfd insize block_size pool =
       Logs.debug (fun l -> l "read done %d %d" file_offset len);
       full_pwrite outfd buf ~file_offset 0 len >>= fun () ->
       Logs.debug (fun l -> l "write done %d %d" file_offset len);
-      Lwt.return_unit)
+      Lwt.return_unit
+    )
   in
   let rec fn file_offset =
     match insize - file_offset with
