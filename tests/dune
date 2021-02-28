@@ -4,6 +4,11 @@
   (libraries fmt unix uring logs))
 
 (library
+  (name eurcp_lib)
+  (modules eurcp_lib)
+  (libraries fmt unix uring logs uring.effects))
+
+(library
   (name urcp_fixed_lib)
   (modules urcp_fixed_lib)
   (libraries fmt unix uring logs))
@@ -30,6 +35,12 @@
  (modules lwtcp)
  (public_name lwtcp)
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli lwtcp_lib))
+
+(executable
+ (name eurcp)
+ (modules eurcp)
+ (public_name eurcp)
+ (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli eurcp_lib))
 
 (executable
  (name basic_file_read)

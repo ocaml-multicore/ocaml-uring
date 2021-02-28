@@ -6,7 +6,7 @@ let () =
   let b1 = Uring.Iovec.alloc_buf 3 in
   let b2 = Uring.Iovec.alloc_buf 7 in
   let iov = Uring.Iovec.alloc [|b1;b2|] in
-  Uring.readv t fd iov ();
+  let r = Uring.readv t fd iov () in assert(r);
   let res = Uring.submit t in
   Printf.eprintf "submitted %d\n%!" res;
   let rec retry () =
@@ -21,7 +21,7 @@ let () =
   let off = 3 in
   let len = 5 in
   let file_offset = 2 in
-  Uring.read t ~file_offset fd off len ();
+  let r = Uring.read t ~file_offset fd off len () in assert(r);
   let res = Uring.submit t in
   Printf.eprintf "submitted read %d\n%!" res;
   let (), res = retry () in

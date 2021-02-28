@@ -23,12 +23,10 @@ val create : ?fixed_buf_len:int -> queue_depth:int -> default:'a -> unit -> 'a t
 val queue_depth : 'a t -> int
 val exit : 'a t -> unit
 
-val readv : 'a t -> ?offset:int -> Unix.file_descr -> Iovec.t -> 'a -> unit
-val writev : 'a t -> ?offset:int -> Unix.file_descr -> Iovec.t -> 'a -> unit
-
-val read : 'a t -> ?file_offset:int -> Unix.file_descr -> int -> int -> 'a -> unit
-
-val write : 'a t -> ?file_offset:int -> Unix.file_descr -> int -> int -> 'a -> unit
+val readv : 'a t -> ?offset:int -> Unix.file_descr -> Iovec.t -> 'a -> bool
+val writev : 'a t -> ?offset:int -> Unix.file_descr -> Iovec.t -> 'a -> bool
+val read : 'a t -> ?file_offset:int -> Unix.file_descr -> int -> int -> 'a -> bool
+val write : 'a t -> ?file_offset:int -> Unix.file_descr -> int -> int -> 'a -> bool
 
 val submit : 'a t -> int
 
