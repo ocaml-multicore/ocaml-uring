@@ -4,7 +4,7 @@
 (* TODO turn into a variable length slab allocator *)
 type t = {
   buf: Bigstringaf.t;
-  blocksize: int;
+  block_size: int;
   slots: int;
   freelist: int Queue.t;
 }
@@ -13,12 +13,12 @@ type chunk = t * int
 
 exception No_space
 
-let init ~blocksize buf slots =
+let init ~block_size buf slots =
   let freelist = Queue.create () in
-  for i = 0 to blocksize - 1 do
-    Queue.push (i*blocksize) freelist
+  for i = 0 to slots - 1 do
+    Queue.push (i*block_size) freelist
   done;
-  { freelist; slots; blocksize; buf }
+  { freelist; slots; block_size; buf }
 
 let alloc t =
   match Queue.pop t.freelist with
@@ -28,10 +28,14 @@ let alloc t =
 let free ({freelist; _}, v) =
   Queue.push v freelist
 
-let to_bigstring ({buf;blocksize;_}, chunk) =
-  Bigstringaf.sub buf ~off:chunk ~len:blocksize
+let to_bigstring ?len ({buf;block_size;_}, chunk) =
+  let len = match len with None -> block_size | Some v -> min v block_size in
+  Bigstringaf.sub buf ~off:chunk ~len
 
-let to_string ({buf; blocksize;_},chunk) =
-  Bigstringaf.substring buf ~off:chunk ~len:blocksize
+let to_string ?len ({buf; block_size;_},chunk) =
+  let len = match len with None -> block_size | Some v -> min v block_size in
+  Bigstringaf.substring buf ~off:chunk ~len
+
+let avail {freelist;_} = Queue.length freelist
 
 let to_offset (_,t) = t

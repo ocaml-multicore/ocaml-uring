@@ -6,8 +6,12 @@ val yield : unit -> unit
 
 val sleep : float -> unit
 
-val read : ?file_offset:int -> Unix.file_descr -> int -> Baregion.chunk * int
+val alloc : unit -> Baregion.chunk
 
-val write : ?file_offset:int -> Unix.file_descr -> Baregion.chunk -> int -> Baregion.chunk * int
+val free : Baregion.chunk -> unit
 
-val run : (unit -> unit) -> unit
+val read : ?file_offset:int -> Unix.file_descr -> Baregion.chunk -> int -> unit
+
+val write : ?file_offset:int -> Unix.file_descr -> Baregion.chunk -> int -> unit
+
+val run : ?queue_depth:int -> ?block_size:int -> (unit -> unit) -> unit

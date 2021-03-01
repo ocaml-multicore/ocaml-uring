@@ -5,7 +5,7 @@ type rw_req = {
   len: int;
   buf: Baregion.chunk;
   mutable cur_off: int;
-  action: (Baregion.chunk * int, unit) continuation;
+  action: (int, unit) continuation;
 }
 
 type io_job =
@@ -20,6 +20,7 @@ type t = {
   uring: io_job Uring.t;
   mem: Baregion.t;
   io_q: rw_req Queue.t;     (* waiting for room on [uring] *)
+  mem_q : (Baregion.chunk, unit) continuation Queue.t;
   run_q : runnable Queue.t;
   sleep_q: Zzz.t;
   mutable io_jobs: int;
@@ -40,7 +41,7 @@ let submit_rw_req {uring;io_q;_} ({op; file_offset; fd; buf; len; cur_off; _} as
 (* TODO bind from unixsupport *)
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
-let complete_rw_req st ({len; cur_off; buf; action; _} as req) res =
+let complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res with
   | 0 -> discontinue action (Failure "end of file") (* TODO expose EOF exception *)
   | n when errno_is_retry n ->
@@ -48,10 +49,9 @@ let complete_rw_req st ({len; cur_off; buf; action; _} as req) res =
   | n when n < len - cur_off ->
      req.cur_off <- req.cur_off + n;
      submit_rw_req st req
-  | _ -> continue action (buf, len)
+  | _ -> continue action len
 
-let enqueue_read st action (file_offset,fd,len) =
-  let buf = Baregion.alloc st.mem in
+let enqueue_read st action (file_offset,fd,buf,len) =
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action} in
   Logs.debug (fun l -> l "read: submitting call");
   submit_rw_req st req
@@ -73,7 +73,7 @@ let submit_pending_io st =
   | None -> ()
   | Some req -> submit_rw_req st req
 
-let rec schedule ({run_q; sleep_q; uring; _} as st) =
+let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) =
   (* This is not a fair scheduler *)
   (* Wakeup any paused fibres *)
   wakeup_paused run_q;
@@ -83,7 +83,7 @@ let rec schedule ({run_q; sleep_q; uring; _} as st) =
   let timeout = Zzz.select_next sleep_q in
   Logs.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
     (match timeout with None -> "inf" | Some v -> string_of_float v));
-  if Queue.length run_q = 0 && timeout = None && st.io_jobs = 0 then begin
+  if Queue.length run_q = 0 && Queue.length mem_q = 0 && timeout = None && st.io_jobs = 0 then begin
     Logs.debug (fun l -> l "schedule: exiting");
   end else match Uring.wait ?timeout uring with
   | None -> 
@@ -105,6 +105,17 @@ let rec schedule ({run_q; sleep_q; uring; _} as st) =
 let enqueue_thread st k x =
   Queue.push (Thread (k, x)) st.run_q
 
+let alloc_buf st k =
+  Logs.debug (fun l -> l "alloc: %d" (Baregion.avail st.mem));
+  match Baregion.alloc st.mem with
+  | buf -> continue k buf 
+  | exception Baregion.No_space -> Queue.push k st.mem_q
+
+let free_buf st _ buf =
+  match Queue.take_opt st.mem_q with
+  | None -> Baregion.free buf
+  | Some k -> continue k buf
+
 effect Sleep : float -> unit
 let sleep d =
   perform (Sleep d)
@@ -117,46 +128,44 @@ effect Yield : unit
 let yield () =
   perform Yield
 
-effect ERead : (int option * Unix.file_descr * int) -> (Baregion.chunk * int)
+effect ERead : (int option * Unix.file_descr * Baregion.chunk * int) -> int
  
-let read ?file_offset fd len =
-  let chunk, res = perform (ERead (file_offset, fd, len)) in
+let read ?file_offset fd buf len =
+  let res = perform (ERead (file_offset, fd, buf, len)) in
   Logs.debug (fun l -> l "read: woken up after read");
   if res < 0 then
     raise (Failure (Fmt.strf "read %d" res)) (* FIXME Unix_error *)
-  else
-    chunk, res
 
-effect EWrite : (int option * Unix.file_descr * Baregion.chunk * int) -> (Baregion.chunk * int)
+effect EWrite : (int option * Unix.file_descr * Baregion.chunk * int) -> int
 
 let write ?file_offset fd buf len =
-  let buf, res = perform (EWrite (file_offset, fd, buf, len)) in
+  let res = perform (EWrite (file_offset, fd, buf, len)) in
   Logs.debug (fun l -> l "write: woken up after read");
   if res < 0 then
     raise (Failure (Fmt.strf "write %d" res)) (* FIXME Unix_error *)
-  else
-    buf, res
 
-let run main =
+effect Alloc : Baregion.chunk
+let alloc () = perform Alloc
+
+effect Free : Baregion.chunk -> unit
+let free buf = perform (Free buf)
+
+let run ?(queue_depth=64) ?(block_size=4096) main =
   Logs.debug (fun l -> l "starting run");
   (* TODO unify this allocation API around baregion/uring *)
-  let blocksize = 4096 in
-  let slots = 1024 in
-  let fixed_buf_len = slots * blocksize in
-  let queue_depth = 64 in
+  let fixed_buf_len = block_size * queue_depth in
   let uring = Uring.create ~fixed_buf_len ~queue_depth ~default:Noop () in
   let buf = Uring.buf uring in 
-  let mem = Baregion.init ~blocksize buf slots in
+  let mem = Baregion.init ~block_size buf queue_depth in
   let run_q = Queue.create () in
   let sleep_q = Zzz.init () in
   let io_q = Queue.create () in
-  let st = { mem; uring; run_q; io_q; sleep_q; io_jobs = 0 } in
+  let mem_q = Queue.create () in
+  let st = { mem; uring; run_q; io_q; mem_q; sleep_q; io_jobs = 0 } in
   Logs.debug (fun l -> l "starting main thread");
   let rec fork fn =
     match fn () with
-    | () ->
-       Logs.debug (fun l -> l "enter scheduler");
-       schedule st
+    | () -> schedule st
     | exception exn ->
        Logs.err (fun l -> l "exn: %a" Fmt.exn exn);
        schedule st
@@ -175,6 +184,10 @@ let run main =
     | effect (Fork f) k ->
        enqueue_thread st k ();
        fork f
+    | effect Alloc k ->
+       alloc_buf st k
+    | effect (Free buf) k ->
+       free_buf st k buf
    in
    fork main;
    Logs.debug (fun l -> l "exit")

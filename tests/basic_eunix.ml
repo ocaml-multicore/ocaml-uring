@@ -12,16 +12,20 @@ let () =
   (* TODO expose openfile from euring *)
   let fd = Unix.(handle_unix_error (openfile "test.txt" [O_RDONLY]) 0) in
   run (fun () ->
-    let buf, _ = read fd 5 in
-    print_endline (Baregion.to_string buf);
-    let buf, _ = read fd 3 in
-    print_endline (Baregion.to_string buf);
+    let buf = alloc () in
+    let _ = read fd buf 5 in
+    print_endline (Baregion.to_string ~len:5 buf);
+    let _ = read fd ~file_offset:3 buf 3 in
+    print_endline (Baregion.to_string ~len:3 buf);
+    free buf;
   );
   run (fun () ->
-    let buf, _ = read fd 5 in
+    let buf = alloc () in
+    let _ = read fd buf 5 in
     Logs.debug (fun l -> l "sleeping at %f" (Unix.gettimeofday ()));
     sleep 1.0;
-    print_endline (Baregion.to_string buf);
-    let buf, _ = read fd 3 in
-    print_endline (Baregion.to_string buf);
+    print_endline (Baregion.to_string ~len:5 buf);
+    let _ = read fd ~file_offset:3 buf 3 in
+    print_endline (Baregion.to_string ~len:3 buf);
+    free buf;
   );
