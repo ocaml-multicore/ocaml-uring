@@ -1,4 +1,4 @@
-(* TODO also write test.txt *)
+(* TODO also write test.txt and check output with expect tests, this is built manually atm *)
 
 let () =
   let t = Uring.create ~queue_depth:1 ~default:() () in
