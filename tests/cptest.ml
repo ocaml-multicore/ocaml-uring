@@ -52,10 +52,8 @@ let urcp_fixed_test =
     Test.make_grouped ~name:"urcp_fixed" (List.map (fun l -> l Urcp_fixed_lib.run_cp) [test_size; test_queue_depth; test_block_size])
 let lwt_bytes_test =
   Test.make_grouped ~name:"lwt_bytes" (List.map (fun l -> l Lwtcp_lib.run_cp) [test_size; test_queue_depth; test_block_size])
-let eurcp_test =
-        Test.make_grouped ~name:"eurcp" (List.map (fun l -> l Eurcp_lib.run_cp) [test_size; test_queue_depth; test_block_size])
 
-let test = Test.make_grouped ~name:"cp" [  lwt_bytes_test; urcp_test; urcp_fixed_test; eurcp_test ]
+let test = Test.make_grouped ~name:"cp" [  lwt_bytes_test; urcp_test; urcp_fixed_test ]
 
 let benchmark () =
   let ols = Analyze.ols ~bootstrap:0 ~r_square:true ~predictors:Measure.[| run |] in

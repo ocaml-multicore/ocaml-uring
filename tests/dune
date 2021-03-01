@@ -4,11 +4,6 @@
   (libraries fmt unix uring logs))
 
 (library
-  (name eurcp_lib)
-  (modules eurcp_lib)
-  (libraries fmt unix uring logs uring.effects))
-
-(library
   (name urcp_fixed_lib)
   (modules urcp_fixed_lib)
   (libraries fmt unix uring logs))
@@ -37,25 +32,14 @@
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli lwtcp_lib))
 
 (executable
- (name eurcp)
- (modules eurcp)
- (public_name eurcp)
- (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli eurcp_lib))
-
-(executable
  (name basic_file_read)
  (modules basic_file_read)
  (libraries bigstringaf unix uring alcotest))
 
 (executable
- (name basic_eunix)
- (modules basic_eunix)
- (libraries bigstringaf euring fmt fmt.cli logs.fmt fmt.tty))
-
-(executable
  (name cptest)
  (modules cptest)
- (libraries eurcp_lib urcp_fixed_lib urcp_lib lwtcp_lib uring bos bechamel notty.unix bechamel-notty))
+ (libraries urcp_fixed_lib urcp_lib lwtcp_lib uring bos bechamel notty.unix bechamel-notty))
 
 (rule
  (alias runtest)
