@@ -15,6 +15,7 @@
  *)
 
 module Iovec = Iovec
+module Region = Region
 
 type uring
 external uring_create : int -> uring = "ocaml_uring_setup"

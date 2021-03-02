@@ -3,7 +3,8 @@
 (library
  (name            uring)
  (public_name     uring)
- (modules         iovec uring)
+ (modules         region iovec uring)
+ (libraries       bigstringaf)
  (foreign_archives uring)
  (foreign_stubs
   (language c)
@@ -12,13 +13,6 @@
   (include_dirs include)
   (extra_deps include/liburing/compat.h)
  ))
-
-(library
- (name baregion)
- (public_name uring.baregion)
- (modules baregion)
- (libraries bigstringaf)
-)
 
 (rule
  (deps
