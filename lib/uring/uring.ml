@@ -16,27 +16,28 @@
 
 module Region = Region
 
-type uring
-external uring_create : int -> uring = "ocaml_uring_setup"
-external uring_exit : uring -> unit = "ocaml_uring_exit"
+module Uring = struct
+  type t
+  external create : int -> t = "ocaml_uring_setup"
+  external exit : t -> unit = "ocaml_uring_exit"
 
-external uring_unregister_bigarray : uring -> unit = "ocaml_uring_unregister_ba"
-external uring_register_bigarray : uring ->  Iovec.Buffer.t -> unit = "ocaml_uring_register_ba"
-external uring_submit : uring -> int = "ocaml_uring_submit"
+  external unregister_bigarray : t -> unit = "ocaml_uring_unregister_ba"
+  external register_bigarray : t ->  Iovec.Buffer.t -> unit = "ocaml_uring_register_ba"
+  external submit : t -> int = "ocaml_uring_submit"
 
-type id = int
-external uring_submit_readv : uring -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_readv" [@@noalloc]
-external uring_submit_writev : uring -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_writev" [@@noalloc]
-external uring_submit_readv_fixed : uring -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
-external uring_submit_writev_fixed : uring -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
+  type id = int
+  external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_readv" [@@noalloc]
+  external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_writev" [@@noalloc]
+  external submit_readv_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
+  external submit_writev_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
 
-external uring_wait_cqe : uring -> id * int = "ocaml_uring_wait_cqe"
-external uring_wait_cqe_timeout : float -> uring -> id * int = "ocaml_uring_wait_cqe_timeout"
-external uring_peek_cqe : uring -> id * int = "ocaml_uring_peek_cqe"
-
+  external wait_cqe : t -> id * int = "ocaml_uring_wait_cqe"
+  external wait_cqe_timeout : float -> t -> id * int = "ocaml_uring_wait_cqe_timeout"
+  external peek_cqe : t -> id * int = "ocaml_uring_peek_cqe"
+end
 
 type 'a t = {
-  uring: uring;
+  uring: Uring.t;
   mutable fixed_iobuf: Iovec.Buffer.t;
   mutable id_freelist: int list;
   user_data: 'a array;
@@ -47,21 +48,21 @@ type 'a t = {
 let default_iobuf_len = 1024 * 1024 (* 1MB *)
 
 let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth ~default () =
-  let uring = uring_create queue_depth in
+  let uring = Uring.create queue_depth in
   (* TODO posix memalign this to page *)
   let fixed_iobuf = Iovec.Buffer.create fixed_buf_len in
-  uring_register_bigarray uring fixed_iobuf;
-  Gc.finalise uring_exit uring;
+  Uring.register_bigarray uring fixed_iobuf;
+  Gc.finalise Uring.exit uring;
   let id_freelist = List.init queue_depth (fun i -> i) in
   let user_data = Array.init queue_depth (fun _ -> default) in
   { uring; fixed_iobuf; id_freelist; user_data; dirty=false; queue_depth }
 
 let realloc t iobuf =
-  uring_unregister_bigarray t.uring;
+  Uring.unregister_bigarray t.uring;
   t.fixed_iobuf <- iobuf;
-  uring_register_bigarray t.uring iobuf
+  Uring.register_bigarray t.uring iobuf
 
-let exit {uring;_} = uring_exit uring
+let exit {uring;_} = Uring.exit uring
 
 let get_id t =
   match t.id_freelist with
@@ -82,21 +83,21 @@ let with_id t fn user_data =
   | exception Not_found -> false
 
 let readv t ?(offset=0) fd iovec user_data =
-  with_id t (fun id -> uring_submit_readv t.uring fd id iovec offset) user_data
+  with_id t (fun id -> Uring.submit_readv t.uring fd id iovec offset) user_data
 
 let read t ?(file_offset=0) fd off len user_data =
-  with_id t (fun id -> uring_submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
 let write t ?(file_offset=0) fd off len user_data =
-  with_id t (fun id -> uring_submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
 let writev t ?(offset=0) fd iovec user_data =
-  with_id t (fun id -> uring_submit_writev t.uring fd id iovec offset) user_data
+  with_id t (fun id -> Uring.submit_writev t.uring fd id iovec offset) user_data
 
 let submit t =
   if t.dirty then begin
     t.dirty <- false;
-    uring_submit t.uring
+    Uring.submit t.uring
   end else
     0
 
@@ -116,11 +117,11 @@ let fn_on_ring fn t =
      put_id t id;
      Some (data, res)
 
-let peek t = fn_on_ring uring_peek_cqe t
+let peek t = fn_on_ring Uring.peek_cqe t
 let wait ?timeout t =
   match timeout with
-  | None -> fn_on_ring uring_wait_cqe t
-  | Some timeout -> fn_on_ring (uring_wait_cqe_timeout timeout) t
+  | None -> fn_on_ring Uring.wait_cqe t
+  | Some timeout -> fn_on_ring (Uring.wait_cqe_timeout timeout) t
 
 let queue_depth {queue_depth;_} = queue_depth
 let buf {fixed_iobuf;_} = fixed_iobuf
