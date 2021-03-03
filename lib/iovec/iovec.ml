@@ -14,14 +14,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-type buf = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-type iovec
-type t
+module Buffer = struct
+  type t =
+    (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
-val alloc : buf array -> t
-val alloc_buf : int -> buf
-val free : t -> unit
-val nr_vecs : t -> int
-val bufs : t -> buf array
-val empty : t
-val advance : t -> idx:int -> adj:int -> unit
+  let create len = Bigarray.(Array1.create char c_layout len)
+end
+
+module Iovec = struct
+  type t
+
+  external alloc : Buffer.t array -> t = "ocaml_iovec_alloc"
+  external free : t -> unit = "ocaml_iovec_free"
+  external adjust : t -> int -> int -> unit = "ocaml_iovec_advance"
+end
+
+type t = Iovec.t * Buffer.t array
+
+let alloc bufs : t = (Iovec.alloc bufs, bufs)
+let advance (iov, _) ~idx ~adj = Iovec.adjust iov idx adj
+let free (iov, _) = Iovec.free iov
+let length (_, bufs) = Array.length bufs
+let buffers (_, bufs) = bufs
+let empty = alloc [||]

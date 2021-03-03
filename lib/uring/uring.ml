@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-module Iovec = Iovec
 module Region = Region
 
 type uring
@@ -22,14 +21,14 @@ external uring_create : int -> uring = "ocaml_uring_setup"
 external uring_exit : uring -> unit = "ocaml_uring_exit"
 
 external uring_unregister_bigarray : uring -> unit = "ocaml_uring_unregister_ba"
-external uring_register_bigarray : uring ->  Iovec.buf -> unit = "ocaml_uring_register_ba"
+external uring_register_bigarray : uring ->  Iovec.Buffer.t -> unit = "ocaml_uring_register_ba"
 external uring_submit : uring -> int = "ocaml_uring_submit"
 
 type id = int
 external uring_submit_readv : uring -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_readv" [@@noalloc]
 external uring_submit_writev : uring -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_writev" [@@noalloc]
-external uring_submit_readv_fixed : uring -> Unix.file_descr -> id -> Iovec.buf -> int -> int -> int -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
-external uring_submit_writev_fixed : uring -> Unix.file_descr -> id -> Iovec.buf -> int -> int -> int -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
+external uring_submit_readv_fixed : uring -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
+external uring_submit_writev_fixed : uring -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
 
 external uring_wait_cqe : uring -> id * int = "ocaml_uring_wait_cqe"
 external uring_wait_cqe_timeout : float -> uring -> id * int = "ocaml_uring_wait_cqe_timeout"
@@ -38,7 +37,7 @@ external uring_peek_cqe : uring -> id * int = "ocaml_uring_peek_cqe"
 
 type 'a t = {
   uring: uring;
-  mutable fixed_iobuf: Iovec.buf;
+  mutable fixed_iobuf: Iovec.Buffer.t;
   mutable id_freelist: int list;
   user_data: 'a array;
   queue_depth: int;
@@ -50,8 +49,8 @@ let default_iobuf_len = 1024 * 1024 (* 1MB *)
 let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth ~default () =
   let uring = uring_create queue_depth in
   (* TODO posix memalign this to page *)
-  let fixed_iobuf = Iovec.alloc_buf fixed_buf_len in
-  uring_register_bigarray uring fixed_iobuf; 
+  let fixed_iobuf = Iovec.Buffer.create fixed_buf_len in
+  uring_register_bigarray uring fixed_iobuf;
   Gc.finalise uring_exit uring;
   let id_freelist = List.init queue_depth (fun i -> i) in
   let user_data = Array.init queue_depth (fun _ -> default) in
