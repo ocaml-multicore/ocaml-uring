@@ -1,4 +1,5 @@
 .merlin
 .vscode
 _build
+_opam
 .*.sw?
