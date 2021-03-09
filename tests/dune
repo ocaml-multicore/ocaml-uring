@@ -43,5 +43,10 @@
 
 (rule
  (alias runtest)
+ (deps test.txt)
+ (action (run ./basic_file_read.exe)))
+
+(rule
+ (alias runbenchmark)
  (deps urcp.exe)
  (action (run ./cptest.exe ./urcp.exe)))

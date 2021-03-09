@@ -36,3 +36,6 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/ocaml-uring.git"
+depexts: [
+  ["linux-headers"] {os-distribution = "alpine"}
+]
