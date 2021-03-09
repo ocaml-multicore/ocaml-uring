@@ -1,6 +1,7 @@
 (lang dune 2.7)
 (name uring)
 (generate_opam_files true)
+(formatting disabled)
 (source (github ocaml-multicore/ocaml-uring))
 (license ISC)
 (authors "Anil Madhavapeddy" "Sadiq Jaffer")
