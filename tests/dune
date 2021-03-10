@@ -48,11 +48,13 @@
 
 (rule
  (alias runtest)
+ (package uring)
  (deps test.txt)
  (action (run ./basic_file_read.exe)))
 
 (rule
  (alias runbenchmark)
+ (package uring)
  (deps urcp.exe)
  (action
   (run ./cptest.exe ./urcp.exe)))

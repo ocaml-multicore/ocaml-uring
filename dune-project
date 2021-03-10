@@ -6,10 +6,9 @@
 (license ISC)
 (authors "Anil Madhavapeddy" "Sadiq Jaffer")
 (maintainers "anil@recoil.org")
-
 (package
- (name iovec))
-
+ (name iovec)
+ (synopsis "POSIX IO vectors"))
 (package
  (name uring)
  (synopsis "OCaml bindings for Linux io_uring")
