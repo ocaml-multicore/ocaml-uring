@@ -7,6 +7,9 @@
 (authors "Anil Madhavapeddy" "Sadiq Jaffer")
 (maintainers "anil@recoil.org")
 (package
+ (name iovec)
+ (synopsis "POSIX IO vectors"))
+(package
  (name uring)
  (synopsis "OCaml bindings for Linux io_uring")
  (description "Bindings to the Linux io_uring kernel IO interfaces.")

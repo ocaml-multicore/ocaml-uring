@@ -1,0 +1,38 @@
+(library
+ (name uring)
+ (public_name uring)
+ (foreign_archives uring)
+ (libraries bigstringaf iovec)
+ (foreign_stubs
+  (language c)
+  (flags
+   (:standard -O0))
+  (names uring_stubs)
+  (include_dirs include)
+  (extra_deps include/liburing/compat.h)))
+
+(rule
+ (deps
+  (source_tree %{project_root}/vendor/liburing))
+ (targets liburing.a dlluring.so barrier.h compat.h io_uring.h liburing.h)
+ (action
+  (no-infer
+   (progn
+    (chdir
+     %{project_root}/vendor/liburing
+     (progn
+      (run ./configure)
+      ;; TODO discover.ml for liburing cflags
+      (setenv
+       CFLAGS
+       "-g -fomit-frame-pointer -O0 -fPIC"
+       (run make -j -C src))))
+    (copy %{project_root}/vendor/liburing/src/liburing.a liburing.a)
+    (copy %{project_root}/vendor/liburing/src/liburing.so.2.0.0 dlluring.so)
+    (copy %{project_root}/vendor/liburing/src/include/liburing.h liburing.h)
+    (copy %{project_root}/vendor/liburing/src/include/liburing/io_uring.h
+      io_uring.h)
+    (copy %{project_root}/vendor/liburing/src/include/liburing/barrier.h
+      barrier.h)
+    (copy %{project_root}/vendor/liburing/src/include/liburing/compat.h
+      compat.h)))))

@@ -25,7 +25,7 @@ let pp ppf {insize;offset;reads;writes;write_left; read_left;_} =
 
 type req = {
   op: [`R | `W ];
-  iov: Uring.Iovec.t;
+  iov: Iovec.t;
   len: int;
   fileoff: int;
   mutable off: int;
@@ -35,12 +35,12 @@ type req = {
 let pp_req ppf {op; len; off; fileoff; t; _ } =
   Fmt.pf ppf "[%s fileoff %d len %d off %d] [%a]" (match op with |`R -> "r" |`W -> "w") fileoff len off pp t
 
-let empty_req t = { op=`R; iov=Uring.Iovec.empty; len=0; off=0; fileoff=0; t}
+let empty_req t = { op=`R; iov=Iovec.empty; len=0; off=0; fileoff=0; t}
 
 (* Perform a complete read into bufs. *)
 let queue_read uring t len =
-  let ba = Uring.Iovec.alloc_buf len in
-  let iov = Uring.Iovec.alloc [|ba|] in
+  let ba = Iovec.Buffer.create len in
+  let iov = Iovec.alloc [|ba|] in
   let req = { op=`R; iov; fileoff=t.offset; len; off=0; t } in
   Logs.debug (fun l -> l "queue_read: %a" pp_req req);
   let r = Uring.readv uring ~offset:t.offset t.infd iov req in
@@ -70,7 +70,7 @@ let handle_read_completion uring req res =
     raise (Failure ("unix errorno " ^ (string_of_int n)))
   | n when n < bytes_to_read ->
     (* handle short read so new iovec and resubmit *)
-    Uring.Iovec.advance req.iov ~idx:0 ~adj:n;
+    Iovec.advance req.iov ~idx:0 ~adj:n;
     req.off <-req.off + n;
     let r = Uring.readv ~offset:req.off uring req.t.infd req.iov req in
     assert(r);
@@ -80,7 +80,7 @@ let handle_read_completion uring req res =
     req.t.reads <- req.t.reads - 1;
     req.t.writes <- req.t.writes + 1;
     (* reset the iovec *)
-    Uring.Iovec.advance req.iov ~idx:0 ~adj:(req.off * -1);
+    Iovec.advance req.iov ~idx:0 ~adj:(req.off * -1);
     let req = { req with op=`W; off=0 } in
     let r = Uring.writev uring ~offset:req.fileoff req.t.outfd req.iov req in
     assert(r);
@@ -99,7 +99,7 @@ let handle_write_completion uring req res =
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < bytes_to_write ->
     (* handle short write so new iovec and resubmit *)
-    Uring.Iovec.advance req.iov ~idx:0 ~adj:n;
+    Iovec.advance req.iov ~idx:0 ~adj:n;
     req.off <- req.off + n;
     let r = Uring.writev ~offset:req.fileoff uring req.t.infd req.iov req in
     assert(r);
@@ -108,7 +108,7 @@ let handle_write_completion uring req res =
     req.t.writes <- req.t.writes - 1;
     req.t.write_left <- req.t.write_left - req.len;
     Logs.debug (fun l -> l "write done: %a" pp_req req);
-    Uring.Iovec.free req.iov
+    Iovec.free req.iov
   | n -> raise (Failure (Printf.sprintf "unexpected writev result %d > %d " bytes_to_write n))
 
 let handle_completion uring req res =
