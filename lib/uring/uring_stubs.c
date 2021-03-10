@@ -15,6 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <endian.h>	/* liburing.h needs this for __BYTE_ORDER */
 #include <liburing.h>
 #include <caml/alloc.h>
 #include <caml/bigarray.h>
@@ -26,6 +27,7 @@
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
 #include <string.h>
+#include <poll.h>
 
 #undef URING_DEBUG
 #ifdef URING_DEBUG
@@ -96,6 +98,19 @@ value ocaml_uring_exit(value v_uring) {
     Ring_val(v_uring) = NULL;
   }
   CAMLreturn(Val_unit);
+}
+
+value
+ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_mask) {
+  CAMLparam1(v_uring);
+  int poll_mask = Int_val(v_poll_mask);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) CAMLreturn(Val_false);
+  dprintf("submit_poll_add: fd:%d mask:%x\n", Int_val(v_fd), poll_mask);
+  io_uring_prep_poll_add(sqe, Int_val(v_fd), poll_mask);
+  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  CAMLreturn(Val_true);
 }
 
 value

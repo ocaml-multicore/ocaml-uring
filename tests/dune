@@ -41,6 +41,11 @@
  (libraries bigstringaf unix uring alcotest))
 
 (executable
+ (name poll_add)
+ (modules poll_add)
+ (libraries unix uring alcotest logs logs.fmt))
+
+(executable
  (name cptest)
  (modules cptest)
  (libraries urcp_fixed_lib urcp_lib lwtcp_lib uring bos bechamel notty.unix
@@ -51,6 +56,11 @@
  (package uring)
  (deps test.txt)
  (action (run ./basic_file_read.exe)))
+
+(rule
+ (alias runtest)
+ (package uring)
+ (action (run ./poll_add.exe)))
 
 (rule
  (alias runbenchmark)

@@ -12,6 +12,10 @@
   (extra_deps include/liburing/compat.h)))
 
 (rule
+ (targets config.ml)
+ (action (run ./include/discover.exe)))
+
+(rule
  (deps
   (source_tree %{project_root}/vendor/liburing))
  (targets liburing.a dlluring.so barrier.h compat.h io_uring.h liburing.h)
