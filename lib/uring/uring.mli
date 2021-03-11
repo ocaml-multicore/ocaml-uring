@@ -36,6 +36,27 @@ val queue_depth : 'a t -> int
 val exit : 'a t -> unit
 (** [exit t] will shut down the uring [t]. Any subsequent requests will fail. *)
 
+module Poll_mask : sig
+  type t = private int
+
+  val pollin  : t
+  val pollout : t
+  val pollerr : t
+  val pollhup : t
+
+  val of_int : int -> t
+  
+  val ( + ) : t -> t -> t
+  (** [a + b] is the union of the sets. *)
+
+  val mem : t -> t -> bool
+  (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
+end
+
+val poll_add : 'a t -> Unix.file_descr -> Poll_mask.t -> 'a -> bool
+(** [poll_add t fd mask d] will submit a [poll(2)] request to uring [t].
+    It completes and returns [d] when an event in [mask] is ready on [fd]. *)
+
 val readv : 'a t -> ?offset:int -> Unix.file_descr -> Iovec.t -> 'a -> bool
 (** [readv t ?offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute file [offset] on the [fd] file descriptor and writes

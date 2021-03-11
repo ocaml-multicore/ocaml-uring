@@ -16,6 +16,22 @@
 
 module Region = Region
 
+module Poll_mask = struct
+  type t = int
+
+  let pollin  = Config.pollin
+  let pollout = Config.pollout
+  let pollerr = Config.pollerr
+  let pollhup = Config.pollhup
+
+  let of_int x = x
+
+  let ( + ) = ( lor )
+
+  let mem a b =
+    (a land b) = a
+end
+
 module Uring = struct
   type t
   external create : int -> t = "ocaml_uring_setup"
@@ -26,6 +42,7 @@ module Uring = struct
   external submit : t -> int = "ocaml_uring_submit"
 
   type id = int
+  external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
   external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_readv" [@@noalloc]
   external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_writev" [@@noalloc]
   external submit_readv_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
@@ -93,6 +110,9 @@ let write t ?(file_offset=0) fd off len user_data =
 
 let writev t ?(offset=0) fd iovec user_data =
   with_id t (fun id -> Uring.submit_writev t.uring fd id iovec offset) user_data
+
+let poll_add t fd poll_mask user_data =
+  with_id t (fun id -> Uring.submit_poll_add t.uring fd id poll_mask) user_data
 
 let submit t =
   if t.dirty then begin
