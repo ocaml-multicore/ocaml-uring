@@ -143,29 +143,51 @@ ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, va
 
 value
 ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
-  CAMLparam2(v_uring, v_ba);
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
-  if (!sqe) CAMLreturn(Val_false);
+  if (!sqe) return Val_false;
   dprintf("submit_readv_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int_val(v_fileoff), 0);
   io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
-  CAMLreturn(Val_true);
+  return Val_true;
+}
+
+value
+ocaml_uring_submit_readv_fixed_byte(value* values, int argc) {
+  return ocaml_uring_submit_readv_fixed_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5],
+			  values[6]);
 }
 
 value
 ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
-  CAMLparam2(v_uring, v_ba);
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe)
-    CAMLreturn(Val_false);
+    return Val_false;
   dprintf("submit_writev_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int_val(v_fileoff));
   io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int_val(v_fileoff), 0);
   io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
-  CAMLreturn(Val_true);
+  return Val_true;
+}
+
+value
+ocaml_uring_submit_writev_fixed_byte(value* values, int argc) {
+  return ocaml_uring_submit_writev_fixed_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5],
+			  values[6]);
 }
 
 value ocaml_uring_submit(value v_uring)
