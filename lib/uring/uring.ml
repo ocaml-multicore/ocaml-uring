@@ -51,6 +51,8 @@ module Uring = struct
   external wait_cqe : t -> id * int = "ocaml_uring_wait_cqe"
   external wait_cqe_timeout : float -> t -> id * int = "ocaml_uring_wait_cqe_timeout"
   external peek_cqe : t -> id * int = "ocaml_uring_peek_cqe"
+
+  external error_of_errno : int -> Unix.error = "ocaml_uring_error_of_errno"
 end
 
 type 'a t = {
@@ -145,3 +147,6 @@ let wait ?timeout t =
 
 let queue_depth {queue_depth;_} = queue_depth
 let buf {fixed_iobuf;_} = fixed_iobuf
+
+let error_of_errno e =
+  Uring.error_of_errno (abs e)

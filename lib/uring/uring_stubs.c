@@ -273,3 +273,8 @@ value ocaml_uring_peek_cqe(value v_uring)
   }
   CAMLreturn(v_ret);
 }
+
+// Allocates
+value ocaml_uring_error_of_errno(value v_errno) {
+  return unix_error_of_code(Int_val(v_errno));
+}

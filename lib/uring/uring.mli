@@ -100,6 +100,9 @@ val peek : 'a t -> ('a * int) option
     It returns the user data associated with the original request and the 
     integer syscall result. TODO: replace int res with a GADT of the request type. *)
 
+val error_of_errno : int -> Unix.error
+(** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)
+
 val realloc : 'a t -> Iovec.Buffer.t -> unit
 (** [realloc t buf] will replace the internal fixed buffer associated with
     uring [t] with a fresh one. TODO: specify semantics of outstanding requests. *)
