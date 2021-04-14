@@ -1,3 +1,9 @@
+(test
+ (name main)
+ (modules main)
+ (package uring)
+ (libraries bigstringaf unix uring alcotest))
+
 (library
  (name urcp_lib)
  (modules urcp_lib)
@@ -36,11 +42,6 @@
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli lwtcp_lib))
 
 (executable
- (name basic_file_read)
- (modules basic_file_read)
- (libraries bigstringaf unix uring alcotest))
-
-(executable
  (name poll_add)
  (modules poll_add)
  (libraries unix uring alcotest logs logs.fmt))
@@ -50,12 +51,6 @@
  (modules cptest)
  (libraries urcp_fixed_lib urcp_lib lwtcp_lib uring bos bechamel notty.unix
    bechamel-notty))
-
-(rule
- (alias runtest)
- (package uring)
- (deps test.txt)
- (action (run ./basic_file_read.exe)))
 
 (rule
  (alias runtest)
