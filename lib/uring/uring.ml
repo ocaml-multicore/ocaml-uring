@@ -66,9 +66,12 @@ type 'a t = {
   mutable dirty: bool; (* has outstanding requests that need to be submitted *)
 }
 
+let invalid_argf fmt = Format.kasprintf invalid_arg fmt
+
 let default_iobuf_len = 1024 * 1024 (* 1MB *)
 
 let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth ~default () =
+  if queue_depth < 1 then invalid_argf "Non-positive queue depth: %d" queue_depth;
   let uring = Uring.create queue_depth in
   (* TODO posix memalign this to page *)
   let fixed_iobuf = Iovec.Buffer.create fixed_buf_len in
