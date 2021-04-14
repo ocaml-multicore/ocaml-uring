@@ -83,6 +83,8 @@ val write : 'a t -> ?file_offset:int -> Unix.file_descr -> int -> int -> 'a -> b
     TODO: replace [off] with {!Region.chunk} instead?
     The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
 
+val close : 'a t -> Unix.file_descr -> 'a -> bool
+
 val submit : 'a t -> int
 (** [submit t] will submit all the outstanding queued requests on uring [t]
     to the kernel. Their results can subsequently be retrieved using {!wait}
