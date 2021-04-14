@@ -101,6 +101,17 @@ value ocaml_uring_exit(value v_uring) {
 }
 
 value
+ocaml_uring_submit_nop(value v_uring, value v_id) {
+  CAMLparam1(v_uring);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) CAMLreturn(Val_false);
+  io_uring_prep_nop(sqe);
+  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  CAMLreturn(Val_true);
+}
+
+value
 ocaml_uring_submit_close(value v_uring, value v_fd, value v_id) {
   CAMLparam1(v_uring);
   struct io_uring *ring = Ring_val(v_uring);

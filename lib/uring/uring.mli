@@ -33,8 +33,22 @@ val create : ?fixed_buf_len:int -> queue_depth:int -> default:'a -> unit -> 'a t
 val queue_depth : 'a t -> int
 (** [queue_depth t] returns the total number of submission slots for the uring [t] *)
 
+val buf : 'a t -> Iovec.Buffer.t
+(** [buf t] will return the fixed internal memory buffer associated with
+    uring [t]. TODO: replace with {!Region.t} instead. *)
+
+val realloc : 'a t -> Iovec.Buffer.t -> unit
+(** [realloc t buf] will replace the internal fixed buffer associated with
+    uring [t] with a fresh one. TODO: specify semantics of outstanding requests. *)
+
 val exit : 'a t -> unit
 (** [exit t] will shut down the uring [t]. Any subsequent requests will fail. *)
+
+(** {2 Queueing operations} *)
+
+val noop : 'a t -> 'a -> bool
+(** [noop t d] submits a no-op operation to uring [t]. The user data [d] will be
+    returned by {!wait} or {!peek} upon completion. *)
 
 module Poll_mask : sig
   type t = private int
@@ -85,6 +99,8 @@ val write : 'a t -> ?file_offset:int -> Unix.file_descr -> int -> int -> 'a -> b
 
 val close : 'a t -> Unix.file_descr -> 'a -> bool
 
+(** {2 Submitting operations} *)
+
 val submit : 'a t -> int
 (** [submit t] will submit all the outstanding queued requests on uring [t]
     to the kernel. Their results can subsequently be retrieved using {!wait}
@@ -105,10 +121,3 @@ val peek : 'a t -> ('a * int) option
 val error_of_errno : int -> Unix.error
 (** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)
 
-val realloc : 'a t -> Iovec.Buffer.t -> unit
-(** [realloc t buf] will replace the internal fixed buffer associated with
-    uring [t] with a fresh one. TODO: specify semantics of outstanding requests. *)
-
-val buf : 'a t -> Iovec.Buffer.t
-(** [buf t] will return the fixed internal memory buffer associated with
-    uring [t]. TODO: replace with {!Region.t} instead. *)
