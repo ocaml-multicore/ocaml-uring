@@ -10,7 +10,11 @@ module Test_data = struct
     output_string oc "A test file";
     close_out oc
 
-  let get_fd () = Unix.openfile path [ O_RDONLY ] 0
+  let with_fd f =
+    let fd = Unix.openfile path [ O_RDONLY ] 0 in
+    let a = f fd in
+    Unix.close fd;
+    a
 end
 
 let rec consume t =
@@ -40,7 +44,7 @@ let test_noop () =
 
 let test_read () =
   let t = Uring.create ~queue_depth:1 ~default:`Unused () in
-  let fd = Test_data.get_fd () in
+  Test_data.with_fd @@ fun fd ->
 
   let off = 3 in
   let len = 5 in
@@ -58,7 +62,7 @@ let test_read () =
 
 let test_readv () =
   let t = Uring.create ~queue_depth:1 ~default:`Unused () in
-  let fd = Test_data.get_fd () in
+  Test_data.with_fd @@ fun fd ->
 
   let b1_len = 3 and b2_len = 7 in
   let b1 = Iovec.Buffer.create b1_len and b2 = Iovec.Buffer.create b2_len in
