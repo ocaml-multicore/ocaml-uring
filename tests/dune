@@ -2,7 +2,7 @@
  (name main)
  (modules main)
  (package uring)
- (libraries bigstringaf unix uring alcotest))
+ (libraries bigstringaf unix uring alcotest optint))
 
 (library
  (name urcp_lib)

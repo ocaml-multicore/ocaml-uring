@@ -1,3 +1,5 @@
+module Int63 = Optint.Int63
+
 let assert_      ~__POS__ = Alcotest.(check ~pos:__POS__ bool) "" true
 let check_int    ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ int) "" expected
 let check_string ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ string) "" expected
@@ -48,7 +50,7 @@ let test_read () =
 
   let off = 3 in
   let len = 5 in
-  let file_offset = 2 in
+  let file_offset = Int63.of_int 2 in
   assert_   ~__POS__ (Uring.read t ~file_offset fd off len `Read);
   check_int ~__POS__ (Uring.submit t) ~expected:1;
 
