@@ -43,6 +43,6 @@ let submit_read_request fname uring =
 
 let () =
    let fname = Sys.argv.(1) in
-   let uring = Uring.create ~queue_depth:1 ~default:Iovec.empty () in
+   let uring = Uring.create ~queue_depth:1 () in
    submit_read_request fname uring;
    get_completion_and_print uring
