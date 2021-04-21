@@ -42,6 +42,7 @@ module Uring = struct
   external submit : t -> int = "ocaml_uring_submit"
 
   type id = int
+  external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
   external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_readv" [@@noalloc]
   external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_writev" [@@noalloc]
@@ -68,6 +69,7 @@ type 'a t = {
 let default_iobuf_len = 1024 * 1024 (* 1MB *)
 
 let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth ~default () =
+  if queue_depth < 1 then Fmt.invalid_arg "Non-positive queue depth: %d" queue_depth;
   let uring = Uring.create queue_depth in
   (* TODO posix memalign this to page *)
   let fixed_iobuf = Iovec.Buffer.create fixed_buf_len in
@@ -101,6 +103,9 @@ let with_id t fn user_data =
        true
      end else false
   | exception Not_found -> false
+
+let noop t user_data =
+  with_id t (fun id -> Uring.submit_nop t.uring id) user_data
 
 let readv t ?(offset=0) fd iovec user_data =
   with_id t (fun id -> Uring.submit_readv t.uring fd id iovec offset) user_data

@@ -22,4 +22,4 @@
   cmdliner
   (fmt (>= 0.8.4))
   bigstringaf
-  (alcotest :with-test)))
+  (alcotest (and (>= 1.4.0) :with-test))))
