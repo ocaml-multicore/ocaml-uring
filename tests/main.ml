@@ -37,7 +37,8 @@ module Heap = struct
         else
           let data = Random.int 5000 in
           let ptr = Heap.alloc t data in
-          Hashtbl.replace reference ptr data;
+          assert_ ~__POS__ (not (Hashtbl.mem reference ptr));
+          Hashtbl.add reference ptr data;
           incr currently_allocated
       | false ->
         let (k, v) = random_hashtbl_elt reference in
