@@ -39,6 +39,7 @@ end
 
 module Uring = struct
   type t
+
   external create : int -> t = "ocaml_uring_setup"
   external exit : t -> unit = "ocaml_uring_exit"
 
@@ -56,9 +57,13 @@ module Uring = struct
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
 
-  external wait_cqe : t -> id * int = "ocaml_uring_wait_cqe"
-  external wait_cqe_timeout : float -> t -> id * int = "ocaml_uring_wait_cqe_timeout"
-  external peek_cqe : t -> id * int = "ocaml_uring_peek_cqe"
+  type cqe_option = private
+    | Cqe_none
+    | Cqe_some of { user_data_id : id; res: int }
+
+  external wait_cqe : t -> cqe_option = "ocaml_uring_wait_cqe"
+  external wait_cqe_timeout : float -> t -> cqe_option = "ocaml_uring_wait_cqe_timeout"
+  external peek_cqe : t -> cqe_option = "ocaml_uring_peek_cqe"
 
   external error_of_errno : int -> Unix.error = "ocaml_uring_error_of_errno"
 end
@@ -127,26 +132,19 @@ let submit t =
   end else
     0
 
-type 'a completion_option =
+ type 'a completion_option =
   | None
   | Some of { result: int; data: 'a }
 
-(* TODO use unixsupport.h *)
-let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
-
 let fn_on_ring fn t =
-   let (id : Heap.ptr), res = fn t.uring in
-   match (id :> int), res with
-   | -1, res when errno_is_retry res ->
-     None
-   | -1, res when res < 0 ->
-     failwith ("wait error " ^ (string_of_int res))
-     (* TODO switch to unixsupport.h to raise Unix_error *)
-   | _, res ->
-     let data = Heap.free t.user_data id in
-     Some { result = res; data }
+  match fn t.uring with
+  | Uring.Cqe_none -> None
+  | Uring.Cqe_some { user_data_id; res } ->
+    let data = Heap.free t.user_data user_data_id in
+    Some { result = res; data }
 
 let peek t = fn_on_ring Uring.peek_cqe t
+
 let wait ?timeout t =
   match timeout with
   | None -> fn_on_ring Uring.wait_cqe t
