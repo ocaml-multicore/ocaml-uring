@@ -60,6 +60,7 @@ module Uring = struct
   type cqe_option = private
     | Cqe_none
     | Cqe_some of { user_data_id : id; res: int }
+  [@@ocaml.warning "-37" (* Avoids "Unused constructor" warning on OCaml <= 4.09. *)]
 
   external wait_cqe : t -> cqe_option = "ocaml_uring_wait_cqe"
   external wait_cqe_timeout : float -> t -> cqe_option = "ocaml_uring_wait_cqe_timeout"
