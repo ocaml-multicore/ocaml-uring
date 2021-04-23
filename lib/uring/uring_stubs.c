@@ -38,9 +38,17 @@
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
 
+void finalise_ring_val(value v_uring) {
+  struct io_uring *ring = Ring_val(v_uring);
+  if (ring) {
+    io_uring_queue_exit(ring);
+    ring = NULL;
+  }
+};
+
 static struct custom_operations ring_ops = {
   "uring.ring",
-  custom_finalize_default, /* TODO: Finalize should check we've taken down the ring and if not, take it down */
+  finalise_ring_val,
   custom_compare_default,
   custom_hash_default,
   custom_serialize_default,

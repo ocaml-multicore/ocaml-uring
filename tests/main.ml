@@ -78,6 +78,32 @@ let test_readv () =
   check_string ~__POS__ ~expected:"est fil" (Bigstringaf.to_string b2);
   ()
 
+let test_finalise () =
+  let () =
+    (* Finalising an unclosed Uring is successful. *)
+    let finalised = ref false in
+    let () =
+      Uring.create ~default:() ~queue_depth:1 ()
+      |> Gc.finalise_last (fun _ -> finalised := true)
+    in
+    Gc.full_major ();
+    assert_ ~__POS__ !finalised;
+    Gc.full_major ()
+  in
+  let () =
+    (* Finalising a closed Uring is successful. *)
+    let finalised = ref false in
+    let () =
+      let t = Uring.create ~default:() ~queue_depth:1 () in
+      Uring.exit t;
+      Gc.finalise_last (fun _ -> finalised := true) t;
+    in
+    Gc.full_major ();
+    assert_ ~__POS__ !finalised;
+    Gc.full_major ()
+  in
+  ()
+
 let () =
   Test_data.setup ();
   let tc name f = Alcotest.test_case name `Quick f in
@@ -86,5 +112,6 @@ let () =
       tc "noop" test_noop;
       tc "read" test_read;
       tc "readv" test_readv;
+      tc "finalise" test_finalise;
     ] ]
 
