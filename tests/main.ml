@@ -19,7 +19,7 @@ end
 
 let rec consume t =
   match Uring.wait ~timeout:1. t with
-  | Some v -> v
+  | Some { data; result } -> (data, result)
   | None -> consume t
 
 let test_invalid_queue_depth () =
