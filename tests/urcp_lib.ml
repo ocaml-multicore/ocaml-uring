@@ -2,6 +2,8 @@
  * depth allows and then queues up corresponding writes.
    OCaml version of https://unixism.net/loti/tutorial/cp_liburing.html *)
 
+module Int63 = Optint.Int63
+
 let get_file_size fd =
   Unix.handle_unix_error Unix.fstat fd |>
   fun {Unix.st_size; _} -> st_size
@@ -9,7 +11,7 @@ let get_file_size fd =
 
 type t = {
   mutable insize: int;
-  mutable offset: int;
+  mutable offset: Int63.t;
   mutable reads: int;
   mutable writes: int;
   mutable write_left: int;
@@ -20,22 +22,22 @@ type t = {
 }
 
 let pp ppf {insize;offset;reads;writes;write_left; read_left;_} =
-  Fmt.pf ppf "insize %d offset %d reads %d writes %d rleft %d wleft %d"
-    insize offset reads writes read_left write_left
+  Fmt.pf ppf "insize %d offset %a reads %d writes %d rleft %d wleft %d"
+    insize Int63.pp offset reads writes read_left write_left
 
 type req = {
   op: [`R | `W ];
   iov: Iovec.t;
   len: int;
-  fileoff: int;
+  fileoff: Int63.t;
   mutable off: int;
   t : t;
 }
 
 let pp_req ppf {op; len; off; fileoff; t; _ } =
-  Fmt.pf ppf "[%s fileoff %d len %d off %d] [%a]" (match op with |`R -> "r" |`W -> "w") fileoff len off pp t
+  Fmt.pf ppf "[%s fileoff %a len %d off %d] [%a]" (match op with |`R -> "r" |`W -> "w") Int63.pp fileoff len off pp t
 
-let empty_req t = { op=`R; iov=Iovec.empty; len=0; off=0; fileoff=0; t}
+let empty_req t = { op=`R; iov=Iovec.empty; len=0; off=0; fileoff=Int63.zero; t}
 
 (* Perform a complete read into bufs. *)
 let queue_read uring t len =
@@ -45,7 +47,7 @@ let queue_read uring t len =
   Logs.debug (fun l -> l "queue_read: %a" pp_req req);
   let r = Uring.readv uring ~offset:t.offset t.infd iov req in
   assert(r);
-  t.offset <- t.offset + len;
+  t.offset <- Int63.(add t.offset (of_int len));
   t.read_left <- t.read_left - len;
   t.reads <- t.reads + 1
 
@@ -71,8 +73,8 @@ let handle_read_completion uring req res =
   | n when n < bytes_to_read ->
     (* handle short read so new iovec and resubmit *)
     Iovec.advance req.iov ~idx:0 ~adj:n;
-    req.off <-req.off + n;
-    let r = Uring.readv ~offset:req.off uring req.t.infd req.iov req in
+    req.off <- req.off + n;
+    let r = Uring.readv ~offset:(Int63.of_int req.off) uring req.t.infd req.iov req in
     assert(r);
     Logs.debug (fun l -> l "requeued short read: %a" pp_req req);
   | n when n = bytes_to_read ->
@@ -154,7 +156,7 @@ let run_cp block_size queue_depth infile outfile () =
    let infd = Unix.(handle_unix_error (openfile infile [O_RDONLY]) 0) in
    let outfd = Unix.(handle_unix_error (openfile outfile [O_WRONLY; O_CREAT; O_TRUNC]) 0o644) in
    let insize = get_file_size infd in
-   let t = { block_size; insize; offset=0; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
+   let t = { block_size; insize; offset=Int63.zero; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
    Logs.debug (fun l -> l "starting: %a bs=%d qd=%d" pp t block_size queue_depth);
    let uring = Uring.create ~queue_depth ~default:(empty_req t) () in
    copy_file uring t;

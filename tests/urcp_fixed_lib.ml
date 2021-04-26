@@ -2,6 +2,8 @@
  * depth allows and then queues up corresponding writes.
    OCaml version of https://unixism.net/loti/tutorial/cp_liburing.html *)
 
+module Int63 = Optint.Int63
+
 let get_file_size fd =
   Unix.handle_unix_error Unix.fstat fd |>
   fun {Unix.st_size; _} -> st_size
@@ -10,7 +12,7 @@ let get_file_size fd =
 type t = {
   freelist: int Queue.t;
   mutable insize: int;
-  mutable offset: int;
+  mutable offset: Int63.t;
   mutable reads: int;
   mutable writes: int;
   mutable write_left: int;
@@ -21,22 +23,22 @@ type t = {
 }
 
 let pp ppf {insize;offset;reads;writes;write_left; read_left;_} =
-  Fmt.pf ppf "insize %d offset %d reads %d writes %d rleft %d wleft %d"
-    insize offset reads writes read_left write_left
+  Fmt.pf ppf "insize %d offset %a reads %d writes %d rleft %d wleft %d"
+    insize Int63.pp offset reads writes read_left write_left
 
 type req = {
   op: [`R | `W ];
   fixed_off: int;
   mutable len: int;
-  fileoff: int;
+  fileoff: Int63.t;
   mutable off: int;
   t : t;
 }
 
 let pp_req ppf {op; len; off; fixed_off; fileoff; t; _ } =
-  Fmt.pf ppf "[%s fileoff %d len %d off %d fixedoff %d] [%a]" (match op with |`R -> "r" |`W -> "w") fileoff len off fixed_off pp t
+  Fmt.pf ppf "[%s fileoff %a len %d off %d fixedoff %d] [%a]" (match op with |`R -> "r" |`W -> "w") Int63.pp fileoff len off fixed_off pp t
 
-let empty_req t = { op=`R; fixed_off=0; len=0; off=0; fileoff=0; t}
+let empty_req t = { op=`R; fixed_off=0; len=0; off=0; fileoff=Int63.zero; t}
 
 (* Perform a complete read into bufs. *)
 let queue_read uring t len =
@@ -45,7 +47,7 @@ let queue_read uring t len =
   Logs.debug (fun l -> l "queue_read: %a" pp_req req);
   let r = Uring.read uring ~file_offset:t.offset t.infd fixed_off len req in
   assert(r);
-  t.offset <- t.offset + len;
+  t.offset <- Int63.(add t.offset (of_int len));
   t.read_left <- t.read_left - len;
   t.reads <- t.reads + 1
 
@@ -155,7 +157,7 @@ let run_cp block_size queue_depth infile outfile () =
    let insize = get_file_size infd in
    let freelist = Queue.create () in
    for i = 0 to queue_depth - 1 do Queue.push (block_size * i) freelist; done;
-   let t = { freelist; block_size; insize; offset=0; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
+   let t = { freelist; block_size; insize; offset=Int63.zero; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
    Logs.debug (fun l -> l "starting: %a bs=%d qd=%d" pp t block_size queue_depth);
    let fixed_buf_len = queue_depth * block_size in
    let uring = Uring.create ~fixed_buf_len ~queue_depth ~default:(empty_req t) () in

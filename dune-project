@@ -22,4 +22,5 @@
   cmdliner
   (fmt (>= 0.8.4))
   bigstringaf
+  (optint (>= 0.1.0))
   (alcotest (and (>= 1.4.0) :with-test))))

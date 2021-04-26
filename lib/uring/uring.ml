@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+module Int63 = Optint.Int63
 module Region = Region
 
 module Poll_mask = struct
@@ -42,12 +43,13 @@ module Uring = struct
   external submit : t -> int = "ocaml_uring_submit"
 
   type id = int
+  type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
-  external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_readv" [@@noalloc]
-  external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> int -> bool = "ocaml_uring_submit_writev" [@@noalloc]
-  external submit_readv_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
-  external submit_writev_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> int -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
+  external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool = "ocaml_uring_submit_readv" [@@noalloc]
+  external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool = "ocaml_uring_submit_writev" [@@noalloc]
+  external submit_readv_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
+  external submit_writev_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
 
   external wait_cqe : t -> id * int = "ocaml_uring_wait_cqe"
@@ -107,16 +109,16 @@ let with_id t fn user_data =
 let noop t user_data =
   with_id t (fun id -> Uring.submit_nop t.uring id) user_data
 
-let readv t ?(offset=0) fd iovec user_data =
+let readv t ?(offset=Int63.zero) fd iovec user_data =
   with_id t (fun id -> Uring.submit_readv t.uring fd id iovec offset) user_data
 
-let read t ?(file_offset=0) fd off len user_data =
+let read t ?(file_offset=Int63.zero) fd off len user_data =
   with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
-let write t ?(file_offset=0) fd off len user_data =
+let write t ?(file_offset=Int63.zero) fd off len user_data =
   with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
-let writev t ?(offset=0) fd iovec user_data =
+let writev t ?(offset=Int63.zero) fd iovec user_data =
   with_id t (fun id -> Uring.submit_writev t.uring fd id iovec offset) user_data
 
 let poll_add t fd poll_mask user_data =

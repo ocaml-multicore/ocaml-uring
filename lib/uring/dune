@@ -2,7 +2,7 @@
  (name uring)
  (public_name uring)
  (foreign_archives uring)
- (libraries bigstringaf iovec fmt)
+ (libraries bigstringaf iovec fmt optint)
  (foreign_stubs
   (language c)
   (flags

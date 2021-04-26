@@ -19,6 +19,7 @@ depends: [
   "cmdliner"
   "fmt" {>= "0.8.4"}
   "bigstringaf"
+  "optint" {>= "0.1.0"}
   "alcotest" {>= "1.4.0" & with-test}
   "odoc" {with-doc}
 ]
