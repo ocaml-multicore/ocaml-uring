@@ -13,8 +13,8 @@ let () =
   let rec retry () =
     match Uring.wait t with
     | None -> retry ()
-    | Some v -> v
+    | Some { result; _ } -> result
   in
-  let (), res = retry () in
+  let res = retry () in
   Printf.eprintf "poll_add: %x\n%!" res;
   ()

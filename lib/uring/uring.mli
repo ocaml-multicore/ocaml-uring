@@ -108,17 +108,21 @@ val submit : 'a t -> int
     to the kernel. Their results can subsequently be retrieved using {!wait}
     or {!peek}. *)
 
-val wait : ?timeout:float -> 'a t -> ('a * int) option
-(** [wait ?timeout t] will block indefinitely (the default) or for [timeout]
-    seconds for any outstanding events to complete on uring [t].  Events should
-    have been queued via {!submit} previously to this call.
-    It returns the user data associated with the original request and the 
-    integer syscall result. TODO: replace int res with a GADT of the request type. *)
+type 'a completion_option =
+  | None
+  | Some of { result: int; data: 'a } (**)
+(** The type of results of calling {!wait} and {!peek}. [None] denotes that
+    either there were no completions in the queue or an interrupt / timeout
+    occurred. [Some] contains both the user data attached to the completed
+    request and the integer syscall result. *)
 
-val peek : 'a t -> ('a * int) option
-(** [peek t] looks for completed requests on the uring [t] without blocking.
-    It returns the user data associated with the original request and the 
-    integer syscall result. TODO: replace int res with a GADT of the request type. *)
+val wait : ?timeout:float -> 'a t -> 'a completion_option
+(** [wait ?timeout t] will block indefinitely (the default) or for [timeout]
+    seconds for any outstanding events to complete on uring [t]. Events should
+    have been queued via {!submit} previously to this call. *)
+
+val peek : 'a t -> 'a completion_option
+(** [peek t] looks for completed requests on the uring [t] without blocking. *)
 
 val error_of_errno : int -> Unix.error
 (** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)

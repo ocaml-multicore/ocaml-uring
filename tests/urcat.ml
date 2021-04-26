@@ -9,7 +9,11 @@ let get_file_size fd =
 (* TODO make this work with ST_ISBLK *)
 
 let get_completion_and_print uring =
-  let iov, len = match Uring.wait uring with Some v -> v | None -> failwith "retry" in
+  let iov, len =
+    match Uring.wait uring with
+    | Some { data; result } -> (data, result)
+    | None -> failwith "retry"
+  in
   let bufs = Iovec.buffers iov in
   let remaining = ref len in
   Printf.eprintf "%d bytes read\n%!" len;

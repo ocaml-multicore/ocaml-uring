@@ -134,6 +134,10 @@ let submit t =
   end else
     0
 
+type 'a completion_option =
+  | None
+  | Some of { result: int; data: 'a }
+
 (* TODO use unixsupport.h *)
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
@@ -148,7 +152,7 @@ let fn_on_ring fn t =
    | id, res ->
      let data = t.user_data.(id) in
      put_id t id;
-     Some (data, res)
+     Some { result = res; data }
 
 let peek t = fn_on_ring Uring.peek_cqe t
 let wait ?timeout t =
