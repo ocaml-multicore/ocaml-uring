@@ -61,11 +61,11 @@ exception No_space
 let alloc t a =
   let ptr = t.free_head in
   if ptr = free_list_nil then raise No_space;
-  Array.unsafe_set t.data ptr a;
+  t.data.(ptr) <- a;
 
   (* Drop [ptr] from the free list. *)
-  let tail = Array.unsafe_get t.free_tail_relation ptr in
-  Array.unsafe_set t.free_tail_relation ptr slot_taken;
+  let tail = t.free_tail_relation.(ptr) in
+  t.free_tail_relation.(ptr) <- slot_taken;
   t.free_head <- tail;
 
   ptr
@@ -74,19 +74,19 @@ let free : type a. a t -> ptr -> a =
  fun t ptr ->
   assert (ptr >= 0) (* [alloc] returns only valid pointers. *);
   if ptr >= t.length then Fmt.invalid_arg "Heap.free: invalid pointer %d" ptr;
-  let slot_state = Array.unsafe_get t.free_tail_relation ptr in
+  let slot_state = t.free_tail_relation.(ptr) in
   if slot_state <> slot_taken then invalid_arg "Heap.free: pointer already freed";
 
   (* [t.free_tail_relation.(ptr) = slot_taken], so [t.data.(ptr)] is valid. *)
-  let datum = Array.unsafe_get t.data ptr in
+  let datum = t.data.(ptr) in
 
   (* Cons [ptr] to the free-list. *)
-  Array.unsafe_set t.free_tail_relation ptr t.free_head;
+  t.free_tail_relation.(ptr) <- t.free_head;
   t.free_head <- ptr;
 
   (* We've marked this slot as free, so [t.data.(ptr)] is inaccessible. We zero
      it to allow it to be GC-ed. *)
   assert (t.free_tail_relation.(ptr) <> slot_taken);
-  Array.unsafe_set t.data ptr (Obj.magic `invalid : a);
+  t.data.(ptr) <- (Obj.magic `invalid : a);
 
   datum
