@@ -23,7 +23,7 @@ let free_list_nil = -2
 
 (* Free-list allocator *)
 type 'a t =
-  { data: 'a array
+  { data: 'a option array
   (* Pool of potentially-empty data slots. Invariant: an unfreed pointer [p]
      into this array is valid iff [free_tail_relation.(p) = slot_taken]. *)
   ; mutable free_head: ptr
@@ -52,7 +52,7 @@ let create : type a. int -> a t =
   let data =
     (* No slot in [free_tail_relation] is [slot_taken], so initial data is
        inaccessible. *)
-    Array.make n (Obj.magic `invalid : a)
+    Array.make n None
   in
   { data; free_head; free_tail_relation; length = n }
 
@@ -61,7 +61,7 @@ exception No_space
 let alloc t a =
   let ptr = t.free_head in
   if ptr = free_list_nil then raise No_space;
-  t.data.(ptr) <- a;
+  t.data.(ptr) <- Some a;
 
   (* Drop [ptr] from the free list. *)
   let tail = t.free_tail_relation.(ptr) in
@@ -70,15 +70,18 @@ let alloc t a =
 
   ptr
 
-let free : type a. a t -> ptr -> a =
- fun t ptr ->
+let free t ptr =
   assert (ptr >= 0) (* [alloc] returns only valid pointers. *);
   if ptr >= t.length then Fmt.invalid_arg "Heap.free: invalid pointer %d" ptr;
   let slot_state = t.free_tail_relation.(ptr) in
   if slot_state <> slot_taken then invalid_arg "Heap.free: pointer already freed";
 
   (* [t.free_tail_relation.(ptr) = slot_taken], so [t.data.(ptr)] is valid. *)
-  let datum = t.data.(ptr) in
+  let datum =
+    match t.data.(ptr) with
+    | None -> assert false
+    | Some x -> x
+  in
 
   (* Cons [ptr] to the free-list. *)
   t.free_tail_relation.(ptr) <- t.free_head;
@@ -87,6 +90,6 @@ let free : type a. a t -> ptr -> a =
   (* We've marked this slot as free, so [t.data.(ptr)] is inaccessible. We zero
      it to allow it to be GC-ed. *)
   assert (t.free_tail_relation.(ptr) <> slot_taken);
-  t.data.(ptr) <- (Obj.magic `invalid : a);
+  t.data.(ptr) <- None;
 
   datum
