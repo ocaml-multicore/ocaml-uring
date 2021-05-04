@@ -10,7 +10,7 @@ let noop_run queue_depth =
       let submitted = Uring.submit t in
       assert (submitted = queue_depth);
       for _ = 1 to queue_depth do
-        ignore (Uring.wait t : _ option)
+        ignore (Uring.wait t : _ Uring.completion_option)
       done)
 
 let suite =
