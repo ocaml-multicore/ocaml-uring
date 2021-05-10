@@ -28,6 +28,8 @@ let alloc t =
 let free ({freelist; _}, v) =
   Queue.push v freelist
 
+let length ({block_size;_}, _) = block_size
+
 let to_bigstring ?len ({buf;block_size;_}, chunk) =
   let len = match len with None -> block_size | Some v -> min v block_size in
   Bigstringaf.sub buf ~off:chunk ~len
