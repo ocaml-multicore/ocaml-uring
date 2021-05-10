@@ -29,6 +29,9 @@ type t
   (** [free chunk] will return the memory [chunk] back to the region
       [t] where it can be reallocated. *)
 
+  val length : chunk -> int
+  (** [length chunk] is the block size. *)
+
   val to_offset : chunk -> int
   (** [to_offset chunk] will convert the [chunk] into an integer
       offset in its associated region.  This can be used in IO calls
