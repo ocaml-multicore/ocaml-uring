@@ -13,6 +13,7 @@
  (description "Bindings to the Linux io_uring kernel IO interfaces.")
  (depends
   dune-configurator
+  (iovec (= :version))
   (lwt (>= 5.0.0))
   (notty (and (>= 0.2.2) :with-test))
   (bos (and (>= 0.2.0) :with-test))
