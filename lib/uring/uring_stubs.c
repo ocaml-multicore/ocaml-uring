@@ -220,6 +220,20 @@ ocaml_uring_submit_writev_fixed_byte(value* values, int argc) {
 			  values[6]);
 }
 
+value
+ocaml_uring_submit_splice(value v_uring, value v_id, value v_fd_in, value v_fd_out, value v_nbytes) {
+  CAMLparam1(v_uring);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) CAMLreturn(Val_false);
+  io_uring_prep_splice(sqe,
+		       Int_val(v_fd_in), (int64_t) -1,
+		       Int_val(v_fd_out), (int64_t) -1,
+		       Int_val(v_nbytes), 0);
+  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  CAMLreturn(Val_true);
+}
+
 value ocaml_uring_submit(value v_uring)
 {
   CAMLparam1(v_uring);

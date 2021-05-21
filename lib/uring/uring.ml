@@ -51,6 +51,7 @@ module Uring = struct
   external submit_readv_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
+  external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
 
   external wait_cqe : t -> id * int = "ocaml_uring_wait_cqe"
   external wait_cqe_timeout : float -> t -> id * int = "ocaml_uring_wait_cqe_timeout"
@@ -126,6 +127,9 @@ let poll_add t fd poll_mask user_data =
 
 let close t fd user_data =
   with_id t (fun id -> Uring.submit_close t.uring fd id) user_data
+
+let splice t ~src ~dst ~len user_data =
+  with_id t (fun id -> Uring.submit_splice t.uring id src dst len) user_data
 
 let submit t =
   if t.dirty then begin
