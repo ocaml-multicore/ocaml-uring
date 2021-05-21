@@ -110,16 +110,16 @@ let with_id t fn user_data =
 let noop t user_data =
   with_id t (fun id -> Uring.submit_nop t.uring id) user_data
 
-let readv t ?(offset=Int63.zero) fd iovec user_data =
+let readv t ?(offset=Int63.minus_one) fd iovec user_data =
   with_id t (fun id -> Uring.submit_readv t.uring fd id iovec offset) user_data
 
-let read t ?(file_offset=Int63.zero) fd off len user_data =
+let read t ?(file_offset=Int63.minus_one) fd off len user_data =
   with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
-let write t ?(file_offset=Int63.zero) fd off len user_data =
+let write t ?(file_offset=Int63.minus_one) fd off len user_data =
   with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
-let writev t ?(offset=Int63.zero) fd iovec user_data =
+let writev t ?(offset=Int63.minus_one) fd iovec user_data =
   with_id t (fun id -> Uring.submit_writev t.uring fd id iovec offset) user_data
 
 let poll_add t fd poll_mask user_data =
