@@ -99,6 +99,11 @@ val write : 'a t -> ?file_offset:offset -> Unix.file_descr -> int -> int -> 'a -
     TODO: replace [off] with {!Region.chunk} instead?
     The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
 
+val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a -> bool
+(** [splice t ~src ~dst ~len d] will submit a request to copy [len] bytes from [src] to [dst].
+    The operation returns the number of bytes transferred, or 0 for end-of-input.
+    The result is [EINVAL] if the file descriptors don't support splicing. *)
+
 val close : 'a t -> Unix.file_descr -> 'a -> bool
 
 (** {2 Submitting operations} *)
