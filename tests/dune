@@ -22,23 +22,17 @@
 (executable
  (name urcat)
  (modules urcat)
- (public_name urcat)
- (package uring)
  (libraries bigstringaf unix uring))
 
 (executable
  (name urcp)
  (modules urcp)
- (public_name urcp)
- (package uring)
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli urcp_fixed_lib
    urcp_lib))
 
 (executable
  (name lwtcp)
  (modules lwtcp)
- (public_name lwtcp)
- (package uring)
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli lwtcp_lib))
 
 (executable
