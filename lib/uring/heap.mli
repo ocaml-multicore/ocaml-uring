@@ -25,9 +25,10 @@ type ptr = private int
 
 exception No_space
 
-val alloc : 'a t -> 'a -> ptr
-(** [alloc t a] adds the value [a] to [t] and returns a pointer to that value,
-    or raises {!No_space} if no space exists in [t]. *)
+val alloc : 'a t -> 'a -> extra_data:'b -> ptr
+(** [alloc t a ~extra_data] adds the value [a] to [t] and returns a pointer to that value,
+    or raises {!No_space} if no space exists in [t].
+    @param extra_data Prevent this from being GC'd until [free] is called. *)
 
 val free : 'a t -> ptr -> 'a
 (** [free t p] returns the element referenced by [p] and removes it from the

@@ -106,6 +106,9 @@ val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a
     The operation returns the number of bytes transferred, or 0 for end-of-input.
     The result is [EINVAL] if the file descriptors don't support splicing. *)
 
+val connect : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> bool
+(** [connect t fd addr d] will submit a request to connect [fd] to [addr]. *)
+
 val close : 'a t -> Unix.file_descr -> 'a -> bool
 
 (** {2 Submitting operations} *)

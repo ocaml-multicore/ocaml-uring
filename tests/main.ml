@@ -6,7 +6,10 @@ let check_int    ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ int) "" expec
 let check_string ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ string) "" expected
 
 module Heap = struct
-  module Heap = Uring.Private.Heap
+  module Heap = struct
+    include Uring.Private.Heap
+    let alloc = alloc ~extra_data:()
+  end
 
   let random_hashtbl_elt tbl =
     let rec inner n acc (seq : _ Seq.t) =
