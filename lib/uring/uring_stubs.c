@@ -234,7 +234,7 @@ value ocaml_uring_submit(value v_uring)
 static value Val_cqe_some(value id, value res) {
   CAMLparam2(id, res);
   CAMLlocal1(some);
-  some = caml_alloc(3, 0);
+  some = caml_alloc(2, 0);
   Store_field(some, 0, id);
   Store_field(some, 1, res);
   CAMLreturn(some);

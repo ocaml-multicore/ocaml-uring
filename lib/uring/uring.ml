@@ -133,7 +133,7 @@ let submit t =
   end else
     0
 
- type 'a completion_option =
+type 'a completion_option =
   | None
   | Some of { result: int; data: 'a }
 
