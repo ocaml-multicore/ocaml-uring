@@ -24,11 +24,11 @@ module Region = Region
 type 'a t
 (** ['a t] is a reference to an Io_uring structure. *)
 
-val create : ?fixed_buf_len:int -> queue_depth:int -> default:'a -> unit -> 'a t
-(** [create ?fixed_buf_len ~queue_depth ~default] will return a fresh
-    Io_uring structure [t].  Each [t] has associated with it a fixed region of
-    memory that is used for the "fixed buffer" mode of io_uring to avoid data
-    copying between userspace and the kernel. *)
+val create : ?fixed_buf_len:int -> queue_depth:int -> unit -> 'a t
+(** [create ?fixed_buf_len ~queue_depth] will return a fresh Io_uring structure
+    [t]. Each [t] has associated with it a fixed region of memory that is used
+    for the "fixed buffer" mode of io_uring to avoid data copying between
+    userspace and the kernel. *)
 
 val queue_depth : 'a t -> int
 (** [queue_depth t] returns the total number of submission slots for the uring [t] *)
@@ -134,3 +134,6 @@ val peek : 'a t -> 'a completion_option
 val error_of_errno : int -> Unix.error
 (** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)
 
+module Private : sig
+  module Heap = Heap
+end

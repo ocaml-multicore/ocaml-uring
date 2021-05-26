@@ -14,8 +14,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-module Int63 = Optint.Int63
+module Private = struct
+  module Heap = Heap
+end
+
 module Region = Region
+module Int63 = Optint.Int63
 
 module Poll_mask = struct
   type t = int
@@ -35,6 +39,7 @@ end
 
 module Uring = struct
   type t
+
   external create : int -> t = "ocaml_uring_setup"
   external exit : t -> unit = "ocaml_uring_exit"
 
@@ -42,7 +47,7 @@ module Uring = struct
   external register_bigarray : t ->  Iovec.Buffer.t -> unit = "ocaml_uring_register_ba"
   external submit : t -> int = "ocaml_uring_submit"
 
-  type id = int
+  type id = Heap.ptr
   type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
@@ -53,9 +58,14 @@ module Uring = struct
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
 
-  external wait_cqe : t -> id * int = "ocaml_uring_wait_cqe"
-  external wait_cqe_timeout : float -> t -> id * int = "ocaml_uring_wait_cqe_timeout"
-  external peek_cqe : t -> id * int = "ocaml_uring_peek_cqe"
+  type cqe_option = private
+    | Cqe_none
+    | Cqe_some of { user_data_id : id; res: int }
+  [@@ocaml.warning "-37" (* Avoids "Unused constructor" warning on OCaml <= 4.09. *)]
+
+  external wait_cqe : t -> cqe_option = "ocaml_uring_wait_cqe"
+  external wait_cqe_timeout : float -> t -> cqe_option = "ocaml_uring_wait_cqe_timeout"
+  external peek_cqe : t -> cqe_option = "ocaml_uring_peek_cqe"
 
   external error_of_errno : int -> Unix.error = "ocaml_uring_error_of_errno"
 end
@@ -63,24 +73,22 @@ end
 type 'a t = {
   uring: Uring.t;
   mutable fixed_iobuf: Iovec.Buffer.t;
-  mutable id_freelist: int list;
-  user_data: 'a array;
+  user_data : 'a Heap.t;
   queue_depth: int;
   mutable dirty: bool; (* has outstanding requests that need to be submitted *)
 }
 
 let default_iobuf_len = 1024 * 1024 (* 1MB *)
 
-let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth ~default () =
+let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth () =
   if queue_depth < 1 then Fmt.invalid_arg "Non-positive queue depth: %d" queue_depth;
   let uring = Uring.create queue_depth in
   (* TODO posix memalign this to page *)
   let fixed_iobuf = Iovec.Buffer.create fixed_buf_len in
   Uring.register_bigarray uring fixed_iobuf;
   Gc.finalise Uring.exit uring;
-  let id_freelist = List.init queue_depth (fun i -> i) in
-  let user_data = Array.init queue_depth (fun _ -> default) in
-  { uring; fixed_iobuf; id_freelist; user_data; dirty=false; queue_depth }
+  let user_data = Heap.create queue_depth in
+  { uring; fixed_iobuf; user_data; dirty=false; queue_depth }
 
 let realloc t iobuf =
   Uring.unregister_bigarray t.uring;
@@ -89,23 +97,14 @@ let realloc t iobuf =
 
 let exit {uring;_} = Uring.exit uring
 
-let get_id t =
-  match t.id_freelist with
-  | [] -> raise Not_found
-  | hd::tl -> t.id_freelist <- tl; hd
-
-let put_id t v =
-  t.id_freelist <- v :: t.id_freelist
-
-let with_id t fn user_data =
-  match get_id t with
-  | id ->
-     if fn id then begin
-       t.dirty <- true;
-       t.user_data.(id) <- user_data;
-       true
-     end else false
-  | exception Not_found -> false
+let with_id : type a. a t -> (Heap.ptr -> bool) -> a -> bool =
+ fun t fn datum ->
+  match Heap.alloc t.user_data datum with
+  | exception Heap.No_space -> false
+  | ptr ->
+     let has_space = fn ptr in
+     if has_space then t.dirty <- true else ignore (Heap.free t.user_data ptr : a);
+     has_space
 
 let noop t user_data =
   with_id t (fun id -> Uring.submit_nop t.uring id) user_data
@@ -142,23 +141,15 @@ type 'a completion_option =
   | None
   | Some of { result: int; data: 'a }
 
-(* TODO use unixsupport.h *)
-let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
-
 let fn_on_ring fn t =
-   let id, res = fn t.uring in
-   match id, res with
-   | -1, res when errno_is_retry res ->
-     None
-   | -1, res when res < 0 ->
-     failwith ("wait error " ^ (string_of_int res))
-     (* TODO switch to unixsupport.h to raise Unix_error *)
-   | id, res ->
-     let data = t.user_data.(id) in
-     put_id t id;
-     Some { result = res; data }
+  match fn t.uring with
+  | Uring.Cqe_none -> None
+  | Uring.Cqe_some { user_data_id; res } ->
+    let data = Heap.free t.user_data user_data_id in
+    Some { result = res; data }
 
 let peek t = fn_on_ring Uring.peek_cqe t
+
 let wait ?timeout t =
   match timeout with
   | None -> fn_on_ring Uring.wait_cqe t

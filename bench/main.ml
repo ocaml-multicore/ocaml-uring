@@ -1,7 +1,7 @@
 open Bechamel
 
 let noop_run queue_depth =
-  let t = Uring.create ~queue_depth ~default:(-1) () in
+  let t = Uring.create ~queue_depth () in
   Staged.stage (fun () ->
       for i = 1 to queue_depth do
         let r = Uring.noop t i in

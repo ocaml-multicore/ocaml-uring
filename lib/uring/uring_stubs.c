@@ -26,6 +26,7 @@
 #include <caml/mlvalues.h>
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
+#include <errno.h>
 #include <string.h>
 #include <poll.h>
 
@@ -242,6 +243,17 @@ value ocaml_uring_submit(value v_uring)
   CAMLreturn(Val_int(num));
 }
 
+#define Val_cqe_none Val_int(0)
+
+static value Val_cqe_some(value id, value res) {
+  CAMLparam2(id, res);
+  CAMLlocal1(some);
+  some = caml_alloc(2, 0);
+  Store_field(some, 0, id);
+  Store_field(some, 1, res);
+  CAMLreturn(some);
+}
+
 value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
 {
   CAMLparam2(v_uring, v_timeout);
@@ -257,17 +269,16 @@ value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
   dprintf("cqe: waiting, timeout %fs\n", timeout);
   res = io_uring_wait_cqe_timeout(ring, &cqe, &t);
   if (res < 0) {
-    v_ret = caml_alloc(2, 0);
-    Store_field(v_ret, 0, Val_int(-1));
-    Store_field(v_ret, 1, Val_int(res));
+    if (res == -EAGAIN || res == -EINTR || res == -ETIME) {
+      CAMLreturn(Val_cqe_none);
+    } else {
+      unix_error(-res, "io_uring_wait_cqe_timeout", Nothing);
+    }
   } else {
     id = (long)io_uring_cqe_get_data(cqe);
     io_uring_cqe_seen(ring, cqe);
-    v_ret = caml_alloc(2, 0);
-    Store_field(v_ret, 0, Val_int(id));
-    Store_field(v_ret, 1, Val_int(cqe->res));
+    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe->res)));
   }
-  CAMLreturn(v_ret);
 }
 
 value ocaml_uring_wait_cqe(value v_uring)
@@ -281,17 +292,16 @@ value ocaml_uring_wait_cqe(value v_uring)
   dprintf("cqe: waiting\n");
   res = io_uring_wait_cqe(ring, &cqe);
   if (res < 0) {
-    v_ret = caml_alloc(2, 0);
-    Store_field(v_ret, 0, Val_int(-1));
-    Store_field(v_ret, 1, Val_int(res));
+    if (res == -EAGAIN || res == -EINTR) {
+      CAMLreturn(Val_cqe_none);
+    } else {
+      unix_error(-res, "io_uring_wait_cqe", Nothing);
+    }
   } else {
     id = (long)io_uring_cqe_get_data(cqe);
     io_uring_cqe_seen(ring, cqe);
-    v_ret = caml_alloc(2, 0);
-    Store_field(v_ret, 0, Val_int(id));
-    Store_field(v_ret, 1, Val_int(cqe->res));
+    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe->res)));
   }
-  CAMLreturn(v_ret);
 }
 
 value ocaml_uring_peek_cqe(value v_uring)
@@ -305,17 +315,16 @@ value ocaml_uring_peek_cqe(value v_uring)
   dprintf("cqe: peeking\n");
   res = io_uring_peek_cqe(ring, &cqe);
   if (res < 0) {
-    v_ret = caml_alloc(2, 0);
-    Store_field(v_ret, 0, Val_int(-1));
-    Store_field(v_ret, 1, Val_int(res));
+    if (res == -EAGAIN || res == -EINTR) {
+      CAMLreturn(Val_cqe_none);
+    } else {
+      unix_error(-res, "io_uring_peek_cqe", Nothing);
+    }
   } else {
     id = (long)io_uring_cqe_get_data(cqe);
     io_uring_cqe_seen(ring, cqe);
-    v_ret = caml_alloc(2, 0);
-    Store_field(v_ret, 0, Val_int(id));
-    Store_field(v_ret, 1, Val_int(cqe->res));
+    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe->res)));
   }
-  CAMLreturn(v_ret);
 }
 
 // Allocates

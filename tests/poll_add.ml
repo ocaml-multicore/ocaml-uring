@@ -3,7 +3,7 @@ let () =
   Logs.set_reporter (Logs_fmt.reporter ())
 
 let () =
-  let t = Uring.create ~queue_depth:1 ~default:() () in
+  let t = Uring.create ~queue_depth:1 () in
   let readable, writable = Unix.pipe () in
   let r = Uring.poll_add t readable Uring.Poll_mask.(pollin + pollerr) () in assert(r);
   let res = Uring.submit t in
