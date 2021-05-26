@@ -45,7 +45,7 @@ let queue_read uring t len =
   let iov = Iovec.alloc [|ba|] in
   let req = { op=`R; iov; fileoff=t.offset; len; off=0; t } in
   Logs.debug (fun l -> l "queue_read: %a" pp_req req);
-  let r = Uring.readv uring ~offset:t.offset t.infd iov req in
+  let r = Uring.readv uring ~file_offset:t.offset t.infd iov req in
   assert(r);
   t.offset <- Int63.(add t.offset (of_int len));
   t.read_left <- t.read_left - len;
@@ -65,7 +65,7 @@ let handle_read_completion uring req res =
     Logs.debug (fun l -> l "eof %a" pp_req req);
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
-    let r = Uring.readv ~offset:req.fileoff uring req.t.infd req.iov req in
+    let r = Uring.readv ~file_offset:req.fileoff uring req.t.infd req.iov req in
     assert(r);
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < 0 ->
@@ -74,7 +74,7 @@ let handle_read_completion uring req res =
     (* handle short read so new iovec and resubmit *)
     Iovec.advance req.iov ~idx:0 ~adj:n;
     req.off <- req.off + n;
-    let r = Uring.readv ~offset:(Int63.of_int req.off) uring req.t.infd req.iov req in
+    let r = Uring.readv ~file_offset:(Int63.of_int req.off) uring req.t.infd req.iov req in
     assert(r);
     Logs.debug (fun l -> l "requeued short read: %a" pp_req req);
   | n when n = bytes_to_read ->
@@ -84,7 +84,7 @@ let handle_read_completion uring req res =
     (* reset the iovec *)
     Iovec.advance req.iov ~idx:0 ~adj:(req.off * -1);
     let req = { req with op=`W; off=0 } in
-    let r = Uring.writev uring ~offset:req.fileoff req.t.outfd req.iov req in
+    let r = Uring.writev uring ~file_offset:req.fileoff req.t.outfd req.iov req in
     assert(r);
     Logs.debug (fun l -> l "queued write: %a" pp_req req);
   | n -> raise (Failure (Printf.sprintf "unexpected readv result %d > %d " bytes_to_read n))
@@ -96,14 +96,14 @@ let handle_write_completion uring req res =
   | 0 -> raise End_of_file
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
-    let r = Uring.writev ~offset:req.fileoff uring req.t.infd req.iov req in
+    let r = Uring.writev ~file_offset:req.fileoff uring req.t.infd req.iov req in
     assert(r);
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < bytes_to_write ->
     (* handle short write so new iovec and resubmit *)
     Iovec.advance req.iov ~idx:0 ~adj:n;
     req.off <- req.off + n;
-    let r = Uring.writev ~offset:req.fileoff uring req.t.infd req.iov req in
+    let r = Uring.writev ~file_offset:req.fileoff uring req.t.infd req.iov req in
     assert(r);
     Logs.debug (fun l -> l "requeued write read: %a" pp_req req);
   | n when n = bytes_to_write ->
