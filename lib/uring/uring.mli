@@ -72,28 +72,30 @@ val poll_add : 'a t -> Unix.file_descr -> Poll_mask.t -> 'a -> bool
     It completes and returns [d] when an event in [mask] is ready on [fd]. *)
 
 type offset := Optint.Int63.t
+(** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
+    For sockets, use an offset of [Optint.Int63.zero] ([minus_one] is not allowed here). *)
 
-val readv : 'a t -> ?offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> bool
-(** [readv t ?offset fd iov d] will submit a [readv(2)] request to uring [t].
-    It reads from absolute file [offset] on the [fd] file descriptor and writes
+val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> bool
+(** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
+    It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [iov].  The user data [d] will
     be returned by {!wait} or {!peek} upon completion. *)
 
-val writev : 'a t -> ?offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> bool
-(** [writev t ?offset fd iov d] will submit a [writev(2)] request to uring [t].
-    It writes to absolute file [offset] on the [fd] file descriptor from the
+val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> bool
+(** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
+    It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by
     {!wait} or {!peek} upon completion. *)
 
-val read : 'a t -> ?file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> bool
-(** [read t ?file_offset fd off d] will submit a [read(2)] request to uring [t].
-    It read from absolute [file_offset] on the [fd] file descriptor and writes
+val read : 'a t -> file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> bool
+(** [read t ~file_offset fd off d] will submit a [read(2)] request to uring [t].
+    It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the fixed memory buffer associated with uring [t] at offset
     [off]. TODO: replace [off] with {!Region.chunk} instead?
     The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
 
-val write : 'a t -> ?file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> bool
-(** [write t ?file_offset fd off d] will submit a [write(2)] request to uring [t].
+val write : 'a t -> file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> bool
+(** [write t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
     It writes into absolute [file_offset] on the [fd] file descriptor from
     the fixed memory buffer associated with uring [t] at offset [off].
     TODO: replace [off] with {!Region.chunk} instead?

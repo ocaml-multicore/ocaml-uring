@@ -70,7 +70,7 @@ let test_readv () =
   let b1 = Iovec.Buffer.create b1_len and b2 = Iovec.Buffer.create b2_len in
   let iov = Iovec.alloc [| b1; b2 |] in
 
-  assert_   ~__POS__ (Uring.readv t fd iov `Readv);
+  assert_   ~__POS__ (Uring.readv t fd iov `Readv ~file_offset:Int63.zero);
   check_int ~__POS__ (Uring.submit t) ~expected:1;
 
   let token, read = consume t in

@@ -36,7 +36,7 @@ let submit_read_request fname uring =
   let blocks = if file_sz mod block_size <> 0 then (file_sz / block_size)+1 else file_sz/block_size in
   let bufs = Array.init blocks (fun _ -> Iovec.Buffer.create block_size) in
   let iov = Iovec.alloc bufs in
-  let _ = Uring.readv uring fd iov (iov :> Iovec.t) in
+  let _ = Uring.readv uring fd iov (iov :> Iovec.t) ~file_offset:Optint.Int63.zero in
   let numreq = Uring.submit uring in
   assert(numreq=1);
   ()
