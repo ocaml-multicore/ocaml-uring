@@ -48,6 +48,10 @@ module Uring = struct
   external submit : t -> int = "ocaml_uring_submit"
 
   type id = Heap.ptr
+
+  type sockaddr
+  external make_sockaddr : Unix.sockaddr -> sockaddr = "ocaml_uring_make_sockaddr"
+
   type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
@@ -57,6 +61,7 @@ module Uring = struct
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
+  external submit_connect : t -> id -> Unix.file_descr -> sockaddr -> bool = "ocaml_uring_submit_connect" [@@noalloc]
 
   type cqe_option = private
     | Cqe_none
@@ -73,7 +78,7 @@ end
 type 'a t = {
   uring: Uring.t;
   mutable fixed_iobuf: Iovec.Buffer.t;
-  user_data : 'a Heap.t;
+  data : 'a Heap.t;
   queue_depth: int;
   mutable dirty: bool; (* has outstanding requests that need to be submitted *)
 }
@@ -87,8 +92,8 @@ let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth () =
   let fixed_iobuf = Iovec.Buffer.create fixed_buf_len in
   Uring.register_bigarray uring fixed_iobuf;
   Gc.finalise Uring.exit uring;
-  let user_data = Heap.create queue_depth in
-  { uring; fixed_iobuf; user_data; dirty=false; queue_depth }
+  let data = Heap.create queue_depth in
+  { uring; fixed_iobuf; data; dirty=false; queue_depth }
 
 let realloc t iobuf =
   Uring.unregister_bigarray t.uring;
@@ -97,14 +102,16 @@ let realloc t iobuf =
 
 let exit {uring;_} = Uring.exit uring
 
-let with_id : type a. a t -> (Heap.ptr -> bool) -> a -> bool =
- fun t fn datum ->
-  match Heap.alloc t.user_data datum with
+let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> bool =
+ fun t fn datum ~extra_data ->
+  match Heap.alloc t.data datum ~extra_data with
   | exception Heap.No_space -> false
   | ptr ->
      let has_space = fn ptr in
-     if has_space then t.dirty <- true else ignore (Heap.free t.user_data ptr : a);
+     if has_space then t.dirty <- true else ignore (Heap.free t.data ptr : a);
      has_space
+
+let with_id t fn a = with_id_full t fn a ~extra_data:()
 
 let noop t user_data =
   with_id t (fun id -> Uring.submit_nop t.uring id) user_data
@@ -130,6 +137,10 @@ let close t fd user_data =
 let splice t ~src ~dst ~len user_data =
   with_id t (fun id -> Uring.submit_splice t.uring id src dst len) user_data
 
+let connect t fd addr user_data =
+  let addr = Uring.make_sockaddr addr in
+  with_id_full t (fun id -> Uring.submit_connect t.uring id fd addr) user_data ~extra_data:addr
+
 let submit t =
   if t.dirty then begin
     t.dirty <- false;
@@ -145,7 +156,7 @@ let fn_on_ring fn t =
   match fn t.uring with
   | Uring.Cqe_none -> None
   | Uring.Cqe_some { user_data_id; res } ->
-    let data = Heap.free t.user_data user_data_id in
+    let data = Heap.free t.data user_data_id in
     Some { result = res; data }
 
 let peek t = fn_on_ring Uring.peek_cqe t

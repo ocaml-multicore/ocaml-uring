@@ -26,6 +26,7 @@
 #include <caml/mlvalues.h>
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
+#include <caml/socketaddr.h>
 #include <errno.h>
 #include <string.h>
 #include <poll.h>
@@ -231,6 +232,57 @@ ocaml_uring_submit_splice(value v_uring, value v_id, value v_fd_in, value v_fd_o
 		       Int_val(v_fd_in), (int64_t) -1,
 		       Int_val(v_fd_out), (int64_t) -1,
 		       Int_val(v_nbytes), 0);
+  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  CAMLreturn(Val_true);
+}
+
+struct sock_addr_data {
+  union sock_addr_union sock_addr_addr;
+  socklen_param_type sock_addr_len;
+};
+
+#define Sock_addr_val(v) (*((struct sock_addr_data **) Data_custom_val(v)))
+
+static void finalize_sock_addr(value v) {
+  caml_stat_free(Sock_addr_val(v));
+  Sock_addr_val(v) = NULL;
+}
+
+static struct custom_operations sockaddr_ops = {
+  "uring.sockaddr",
+  finalize_sock_addr,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+value
+ocaml_uring_make_sockaddr(value v_sockaddr) {
+  CAMLparam1(v_sockaddr);
+  CAMLlocal1(v);
+  struct sock_addr_data *data;
+  v = caml_alloc_custom_mem(&sockaddr_ops, sizeof(struct sock_addr_data *), sizeof(struct sock_addr_data));
+  Sock_addr_val(v) = NULL;
+  data = (struct sock_addr_data *) caml_stat_alloc(sizeof(struct sock_addr_data));
+  Sock_addr_val(v) = data;
+  // If this raises, the GC will free [v], which will free [data]:
+  get_sockaddr(v_sockaddr, &data->sock_addr_addr, &data->sock_addr_len);
+  CAMLreturn(v);
+}
+
+// v_sockaddr must not be GC'd while the call is in progress
+value
+ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockaddr) {
+  CAMLparam2(v_uring, v_sockaddr);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe;
+  struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
+  sqe = io_uring_get_sqe(ring);
+  if (!sqe) CAMLreturn(Val_false);
+  io_uring_prep_connect(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), addr->sock_addr_len);
   io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
   CAMLreturn(Val_true);
 }
