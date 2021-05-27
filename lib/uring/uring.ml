@@ -78,7 +78,7 @@ end
 type 'a t = {
   uring: Uring.t;
   mutable fixed_iobuf: Iovec.Buffer.t;
-  user_data : 'a Heap.t;
+  data : 'a Heap.t;
   queue_depth: int;
   mutable dirty: bool; (* has outstanding requests that need to be submitted *)
 }
@@ -92,8 +92,8 @@ let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth () =
   let fixed_iobuf = Iovec.Buffer.create fixed_buf_len in
   Uring.register_bigarray uring fixed_iobuf;
   Gc.finalise Uring.exit uring;
-  let user_data = Heap.create queue_depth in
-  { uring; fixed_iobuf; user_data; dirty=false; queue_depth }
+  let data = Heap.create queue_depth in
+  { uring; fixed_iobuf; data; dirty=false; queue_depth }
 
 let realloc t iobuf =
   Uring.unregister_bigarray t.uring;
@@ -104,11 +104,11 @@ let exit {uring;_} = Uring.exit uring
 
 let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> bool =
  fun t fn datum ~extra_data ->
-  match Heap.alloc t.user_data datum ~extra_data with
+  match Heap.alloc t.data datum ~extra_data with
   | exception Heap.No_space -> false
   | ptr ->
      let has_space = fn ptr in
-     if has_space then t.dirty <- true else ignore (Heap.free t.user_data ptr : a);
+     if has_space then t.dirty <- true else ignore (Heap.free t.data ptr : a);
      has_space
 
 let with_id t fn a = with_id_full t fn a ~extra_data:()
@@ -156,7 +156,7 @@ let fn_on_ring fn t =
   match fn t.uring with
   | Uring.Cqe_none -> None
   | Uring.Cqe_some { user_data_id; res } ->
-    let data = Heap.free t.user_data user_data_id in
+    let data = Heap.free t.data user_data_id in
     Some { result = res; data }
 
 let peek t = fn_on_ring Uring.peek_cqe t
