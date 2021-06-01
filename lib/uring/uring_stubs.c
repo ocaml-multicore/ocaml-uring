@@ -273,6 +273,15 @@ ocaml_uring_make_sockaddr(value v_sockaddr) {
   CAMLreturn(v);
 }
 
+value
+ocaml_uring_extract_sockaddr(value v) {
+  CAMLparam1(v);
+  CAMLlocal1(v_sockaddr);
+  struct sock_addr_data *data = Sock_addr_val(v);
+  v_sockaddr = alloc_sockaddr(&data->sock_addr_addr, data->sock_addr_len, -1);
+  CAMLreturn(v_sockaddr);
+}
+
 // v_sockaddr must not be GC'd while the call is in progress
 value
 ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockaddr) {
@@ -283,6 +292,21 @@ ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockad
   sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
   io_uring_prep_connect(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), addr->sock_addr_len);
+  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  CAMLreturn(Val_true);
+}
+
+// v_sockaddr must not be GC'd while the call is in progress
+value
+ocaml_uring_submit_accept(value v_uring, value v_id, value v_fd, value v_sockaddr) {
+  CAMLparam2(v_uring, v_sockaddr);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe;
+  struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
+  addr->sock_addr_len = sizeof(union sock_addr_union);
+  sqe = io_uring_get_sqe(ring);
+  if (!sqe) CAMLreturn(Val_false);
+  io_uring_prep_accept(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), &addr->sock_addr_len, SOCK_CLOEXEC);
   io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
   CAMLreturn(Val_true);
 }
