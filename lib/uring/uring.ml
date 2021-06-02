@@ -37,6 +37,17 @@ module Poll_mask = struct
     (a land b) = a
 end
 
+module Sockaddr = struct
+  type t
+
+  external of_unix : Unix.sockaddr -> t = "ocaml_uring_make_sockaddr"
+  external get : t -> Unix.sockaddr = "ocaml_uring_extract_sockaddr"
+
+  let dummy_addr = Unix.ADDR_UNIX "-"
+
+  let create () = of_unix dummy_addr
+end
+
 module Uring = struct
   type t
 
@@ -49,9 +60,6 @@ module Uring = struct
 
   type id = Heap.ptr
 
-  type sockaddr
-  external make_sockaddr : Unix.sockaddr -> sockaddr = "ocaml_uring_make_sockaddr"
-
   type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
@@ -61,7 +69,8 @@ module Uring = struct
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
-  external submit_connect : t -> id -> Unix.file_descr -> sockaddr -> bool = "ocaml_uring_submit_connect" [@@noalloc]
+  external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
+  external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
 
   type cqe_option = private
     | Cqe_none
@@ -138,8 +147,11 @@ let splice t ~src ~dst ~len user_data =
   with_id t (fun id -> Uring.submit_splice t.uring id src dst len) user_data
 
 let connect t fd addr user_data =
-  let addr = Uring.make_sockaddr addr in
+  let addr = Sockaddr.of_unix addr in
   with_id_full t (fun id -> Uring.submit_connect t.uring id fd addr) user_data ~extra_data:addr
+
+let accept t fd addr user_data =
+  with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) user_data ~extra_data:addr
 
 let submit t =
   if t.dirty then begin

@@ -109,6 +109,19 @@ val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a
 val connect : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> bool
 (** [connect t fd addr d] will submit a request to connect [fd] to [addr]. *)
 
+(** Holder for the peer's address in {!accept}. *)
+module Sockaddr : sig
+  type t
+
+  val create : unit -> t
+  val get : t -> Unix.sockaddr
+end
+
+val accept : 'a t -> Unix.file_descr -> Sockaddr.t -> 'a -> bool
+(** [accept t fd addr d] will submit a request to accept a new connection on [fd].
+    The new FD will be configured with [SOCK_CLOEXEC].
+    The remote address will be stored in [addr]. *)
+
 val close : 'a t -> Unix.file_descr -> 'a -> bool
 
 (** {2 Submitting operations} *)
