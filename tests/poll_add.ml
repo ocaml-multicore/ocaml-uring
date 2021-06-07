@@ -5,7 +5,7 @@ let () =
 let () =
   let t = Uring.create ~queue_depth:1 () in
   let readable, writable = Unix.pipe () in
-  let r = Uring.poll_add t readable Uring.Poll_mask.(pollin + pollerr) () in assert(r);
+  let r = Uring.poll_add t readable Uring.Poll_mask.(pollin + pollerr) () in assert(r <> None);
   let res = Uring.submit t in
   Printf.eprintf "submitted %d\n%!" res;
   let sent = Unix.write writable (Bytes.of_string "!") 0 1 in

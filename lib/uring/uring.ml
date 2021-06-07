@@ -48,6 +48,8 @@ module Sockaddr = struct
   let create () = of_unix dummy_addr
 end
 
+type 'a job = 'a Heap.entry
+
 module Uring = struct
   type t
 
@@ -71,6 +73,7 @@ module Uring = struct
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
+  external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
 
   type cqe_option = private
     | Cqe_none
@@ -111,14 +114,20 @@ let realloc t iobuf =
 
 let exit {uring;_} = Uring.exit uring
 
-let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> bool =
+let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a job option =
  fun t fn datum ~extra_data ->
   match Heap.alloc t.data datum ~extra_data with
-  | exception Heap.No_space -> false
-  | ptr ->
-     let has_space = fn ptr in
-     if has_space then t.dirty <- true else ignore (Heap.free t.data ptr : a);
-     has_space
+  | exception Heap.No_space -> None
+  | entry ->
+    let ptr = Heap.ptr entry in
+    let has_space = fn ptr in
+    if has_space then (
+      t.dirty <- true;
+      Some entry
+    ) else (
+      ignore (Heap.free t.data ptr : a);
+      None
+    )
 
 let with_id t fn a = with_id_full t fn a ~extra_data:()
 
@@ -152,6 +161,9 @@ let connect t fd addr user_data =
 
 let accept t fd addr user_data =
   with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) user_data ~extra_data:addr
+
+let cancel t job user_data =
+  with_id t (fun id -> Uring.submit_cancel t.uring id (Heap.ptr job)) user_data
 
 let submit t =
   if t.dirty then begin

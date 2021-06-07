@@ -5,7 +5,7 @@ let noop_run queue_depth =
   Staged.stage (fun () ->
       for i = 1 to queue_depth do
         let r = Uring.noop t i in
-        assert r
+        assert (r <> None)
       done;
       let submitted = Uring.submit t in
       assert (submitted = queue_depth);

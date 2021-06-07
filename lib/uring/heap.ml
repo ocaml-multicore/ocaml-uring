@@ -24,7 +24,7 @@ let free_list_nil = -2
 (* [extra_data] is for keeping pointers passed to C alive. *)
 type 'a entry =
   | Empty : 'a entry
-  | Entry : { data : 'a; extra_data : 'b } -> 'a entry
+  | Entry : { data : 'a; extra_data : 'b; mutable ptr : int } -> 'a entry
 
 (* Free-list allocator *)
 type 'a t =
@@ -47,6 +47,11 @@ type 'a t =
   ; length: int
   }
 
+let ptr = function
+  | Entry { ptr = -1; _ } -> invalid_arg "Entry has already been freed!"
+  | Entry { ptr; _ } -> ptr
+  | Empty -> assert false
+
 let create : type a. int -> a t =
  fun n ->
   if n < 0 || n > Sys.max_array_length then invalid_arg "Heap.create" ;
@@ -66,14 +71,15 @@ exception No_space
 let alloc t data ~extra_data =
   let ptr = t.free_head in
   if ptr = free_list_nil then raise No_space;
-  t.data.(ptr) <- Entry { data; extra_data };
+  let entry = Entry { data; extra_data; ptr } in
+  t.data.(ptr) <- entry;
 
   (* Drop [ptr] from the free list. *)
   let tail = t.free_tail_relation.(ptr) in
   t.free_tail_relation.(ptr) <- slot_taken;
   t.free_head <- tail;
 
-  ptr
+  entry
 
 let free t ptr =
   assert (ptr >= 0) (* [alloc] returns only valid pointers. *);
@@ -85,7 +91,9 @@ let free t ptr =
   let datum =
     match t.data.(ptr) with
     | Empty -> assert false
-    | Entry { data; _ } -> data
+    | Entry p ->
+      p.ptr <- -1;
+      p.data
   in
 
   (* Cons [ptr] to the free-list. *)

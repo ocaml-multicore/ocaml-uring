@@ -24,6 +24,10 @@ module Region = Region
 type 'a t
 (** ['a t] is a reference to an Io_uring structure. *)
 
+type 'a job
+(** A handle for a submitted job, which can be used to cancel it.
+    If an operation returns [None], this means that submission failed because the ring is full. *)
+
 val create : ?fixed_buf_len:int -> queue_depth:int -> unit -> 'a t
 (** [create ?fixed_buf_len ~queue_depth] will return a fresh Io_uring structure
     [t]. Each [t] has associated with it a fixed region of memory that is used
@@ -46,7 +50,7 @@ val exit : 'a t -> unit
 
 (** {2 Queueing operations} *)
 
-val noop : 'a t -> 'a -> bool
+val noop : 'a t -> 'a -> 'a job option
 (** [noop t d] submits a no-op operation to uring [t]. The user data [d] will be
     returned by {!wait} or {!peek} upon completion. *)
 
@@ -67,7 +71,7 @@ module Poll_mask : sig
   (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
 end
 
-val poll_add : 'a t -> Unix.file_descr -> Poll_mask.t -> 'a -> bool
+val poll_add : 'a t -> Unix.file_descr -> Poll_mask.t -> 'a -> 'a job option
 (** [poll_add t fd mask d] will submit a [poll(2)] request to uring [t].
     It completes and returns [d] when an event in [mask] is ready on [fd]. *)
 
@@ -75,38 +79,38 @@ type offset := Optint.Int63.t
 (** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
     For sockets, use an offset of [Optint.Int63.zero] ([minus_one] is not allowed here). *)
 
-val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> bool
+val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [iov].  The user data [d] will
     be returned by {!wait} or {!peek} upon completion. *)
 
-val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> bool
+val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by
     {!wait} or {!peek} upon completion. *)
 
-val read : 'a t -> file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> bool
+val read : 'a t -> file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> 'a job option
 (** [read t ~file_offset fd off d] will submit a [read(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the fixed memory buffer associated with uring [t] at offset
     [off]. TODO: replace [off] with {!Region.chunk} instead?
     The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
 
-val write : 'a t -> file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> bool
+val write : 'a t -> file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> 'a job option
 (** [write t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
     It writes into absolute [file_offset] on the [fd] file descriptor from
     the fixed memory buffer associated with uring [t] at offset [off].
     TODO: replace [off] with {!Region.chunk} instead?
     The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
 
-val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a -> bool
+val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a -> 'a job option
 (** [splice t ~src ~dst ~len d] will submit a request to copy [len] bytes from [src] to [dst].
     The operation returns the number of bytes transferred, or 0 for end-of-input.
     The result is [EINVAL] if the file descriptors don't support splicing. *)
 
-val connect : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> bool
+val connect : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> 'a job option
 (** [connect t fd addr d] will submit a request to connect [fd] to [addr]. *)
 
 (** Holder for the peer's address in {!accept}. *)
@@ -117,12 +121,18 @@ module Sockaddr : sig
   val get : t -> Unix.sockaddr
 end
 
-val accept : 'a t -> Unix.file_descr -> Sockaddr.t -> 'a -> bool
+val accept : 'a t -> Unix.file_descr -> Sockaddr.t -> 'a -> 'a job option
 (** [accept t fd addr d] will submit a request to accept a new connection on [fd].
     The new FD will be configured with [SOCK_CLOEXEC].
     The remote address will be stored in [addr]. *)
 
-val close : 'a t -> Unix.file_descr -> 'a -> bool
+val close : 'a t -> Unix.file_descr -> 'a -> 'a job option
+
+val cancel : 'a t -> 'a job -> 'a -> 'a job option
+(** [cancel t job d] submits a request to cancel [job].
+    The cancel job itself returns 0 on success, or [ENOTFOUND]
+    if [job] had already completed by the time the kernel processed the cancellation request.
+    @raise Invalid_argument if the job has already been returned by e.g. {!wait}. *)
 
 (** {2 Submitting operations} *)
 
