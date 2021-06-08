@@ -20,12 +20,19 @@ type 'a t
 val create : int -> _ t
 (** [create n] is a heap that holds at most [n] elements. *)
 
+type 'a entry
+(** An element in a heap. *)
+
 type ptr = private int
-(** A pointer to an element in a heap. *)
+(** The index of an entry. *)
+
+val ptr : 'a entry -> ptr
+(** [ptr e] is the index of [e].
+    @raise Invalid_arg if [e] has already been freed. *)
 
 exception No_space
 
-val alloc : 'a t -> 'a -> extra_data:'b -> ptr
+val alloc : 'a t -> 'a -> extra_data:'b -> 'a entry
 (** [alloc t a ~extra_data] adds the value [a] to [t] and returns a pointer to that value,
     or raises {!No_space} if no space exists in [t].
     @param extra_data Prevent this from being GC'd until [free] is called. *)

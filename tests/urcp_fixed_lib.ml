@@ -44,7 +44,7 @@ let queue_read uring t len =
   let req = { op=`R; fixed_off; fileoff=t.offset; len; off=0; t } in
   Logs.debug (fun l -> l "queue_read: %a" pp_req req);
   let r = Uring.read uring ~file_offset:t.offset t.infd fixed_off len req in
-  assert(r);
+  assert(r <> None);
   t.offset <- Int63.(add t.offset (of_int len));
   t.read_left <- t.read_left - len;
   t.reads <- t.reads + 1
@@ -64,7 +64,7 @@ let handle_read_completion uring req res =
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
     let r = Uring.read ~file_offset:req.fileoff uring req.t.infd req.fixed_off req.len req in
-    assert(r);
+    assert(r <> None);
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < 0 ->
     raise (Failure ("unix errorno " ^ (string_of_int n)))
@@ -73,7 +73,7 @@ let handle_read_completion uring req res =
     req.off <- req.off + n;
     req.len <- req.len - n;
     let r = Uring.read ~file_offset:req.fileoff uring req.t.infd (req.fixed_off+req.off) req.len req in
-    assert(r);
+    assert(r <> None);
     Logs.debug (fun l -> l "requeued short read: %a" pp_req req);
   | n when n = bytes_to_read ->
     (* Read is complete, all bytes are read, turn it into a write *)
@@ -81,7 +81,7 @@ let handle_read_completion uring req res =
     req.t.writes <- req.t.writes + 1;
     let req = { req with op=`W; off=0; len=req.len+req.off } in
     let r = Uring.write uring ~file_offset:req.fileoff req.t.outfd req.fixed_off req.len req in
-    assert(r);
+    assert(r <> None);
     Logs.debug (fun l -> l "queued write: %a" pp_req req);
   | n -> raise (Failure (Printf.sprintf "unexpected read result %d > %d " bytes_to_read n))
 
@@ -93,7 +93,7 @@ let handle_write_completion uring req res =
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
     let r = Uring.write ~file_offset:req.fileoff uring req.t.outfd req.fixed_off req.len req in
-    assert(r);
+    assert(r <> None);
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < 0 -> failwith (Fmt.strf "unix error %d" (-n))
   | n when n < bytes_to_write ->
@@ -101,7 +101,7 @@ let handle_write_completion uring req res =
     req.off <- req.off + n;
     req.len <- req.len - n;
     let r = Uring.write ~file_offset:req.fileoff uring req.t.outfd (req.fixed_off+req.off) req.len req in
-    assert(r);
+    assert(r <> None);
     Logs.debug (fun l -> l "requeued short write: %a" pp_req req);
   | n when n = bytes_to_write ->
     req.t.writes <- req.t.writes - 1;

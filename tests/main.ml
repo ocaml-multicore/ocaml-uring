@@ -1,9 +1,10 @@
 module Int63 = Optint.Int63
 
-let assert_      ~__POS__ = Alcotest.(check ~pos:__POS__ bool) "" true
-let check_raises ~__POS__ = Alcotest.check_raises ~pos:__POS__ ""
-let check_int    ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ int) "" expected
-let check_string ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ string) "" expected
+let assert_       ~__POS__ = Alcotest.(check ~pos:__POS__ bool) "" true
+let assert_some x ~__POS__ = Alcotest.(check ~pos:__POS__ bool) "" true (x <> None)
+let check_raises  ~__POS__ = Alcotest.check_raises ~pos:__POS__ ""
+let check_int     ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ int) "" expected
+let check_string  ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ string) "" expected
 
 module Heap = struct
   module Heap = struct
@@ -39,7 +40,7 @@ module Heap = struct
           check_raises_no_space ~__POS__ (fun () -> Heap.alloc t 0)
         else
           let data = Random.int 5000 in
-          let ptr = Heap.alloc t data in
+          let ptr = Heap.ptr (Heap.alloc t data) in
           assert_ ~__POS__ (not (Hashtbl.mem reference ptr));
           Hashtbl.add reference ptr data;
           incr currently_allocated
@@ -55,7 +56,7 @@ module Heap = struct
     let () =
       (* Double free in an empty heap *)
       let t = Heap.create 1 in
-      let p = Heap.alloc t 1 in
+      let p = Heap.ptr @@ Heap.alloc t 1 in
       check_int ~__POS__ ~expected:1 (Heap.free t p);
       check_raises ~__POS__ (Invalid_argument "Heap.free: pointer already freed")
         (fun () -> ignore (Heap.free t p))
@@ -63,8 +64,8 @@ module Heap = struct
     let () =
       (* Double free in a non-empty heap *)
       let t = Heap.create 2 in
-      let p = Heap.alloc t 1 in
-      let _ = Heap.alloc t 2 in
+      let p = Heap.ptr @@ Heap.alloc t 1 in
+      let _ = Heap.ptr @@ Heap.alloc t 2 in
       check_int ~__POS__ ~expected:1 (Heap.free t p);
       check_raises ~__POS__ (Invalid_argument "Heap.free: pointer already freed")
         (fun () -> ignore (Heap.free t p))
@@ -75,24 +76,24 @@ module Heap = struct
     let () =
       let t = Heap.create 0 in
       (* 1 > 0 *)
-      check_raises_no_space ~__POS__ (fun () -> Heap.alloc t ())
+      check_raises_no_space ~__POS__ (fun () -> Heap.ptr @@ Heap.alloc t ())
     in
     let () =
       let t = Heap.create 2 in
-      let _ : Heap.ptr = Heap.alloc t () in
-      let _ : Heap.ptr = Heap.alloc t () in
+      let _ : Heap.ptr = Heap.ptr @@ Heap.alloc t () in
+      let _ : Heap.ptr = Heap.ptr @@ Heap.alloc t () in
       (* 3 > 2 *)
-      check_raises_no_space ~__POS__ (fun () -> Heap.alloc t ())
+      check_raises_no_space ~__POS__ (fun () -> Heap.ptr @@ Heap.alloc t ())
     in
     let () =
       let t = Heap.create 3 in
-      let p1 = Heap.alloc t 1 in
-      let _ : Heap.ptr = Heap.alloc t 2 in
+      let p1 = Heap.ptr @@ Heap.alloc t 1 in
+      let _ : Heap.ptr = Heap.ptr @@ Heap.alloc t 2 in
       check_int ~__POS__ ~expected:1 (Heap.free t p1);
-      let _ : Heap.ptr = Heap.alloc t 3 in
-      let _ : Heap.ptr = Heap.alloc t 4 in
+      let _ : Heap.ptr = Heap.ptr @@ Heap.alloc t 3 in
+      let _ : Heap.ptr = Heap.ptr @@ Heap.alloc t 4 in
       (* 2 - 1 + 2 > 3 *)
-      check_raises_no_space ~__POS__ (fun () -> Heap.alloc t 5);
+      check_raises_no_space ~__POS__ (fun () -> Heap.ptr @@ Heap.alloc t 5);
     in
     ()
 end
@@ -126,7 +127,7 @@ let test_noop () =
   let t = Uring.create ~queue_depth () in
 
   for i = 1 to queue_depth do
-    assert_ ~__POS__ (Uring.noop t i);
+    assert_some ~__POS__ (Uring.noop t i);
   done;
 
   check_int ~__POS__ (Uring.submit t) ~expected:queue_depth;
@@ -144,8 +145,8 @@ let test_read () =
   let off = 3 in
   let len = 5 in
   let file_offset = Int63.of_int 2 in
-  assert_   ~__POS__ (Uring.read t ~file_offset fd off len `Read);
-  check_int ~__POS__ (Uring.submit t) ~expected:1;
+  assert_some ~__POS__ (Uring.read t ~file_offset fd off len `Read);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
 
   let token, read = consume t in
   assert_   ~__POS__ (token = `Read);
@@ -163,8 +164,8 @@ let test_readv () =
   let b1 = Iovec.Buffer.create b1_len and b2 = Iovec.Buffer.create b2_len in
   let iov = Iovec.alloc [| b1; b2 |] in
 
-  assert_   ~__POS__ (Uring.readv t fd iov `Readv ~file_offset:Int63.zero);
-  check_int ~__POS__ (Uring.submit t) ~expected:1;
+  assert_some ~__POS__ (Uring.readv t fd iov `Readv ~file_offset:Int63.zero);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
 
   let token, read = consume t in
   assert_      ~__POS__ (token = `Readv);
@@ -172,6 +173,59 @@ let test_readv () =
   check_string ~__POS__ ~expected:"A t"     (Bigstringaf.to_string b1);
   check_string ~__POS__ ~expected:"est fil" (Bigstringaf.to_string b2);
   ()
+
+let test_cancel () =
+  let t = Uring.create ~queue_depth:5 () in
+  let r, w = Unix.pipe () in
+  let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
+  assert_some ~__POS__ (Uring.cancel t read `Cancel);
+  check_int   ~__POS__ (Uring.submit t) ~expected:2;
+  let t1, r1 = consume t in
+  let t2, r2 = consume t in
+  let r_read, r_cancel =
+    match t1, t2 with
+    | `Read, `Cancel -> r1, r2
+    | `Cancel, `Read -> r2, r1
+    | _ -> assert false
+  in
+  check_int ~__POS__ ~expected:(-125) r_read;   (* ECANCELED *)
+  check_int ~__POS__ ~expected:0      r_cancel; (* Success *)
+  Unix.close r;
+  Unix.close w
+
+(* By the time we cancel, the request has already succeeded (we just didn't process the reply yet). *)
+let test_cancel_late () =
+  let t = Uring.create ~queue_depth:5 () in
+  let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0 in
+  let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  assert_some ~__POS__ (Uring.cancel t read `Cancel);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  let t1, r1 = consume t in
+  let t2, r2 = consume t in
+  let r_read, r_cancel =
+    match t1, t2 with
+    | `Read, `Cancel -> r1, r2
+    | `Cancel, `Read -> r2, r1
+    | _ -> assert false
+  in
+  check_int ~__POS__ ~expected:1    r_read;   (* Success *)
+  check_int ~__POS__ ~expected:(-2) r_cancel; (* ENOENT *)
+  Unix.close r
+
+(* By the time we cancel, we already knew the operation was over. *)
+let test_cancel_invalid () =
+  let t = Uring.create ~queue_depth:5 () in
+  let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0 in
+  let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
+  let token, r_read = consume t in
+  assert_   ~__POS__ (token = `Read);
+  check_int ~__POS__ ~expected:1    r_read;   (* Success *)
+  Unix.close r;
+  (* Try to cancel after we may have reused the index: *)
+  check_raises ~__POS__
+    (Invalid_argument "Entry has already been freed!")
+    (fun () -> ignore (Uring.cancel t read `Cancel))
 
 let () =
   Test_data.setup ();
@@ -188,6 +242,9 @@ let () =
       tc "noop" test_noop;
       tc "read" test_read;
       tc "readv" test_readv;
+      tc "cancel" test_cancel;
+      tc "cancel_late" test_cancel_late;
+      tc "cancel_invalid" test_cancel_invalid;
     ];
   ]
 
