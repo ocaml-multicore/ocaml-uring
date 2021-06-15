@@ -116,7 +116,7 @@ ocaml_uring_submit_nop(value v_uring, value v_id) {
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
   io_uring_prep_nop(sqe);
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
@@ -128,7 +128,7 @@ ocaml_uring_submit_close(value v_uring, value v_fd, value v_id) {
   if (!sqe) CAMLreturn(Val_false);
   dprintf("submit_close: fd:%d\n", Int_val(v_fd));
   io_uring_prep_close(sqe, Int_val(v_fd));
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
@@ -141,7 +141,7 @@ ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_
   if (!sqe) CAMLreturn(Val_false);
   dprintf("submit_poll_add: fd:%d mask:%x\n", Int_val(v_fd), poll_mask);
   io_uring_prep_poll_add(sqe, Int_val(v_fd), poll_mask);
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
@@ -155,7 +155,7 @@ ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, val
   if (!sqe) CAMLreturn(Val_false);
   dprintf("submit_readv: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_off));
   io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int63_val(v_off));
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
@@ -169,7 +169,7 @@ ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, va
   if (!sqe) CAMLreturn(Val_false);
   dprintf("submit_writev: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_off));
   io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int63_val(v_off));
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
@@ -181,7 +181,7 @@ ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, val
   if (!sqe) return Val_false;
   dprintf("submit_readv_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return Val_true;
 }
 
@@ -206,7 +206,7 @@ ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, va
     return Val_false;
   dprintf("submit_writev_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return Val_true;
 }
 
@@ -232,7 +232,7 @@ ocaml_uring_submit_splice(value v_uring, value v_id, value v_fd_in, value v_fd_o
 		       Int_val(v_fd_in), (int64_t) -1,
 		       Int_val(v_fd_out), (int64_t) -1,
 		       Int_val(v_nbytes), 0);
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
@@ -292,7 +292,7 @@ ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockad
   sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
   io_uring_prep_connect(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), addr->sock_addr_len);
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
@@ -307,7 +307,7 @@ ocaml_uring_submit_accept(value v_uring, value v_id, value v_fd, value v_sockadd
   sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
   io_uring_prep_accept(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), &addr->sock_addr_len, SOCK_CLOEXEC);
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
@@ -318,8 +318,8 @@ ocaml_uring_submit_cancel(value v_uring, value v_id, value v_target) {
   struct io_uring_sqe *sqe;
   sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
-  io_uring_prep_cancel(sqe, (void *)(uintptr_t)Int_val(v_target), 0); /* TODO sort out cast */
-  io_uring_sqe_set_data(sqe, (void *)(uintptr_t)Int_val(v_id)); /* TODO sort out cast */
+  io_uring_prep_cancel(sqe, (void *)Long_val(v_target), 0);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }
 
