@@ -21,13 +21,15 @@ end
 module Region = Region
 module Int63 = Optint.Int63
 
-module Poll_mask = struct
-  type t = int
+module type FLAGS = sig
+  type t = private int
+  val of_int : int -> t
+  val ( + ) : t -> t -> t
+  val mem : t -> t -> bool
+end
 
-  let pollin  = Config.pollin
-  let pollout = Config.pollout
-  let pollerr = Config.pollerr
-  let pollhup = Config.pollhup
+module Flags = struct
+  type t = int
 
   let of_int x = x
 
@@ -35,6 +37,15 @@ module Poll_mask = struct
 
   let mem a b =
     (a land b) = a
+end
+
+module Poll_mask = struct
+  include Flags
+
+  let pollin  = Config.pollin
+  let pollout = Config.pollout
+  let pollerr = Config.pollerr
+  let pollhup = Config.pollhup
 end
 
 module Sockaddr = struct

@@ -14,10 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(** Io_uring interface.
-    FIXME: Since this library is still unreleased, all the interfaces here are
-    being iterated on.
-*)
+(** Io_uring interface. *)
 
 module Region = Region
 
@@ -54,21 +51,26 @@ val noop : 'a t -> 'a -> 'a job option
 (** [noop t d] submits a no-op operation to uring [t]. The user data [d] will be
     returned by {!wait} or {!peek} upon completion. *)
 
-module Poll_mask : sig
+module type FLAGS = sig
   type t = private int
-
-  val pollin  : t
-  val pollout : t
-  val pollerr : t
-  val pollhup : t
+  (** A set of flags. *)
 
   val of_int : int -> t
-  
+
   val ( + ) : t -> t -> t
   (** [a + b] is the union of the sets. *)
 
   val mem : t -> t -> bool
   (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
+end
+
+module Poll_mask : sig
+  include FLAGS
+
+  val pollin  : t
+  val pollout : t
+  val pollerr : t
+  val pollhup : t
 end
 
 val poll_add : 'a t -> Unix.file_descr -> Poll_mask.t -> 'a -> 'a job option
