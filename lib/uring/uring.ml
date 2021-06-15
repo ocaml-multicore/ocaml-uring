@@ -31,12 +31,50 @@ end
 module Flags = struct
   type t = int
 
+  let empty = 0
+
   let of_int x = x
 
   let ( + ) = ( lor )
 
   let mem a b =
     (a land b) = a
+end
+
+module Open_flags = struct
+  include Flags
+
+  let rdonly    = Config.o_rdonly
+  let wronly    = Config.o_wronly
+  let rdwr      = Config.o_rdwr
+
+  let creat     = Config.o_creat
+  let excl      = Config.o_excl
+  let noctty    = Config.o_noctty
+  let trunc     = Config.o_trunc
+  let append    = Config.o_append
+  let nonblock  = Config.o_nonblock
+  let dsync     = Config.o_dsync
+  let direct    = Config.o_direct
+  let largefile = Config.o_largefile
+  let directory = Config.o_directory
+  let nofollow  = Config.o_nofollow
+  let noatime   = Config.o_noatime
+  let cloexec   = Config.o_cloexec
+  let sync      = Config.o_sync
+  let path      = Config.o_path
+  let tmpfile   = Config.o_tmpfile
+end
+
+module Resolve = struct
+  include Flags
+
+  let no_xdev       = 0x01
+  let no_magiclinks = 0x02
+  let no_symlinks   = 0x04
+  let beneath       = 0x08
+  let in_root       = 0x10
+  let cached        = 0x20
 end
 
 module Poll_mask = struct
@@ -57,6 +95,14 @@ module Sockaddr = struct
   let dummy_addr = Unix.ADDR_UNIX "-"
 
   let create () = of_unix dummy_addr
+end
+
+module Open_how = struct
+  type t
+
+  external make : int -> Unix.file_perm -> int -> string -> t = "ocaml_uring_make_open_how"
+
+  let v ~open_flags ~perm ~resolve path = make open_flags perm resolve path
 end
 
 type 'a job = 'a Heap.entry
@@ -85,6 +131,7 @@ module Uring = struct
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
+  external submit_openat2 : t -> id -> Unix.file_descr -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
 
   type cqe_option = private
     | Cqe_none
@@ -144,6 +191,17 @@ let with_id t fn a = with_id_full t fn a ~extra_data:()
 
 let noop t user_data =
   with_id t (fun id -> Uring.submit_nop t.uring id) user_data
+
+let at_fdcwd : Unix.file_descr = Obj.magic Config.at_fdcwd
+
+let openat2 t ~access ~flags ~perm ~resolve ?(fd=at_fdcwd) path user_data =
+  let open_flags = flags lor match access with
+    | `R  -> Open_flags.rdonly
+    | `W  -> Open_flags.wronly
+    | `RW -> Open_flags.rdwr
+  in
+  let open_how = Open_how.v ~open_flags ~perm ~resolve path in
+  with_id_full t (fun id -> Uring.submit_openat2 t.uring id fd open_how) user_data ~extra_data:open_how
 
 let readv t ~file_offset fd iovec user_data =
   with_id t (fun id -> Uring.submit_readv t.uring fd id iovec file_offset) user_data

@@ -5,6 +5,7 @@ let assert_some x ~__POS__ = Alcotest.(check ~pos:__POS__ bool) "" true (x <> No
 let check_raises  ~__POS__ = Alcotest.check_raises ~pos:__POS__ ""
 let check_int     ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ int) "" expected
 let check_string  ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ string) "" expected
+let check_bool    ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ bool) "" expected
 
 module Heap = struct
   module Heap = struct
@@ -143,6 +144,72 @@ let test_noop () =
     check_int ~__POS__ ~expected:0 res
   done
 
+let test_open () =
+  with_uring ~queue_depth:1 @@ fun t ->
+  assert_some ~__POS__ (Uring.openat2 t
+                          ~access:`R
+                          ~flags:Uring.Open_flags.empty
+                          ~perm:0
+                          ~resolve:Uring.Resolve.empty
+                          "/dev/null"
+                          `Open);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  let token, fd = consume t in
+  assert_   ~__POS__ (token = `Open);
+  assert (fd >= 0);
+  let fd : Unix.file_descr = Obj.magic fd in
+  let got = Unix.read fd (Bytes.create 5) 0 5 in
+  check_int   ~__POS__ got ~expected:0;
+  Unix.close fd
+
+let test_create () =
+  with_uring ~queue_depth:1 @@ fun t ->
+  let old_mask = Unix.umask 0o077 in
+  Fun.protect ~finally:(fun () -> ignore (Unix.umask old_mask)) @@ fun () ->
+  assert_some ~__POS__ (Uring.openat2 t
+                          ~access:`RW
+                          ~flags:Uring.Open_flags.creat
+                          ~perm:0o644
+                          ~resolve:Uring.Resolve.empty
+                          "test-openat"
+                          `Create);
+  check_int ~__POS__ (Uring.submit t) ~expected:1;
+  let token, fd = consume t in
+  assert_ ~__POS__ (token = `Create);
+  assert (fd >= 0);
+  let fd : Unix.file_descr = Obj.magic fd in
+  check_int ~__POS__ ~expected:4 (Unix.write fd (Bytes.of_string "Test") 0 4);
+  check_int ~__POS__ ~expected:0o600 (Unix.fstat fd).st_perm;
+  Unix.close fd
+
+let test_resolve () =
+  with_uring ~queue_depth:1 @@ fun t ->
+  let get ~resolve path =
+    assert_some ~__POS__ (Uring.openat2 t
+                            ~access:`R
+                            ~flags:Uring.Open_flags.path
+                            ~perm:0
+                            ~resolve
+                            path
+                            `Get_path);
+    check_int ~__POS__ (Uring.submit t) ~expected:1;
+    let token, fd = consume t in
+    assert_ ~__POS__ (token = `Get_path);
+    if fd >= 0 then (
+      let fd : Unix.file_descr = Obj.magic fd in
+      Unix.close fd;
+      true
+    ) else if fd = -18 then (
+      false
+    ) else (
+      Fmt.failwith "unexpected error: %d" fd
+    )
+  in
+  check_bool ~__POS__ ~expected:true @@ get ~resolve:Uring.Resolve.empty ".";
+  check_bool ~__POS__ ~expected:true @@ get ~resolve:Uring.Resolve.beneath ".";
+  check_bool ~__POS__ ~expected:true @@ get ~resolve:Uring.Resolve.empty "..";
+  check_bool ~__POS__ ~expected:false @@ get ~resolve:Uring.Resolve.beneath ".."
+
 let test_read () =
   with_uring ~queue_depth:1 @@ fun t ->
   Test_data.with_fd @@ fun fd ->
@@ -256,6 +323,9 @@ let () =
     "uring", [
       tc "invalid_queue_depth" test_invalid_queue_depth;
       tc "noop" test_noop;
+      tc "open" test_open;
+      tc "create" test_create;
+      tc "resolve" test_resolve;
       tc "read" test_read;
       tc "readv" test_readv;
       tc "cancel" test_cancel;

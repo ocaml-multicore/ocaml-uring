@@ -120,6 +120,58 @@ ocaml_uring_submit_nop(value v_uring, value v_id) {
   CAMLreturn(Val_true);
 }
 
+struct open_how_data {
+  struct open_how how;
+  char path[];
+};
+
+#define Open_how_val(v) (*((struct open_how_data **) Data_custom_val(v)))
+
+static void finalize_open_how(value v) {
+  caml_stat_free(Open_how_val(v));
+  Open_how_val(v) = NULL;
+}
+
+static struct custom_operations open_how_ops = {
+  "uring.open_how",
+  finalize_open_how,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+value
+ocaml_uring_make_open_how(value v_flags, value v_mode, value v_resolve, value v_path) {
+  CAMLparam1(v_path);
+  CAMLlocal1(v);
+  int path_len = caml_string_length(v_path) + 1;
+  struct open_how_data *data;
+  v = caml_alloc_custom_mem(&open_how_ops, sizeof(struct open_how_data *), sizeof(struct open_how_data) + path_len);
+  Open_how_val(v) = NULL;
+  data = (struct open_how_data *) caml_stat_alloc(sizeof(struct open_how_data) + path_len);
+  data->how.flags = Long_val(v_flags);
+  data->how.mode = Long_val(v_mode);
+  data->how.resolve = Long_val(v_resolve);
+  memcpy(data->path, String_val(v_path), path_len);
+  Open_how_val(v) = data;
+  CAMLreturn(v);
+}
+
+value
+ocaml_uring_submit_openat2(value v_uring, value v_id, value v_fd, value v_open_how) {
+  CAMLparam2(v_uring, v_open_how);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) CAMLreturn(Val_false);
+  struct open_how_data *data = Open_how_val(v_open_how);
+  io_uring_prep_openat2(sqe, Int_val(v_fd), data->path, &data->how);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  CAMLreturn(Val_true);
+}
+
 value
 ocaml_uring_submit_close(value v_uring, value v_fd, value v_id) {
   CAMLparam1(v_uring);
