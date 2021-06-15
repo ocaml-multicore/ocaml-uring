@@ -174,8 +174,10 @@ let test_readv () =
   check_string ~__POS__ ~expected:"est fil" (Bigstringaf.to_string b2);
   ()
 
+(* Ask to read from a pipe (with no data available), then cancel it. *)
 let test_cancel () =
   let t = Uring.create ~queue_depth:5 () in
+  (* while true do *)
   let r, w = Unix.pipe () in
   let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
   assert_some ~__POS__ (Uring.cancel t read `Cancel);
@@ -188,10 +190,19 @@ let test_cancel () =
     | `Cancel, `Read -> r2, r1
     | _ -> assert false
   in
-  check_int ~__POS__ ~expected:(-125) r_read;   (* ECANCELED *)
-  check_int ~__POS__ ~expected:0      r_cancel; (* Success *)
+  if r_read = -4 then (
+    (* Occasionally, the read is actually busy just as we try to cancel.
+       In that case it gets interrupted and the cancel returns EALREADY. *)
+    check_int ~__POS__ ~expected:(-4)   r_read;   (* EINTR *)
+    check_int ~__POS__ ~expected:(-114) r_cancel; (* EALREADY *)
+  ) else (
+    (* This is the common case. The read is blocked and can just be removed. *)
+    check_int ~__POS__ ~expected:(-125) r_read;   (* ECANCELED *)
+    check_int ~__POS__ ~expected:0      r_cancel; (* Success *)
+  );
   Unix.close r;
   Unix.close w
+  (* done *)
 
 (* By the time we cancel, the request has already succeeded (we just didn't process the reply yet). *)
 let test_cancel_late () =
