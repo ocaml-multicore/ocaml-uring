@@ -122,9 +122,14 @@ let test_invalid_queue_depth () =
   check_raises ~__POS__ (Invalid_argument "Non-positive queue depth: 0")
     (fun () -> ignore (Uring.create ~queue_depth:0 ()))
 
+let with_uring ~queue_depth fn =
+  let t = Uring.create ~queue_depth () in
+  fn t;
+  Uring.exit t  (* Only free if there wasn't an error *)
+
 let test_noop () =
   let queue_depth = 5 in
-  let t = Uring.create ~queue_depth () in
+  with_uring ~queue_depth @@ fun t ->
 
   for i = 1 to queue_depth do
     assert_some ~__POS__ (Uring.noop t i);
@@ -139,7 +144,7 @@ let test_noop () =
   done
 
 let test_read () =
-  let t = Uring.create ~queue_depth:1 () in
+  with_uring ~queue_depth:1 @@ fun t ->
   Test_data.with_fd @@ fun fd ->
 
   let off = 3 in
@@ -157,7 +162,7 @@ let test_read () =
     (Bigstringaf.substring fbuf ~off ~len)
 
 let test_readv () =
-  let t = Uring.create ~queue_depth:1 () in
+  with_uring ~queue_depth:1 @@ fun t ->
   Test_data.with_fd @@ fun fd ->
 
   let b1_len = 3 and b2_len = 7 in
@@ -176,7 +181,7 @@ let test_readv () =
 
 (* Ask to read from a pipe (with no data available), then cancel it. *)
 let test_cancel () =
-  let t = Uring.create ~queue_depth:5 () in
+  with_uring ~queue_depth:5 @@ fun t ->
   (* while true do *)
   let r, w = Unix.pipe () in
   let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
@@ -206,7 +211,7 @@ let test_cancel () =
 
 (* By the time we cancel, the request has already succeeded (we just didn't process the reply yet). *)
 let test_cancel_late () =
-  let t = Uring.create ~queue_depth:5 () in
+  with_uring ~queue_depth:5 @@ fun t ->
   let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0 in
   let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
@@ -226,7 +231,7 @@ let test_cancel_late () =
 
 (* By the time we cancel, we already knew the operation was over. *)
 let test_cancel_invalid () =
-  let t = Uring.create ~queue_depth:5 () in
+  with_uring ~queue_depth:5 @@ fun t ->
   let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0 in
   let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
   let token, r_read = consume t in

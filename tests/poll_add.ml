@@ -17,4 +17,4 @@ let () =
   in
   let res = retry () in
   Printf.eprintf "poll_add: %x\n%!" res;
-  ()
+  Uring.exit t
