@@ -14,10 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(** Io_uring interface.
-    FIXME: Since this library is still unreleased, all the interfaces here are
-    being iterated on.
-*)
+(** Io_uring interface. *)
 
 module Region = Region
 
@@ -54,21 +51,78 @@ val noop : 'a t -> 'a -> 'a job option
 (** [noop t d] submits a no-op operation to uring [t]. The user data [d] will be
     returned by {!wait} or {!peek} upon completion. *)
 
-module Poll_mask : sig
+module type FLAGS = sig
   type t = private int
-
-  val pollin  : t
-  val pollout : t
-  val pollerr : t
-  val pollhup : t
+  (** A set of flags. *)
 
   val of_int : int -> t
-  
+
   val ( + ) : t -> t -> t
   (** [a + b] is the union of the sets. *)
 
   val mem : t -> t -> bool
   (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
+end
+
+(** Flags that can be passed to openat2. *)
+module Open_flags : sig
+  include FLAGS
+
+  val empty : t
+  val append : t
+  val cloexec : t
+  val creat : t
+  val direct : t
+  val directory : t
+  val dsync : t
+  val excl : t
+  val largefile : t
+  val noatime : t
+  val noctty : t
+  val nofollow : t
+  val nonblock : t
+  val path : t
+  val sync : t
+  val tmpfile : t
+  val trunc : t
+end
+
+(** Flags that can be passed to openat2 to control path resolution. *)
+module Resolve : sig
+  include FLAGS
+
+  val empty : t
+  val beneath : t
+  val in_root : t
+  val no_magiclinks : t
+  val no_symlinks : t
+  val no_xdev : t
+  val cached : t
+end
+
+val openat2 : 'a t ->
+  access:[`R|`W|`RW] ->
+  flags:Open_flags.t ->
+  perm:Unix.file_perm ->
+  resolve:Resolve.t ->
+  ?fd:Unix.file_descr ->
+  string ->
+  'a -> 'a job option
+(** [openat2 t ~access ~flags ~perm ~resolve ~fd path d] opens [path], which is resolved relative to [fd]
+    (or the current directory if [fd] is not given).
+    The user data [d] will be returned by {!wait} or {!peek} upon completion.
+    @param access controls whether the file is opened for reading, writing, or both
+    @param flags are the usual open flags
+    @param perm sets the access control bits for newly created files (subject to the process's umask)
+    @param resolve controls how the pathname is resolved. *)
+
+module Poll_mask : sig
+  include FLAGS
+
+  val pollin  : t
+  val pollout : t
+  val pollerr : t
+  val pollhup : t
 end
 
 val poll_add : 'a t -> Unix.file_descr -> Poll_mask.t -> 'a -> 'a job option
