@@ -40,3 +40,6 @@ val alloc : 'a t -> 'a -> extra_data:'b -> 'a entry
 val free : 'a t -> ptr -> 'a
 (** [free t p] returns the element referenced by [p] and removes it from the
     heap. Has undefined behaviour if [p] has already been freed. *)
+
+val in_use : 'a t -> int
+(** [in_use t] is the number of entries currently allocated. *)
