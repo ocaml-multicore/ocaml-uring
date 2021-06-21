@@ -5,8 +5,6 @@
  (libraries bigstringaf iovec fmt optint unix)
  (foreign_stubs
   (language c)
-  (flags
-   (:standard -O0))
   (names uring_stubs)
   (include_dirs include)
   (extra_deps include/liburing/compat.h)))
@@ -29,7 +27,7 @@
       ;; TODO discover.ml for liburing cflags
       (setenv
        CFLAGS
-       "-g -fomit-frame-pointer -O0 -fPIC"
+       "-g -fomit-frame-pointer -fPIC"
        (run make -j -C src))))
     (copy %{project_root}/vendor/liburing/src/liburing.a liburing.a)
     (copy %{project_root}/vendor/liburing/src/liburing.so.2.0.0 dlluring.so)
