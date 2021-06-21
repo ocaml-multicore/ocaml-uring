@@ -14,7 +14,7 @@
       ;; TODO discover.ml for liburing cflags
       (setenv
        CFLAGS
-       "-g -fomit-frame-pointer -O0 -fPIC"
+       "-g -fomit-frame-pointer -fPIC"
        (run make -j -C src))))
     (copy liburing/src/liburing.a liburing.a)
     (copy liburing/src/liburing.so.2.0.0 dlluring.so)
