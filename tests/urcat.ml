@@ -14,29 +14,27 @@ let get_completion_and_print uring =
     | Some { data; result } -> (data, result)
     | None -> failwith "retry"
   in
-  let bufs = Iovec.buffers iov in
   let remaining = ref len in
   Printf.eprintf "%d bytes read\n%!" len;
-  Array.iter (fun buf ->
-    let buflen = Bigstringaf.length buf in
+  List.iter (fun buf ->
+    let buflen = Cstruct.length buf in
     if !remaining > 0 then begin
       if buflen <= !remaining then begin
-        print_string (Bigstringaf.to_string buf);
+        print_string (Cstruct.to_string buf);
         remaining := !remaining - buflen;
       end else begin
-        print_string (Bigstringaf.substring ~off:0 ~len:!remaining buf);
+        print_string (Cstruct.to_string ~off:0 ~len:!remaining buf);
         remaining := 0;
       end
     end
-  ) bufs
+  ) iov
 
 let submit_read_request fname uring =
   let fd = Unix.(handle_unix_error (openfile fname [O_RDONLY]) 0) in
   let file_sz = get_file_size fd in
   let blocks = if file_sz mod block_size <> 0 then (file_sz / block_size)+1 else file_sz/block_size in
-  let bufs = Array.init blocks (fun _ -> Iovec.Buffer.create block_size) in
-  let iov = Iovec.alloc bufs in
-  let _ = Uring.readv uring fd iov (iov :> Iovec.t) ~file_offset:Optint.Int63.zero in
+  let iov = List.init blocks (fun _ -> Cstruct.create block_size) in
+  let _ = Uring.readv uring fd iov iov ~file_offset:Optint.Int63.zero in
   let numreq = Uring.submit uring in
   assert(numreq=1);
   ()

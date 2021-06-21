@@ -34,11 +34,11 @@ val create : ?fixed_buf_len:int -> queue_depth:int -> unit -> 'a t
 val queue_depth : 'a t -> int
 (** [queue_depth t] returns the total number of submission slots for the uring [t] *)
 
-val buf : 'a t -> Iovec.Buffer.t
+val buf : 'a t -> Cstruct.buffer
 (** [buf t] will return the fixed internal memory buffer associated with
     uring [t]. TODO: replace with {!Region.t} instead. *)
 
-val realloc : 'a t -> Iovec.Buffer.t -> unit
+val realloc : 'a t -> Cstruct.buffer -> unit
 (** [realloc t buf] will replace the internal fixed buffer associated with
     uring [t] with a fresh one. TODO: specify semantics of outstanding requests. *)
 
@@ -133,13 +133,13 @@ type offset := Optint.Int63.t
 (** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
     For sockets, use an offset of [Optint.Int63.zero] ([minus_one] is not allowed here). *)
 
-val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> 'a job option
+val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [iov].  The user data [d] will
     be returned by {!wait} or {!peek} upon completion. *)
 
-val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t -> 'a -> 'a job option
+val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by

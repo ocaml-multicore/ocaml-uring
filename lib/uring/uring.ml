@@ -105,6 +105,31 @@ module Open_how = struct
   let v ~open_flags ~perm ~resolve path = make open_flags perm resolve path
 end
 
+module Iovec = struct
+  (* The C stubs rely on the layout of Cstruct.t, so we just check here that it hasn't changed. *)
+  module Check : sig
+    [@@@warning "-34"]
+    type t = private {
+      buffer: (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t;
+      off   : int;
+      len   : int;
+    }
+  end = Cstruct
+
+  type iovec
+  (* A C array of iovecs *)
+
+  type t = iovec * int * Cstruct.t list
+  (* Note: we don't use the buffers list, but adding them here prevents them from being GC'd. *)
+
+  external make_iovec : Cstruct.t list -> int -> iovec = "ocaml_uring_make_iovec"
+
+  let make buffers =
+    let len = List.length buffers in
+    let iovec = make_iovec buffers len in
+    (iovec, len, buffers)
+end
+
 type 'a job = 'a Heap.entry
 
 module Uring = struct
@@ -113,8 +138,8 @@ module Uring = struct
   external create : int -> t = "ocaml_uring_setup"
   external exit : t -> unit = "ocaml_uring_exit"
 
-  external unregister_bigarray : t -> unit = "ocaml_uring_unregister_ba"
-  external register_bigarray : t ->  Iovec.Buffer.t -> unit = "ocaml_uring_register_ba"
+  external unregister_buffers : t -> unit = "ocaml_uring_unregister_buffers"
+  external register_bigarray : t ->  Cstruct.buffer -> unit = "ocaml_uring_register_ba"
   external submit : t -> int = "ocaml_uring_submit"
 
   type id = Heap.ptr
@@ -124,8 +149,8 @@ module Uring = struct
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
   external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool = "ocaml_uring_submit_readv" [@@noalloc]
   external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool = "ocaml_uring_submit_writev" [@@noalloc]
-  external submit_readv_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
-  external submit_writev_fixed : t -> Unix.file_descr -> id -> Iovec.Buffer.t -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
+  external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
+  external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
@@ -148,7 +173,7 @@ end
 type 'a t = {
   id : < >;
   uring: Uring.t;
-  mutable fixed_iobuf: Iovec.Buffer.t;
+  mutable fixed_iobuf: Cstruct.buffer;
   data : 'a Heap.t;
   queue_depth: int;
   mutable dirty: bool; (* has outstanding requests that need to be submitted *)
@@ -195,9 +220,8 @@ let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth () =
   if queue_depth < 1 then Fmt.invalid_arg "Non-positive queue depth: %d" queue_depth;
   let uring = Uring.create queue_depth in
   (* TODO posix memalign this to page *)
-  let fixed_iobuf = Iovec.Buffer.create fixed_buf_len in
+  let fixed_iobuf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
   Uring.register_bigarray uring fixed_iobuf;
-  Gc.finalise Uring.exit uring;
   let data = Heap.create queue_depth in
   let id = object end in
   let t = { id; uring; fixed_iobuf; data; dirty=false; queue_depth } in
@@ -205,7 +229,7 @@ let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth () =
   t
 
 let realloc t iobuf =
-  Uring.unregister_bigarray t.uring;
+  Uring.unregister_buffers t.uring;
   t.fixed_iobuf <- iobuf;
   Uring.register_bigarray t.uring iobuf
 
@@ -248,8 +272,9 @@ let openat2 t ~access ~flags ~perm ~resolve ?(fd=at_fdcwd) path user_data =
   let open_how = Open_how.v ~open_flags ~perm ~resolve path in
   with_id_full t (fun id -> Uring.submit_openat2 t.uring id fd open_how) user_data ~extra_data:open_how
 
-let readv t ~file_offset fd iovec user_data =
-  with_id t (fun id -> Uring.submit_readv t.uring fd id iovec file_offset) user_data
+let readv t ~file_offset fd buffers user_data =
+  let iovec = Iovec.make buffers in
+  with_id_full t (fun id -> Uring.submit_readv t.uring fd id iovec file_offset) user_data ~extra_data:iovec
 
 let read t ~file_offset fd off len user_data =
   with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
@@ -257,8 +282,9 @@ let read t ~file_offset fd off len user_data =
 let write t ~file_offset fd off len user_data =
   with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
-let writev t ~file_offset fd iovec user_data =
-  with_id t (fun id -> Uring.submit_writev t.uring fd id iovec file_offset) user_data
+let writev t ~file_offset fd buffers user_data =
+  let iovec = Iovec.make buffers in
+  with_id_full t (fun id -> Uring.submit_writev t.uring fd id iovec file_offset) user_data ~extra_data:iovec
 
 let poll_add t fd poll_mask user_data =
   with_id t (fun id -> Uring.submit_poll_add t.uring fd id poll_mask) user_data
