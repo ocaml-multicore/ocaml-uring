@@ -146,12 +146,48 @@ module Uring = struct
 end
 
 type 'a t = {
+  id : < >;
   uring: Uring.t;
   mutable fixed_iobuf: Iovec.Buffer.t;
   data : 'a Heap.t;
   queue_depth: int;
   mutable dirty: bool; (* has outstanding requests that need to be submitted *)
 }
+
+module Generic_ring = struct
+  type ring = T : 'a t -> ring
+  type t = ring
+  let compare (T a) (T b) = compare a.id b.id
+end
+
+module Ring_set = Set.Make(Generic_ring)
+
+(* Garbage collection and buffers shared with the Linux kernel.
+
+   Many uring operations involve passing Linux the address of a buffer to which it
+   should write the results. This means that both Linux and OCaml have pointers to the
+   buffer, and it must not be freed until both have finished with it, but the OCaml
+   garbage collector doesn't know this. To avoid OCaml's GC freeing the buffer while
+   Linux is still using it:
+
+   - We attach all such buffers to their [t.data] entry, so they don't get freed until
+     the job is complete, even if the caller loses interest in the buffer.
+
+   - We add the ring itself to the global [gc_roots] set, so that [t.data] can't be freed
+     unless [exit] is called, which checks that there are no operations in progress. *)
+let gc_roots = Atomic.make Ring_set.empty
+
+let rec update_gc_roots fn =
+  let old_set = Atomic.get gc_roots in
+  let new_set = fn old_set in
+  if not (Atomic.compare_and_set gc_roots old_set new_set) then
+    update_gc_roots fn
+
+let register_gc_root t =
+  update_gc_roots (Ring_set.add (Generic_ring.T t))
+
+let unregister_gc_root t =
+  update_gc_roots (Ring_set.remove (Generic_ring.T t))
 
 let default_iobuf_len = 1024 * 1024 (* 1MB *)
 
@@ -163,14 +199,23 @@ let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth () =
   Uring.register_bigarray uring fixed_iobuf;
   Gc.finalise Uring.exit uring;
   let data = Heap.create queue_depth in
-  { uring; fixed_iobuf; data; dirty=false; queue_depth }
+  let id = object end in
+  let t = { id; uring; fixed_iobuf; data; dirty=false; queue_depth } in
+  register_gc_root t;
+  t
 
 let realloc t iobuf =
   Uring.unregister_bigarray t.uring;
   t.fixed_iobuf <- iobuf;
   Uring.register_bigarray t.uring iobuf
 
-let exit {uring;_} = Uring.exit uring
+let exit t =
+  match Heap.in_use t.data with
+  | 0 ->
+    Uring.exit t.uring;
+    unregister_gc_root t
+  | n ->
+    Fmt.invalid_arg "Can't free ring; %d request(s) still active!" n
 
 let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a job option =
  fun t fn datum ~extra_data ->
@@ -232,6 +277,7 @@ let accept t fd addr user_data =
   with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) user_data ~extra_data:addr
 
 let cancel t job user_data =
+  ignore (Heap.ptr job : Uring.id);  (* Check it's still valid *)
   with_id t (fun id -> Uring.submit_cancel t.uring id (Heap.ptr job)) user_data
 
 let submit t =

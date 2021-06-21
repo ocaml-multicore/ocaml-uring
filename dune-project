@@ -12,6 +12,7 @@
  (synopsis "OCaml bindings for Linux io_uring")
  (description "Bindings to the Linux io_uring kernel IO interfaces.")
  (depends
+  (ocaml (>= 4.12.0))
   dune-configurator
   (iovec (= :version))
   (lwt (and :with-test (>= 5.0.0)))

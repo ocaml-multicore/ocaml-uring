@@ -39,12 +39,12 @@ type 'a t =
 
      - [x = slot_taken]: the data slot is taken;
      - [x = free_list_nil]: the data slot is free, and is last to be allocated;
-     - [0 <= x < length]: the data slot is free, and will be allocated before
+     - [0 <= x < length data]: the data slot is free, and will be allocated before
        [free_tail_relation.(x)].
 
      The user is given only pointers [p] such that [free_tail_relation.(p) =
      slot_taken]. *)
-  ; length: int
+  ; mutable in_use: int
   }
 
 let ptr = function
@@ -64,7 +64,7 @@ let create : type a. int -> a t =
        inaccessible. *)
     Array.make n Empty
   in
-  { data; free_head; free_tail_relation; length = n }
+  { data; free_head; free_tail_relation; in_use = 0 }
 
 exception No_space
 
@@ -78,12 +78,13 @@ let alloc t data ~extra_data =
   let tail = t.free_tail_relation.(ptr) in
   t.free_tail_relation.(ptr) <- slot_taken;
   t.free_head <- tail;
+  t.in_use <- t.in_use + 1;
 
   entry
 
 let free t ptr =
   assert (ptr >= 0) (* [alloc] returns only valid pointers. *);
-  if ptr >= t.length then Fmt.invalid_arg "Heap.free: invalid pointer %d" ptr;
+  if ptr >= Array.length t.data then Fmt.invalid_arg "Heap.free: invalid pointer %d" ptr;
   let slot_state = t.free_tail_relation.(ptr) in
   if slot_state <> slot_taken then invalid_arg "Heap.free: pointer already freed";
 
@@ -104,5 +105,8 @@ let free t ptr =
      it to allow it to be GC-ed. *)
   assert (t.free_tail_relation.(ptr) <> slot_taken);
   t.data.(ptr) <- Empty;         (* Extra-data can be GC'd here *)
+  t.in_use <- t.in_use - 1;
 
   datum
+
+let in_use t = t.in_use

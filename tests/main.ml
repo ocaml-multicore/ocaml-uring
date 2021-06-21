@@ -310,6 +310,21 @@ let test_cancel_invalid () =
     (Invalid_argument "Entry has already been freed!")
     (fun () -> ignore (Uring.cancel t read `Cancel))
 
+let test_free_busy () =
+  let t = Uring.create ~queue_depth:1 () in
+  let r, w = Unix.pipe () in
+  Fun.protect ~finally:(fun () -> Unix.close r) @@ fun () ->
+  assert_some ~__POS__ (Uring.read t ~file_offset:Int63.minus_one r 0 1 `Read);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  check_raises ~__POS__
+    (Invalid_argument "Can't free ring; 1 request(s) still active!")
+    (fun () -> Uring.exit t);
+  Unix.close w;
+  let token, r_read = consume t in
+  assert_   ~__POS__ (token = `Read);
+  check_int ~__POS__ ~expected:0    r_read;
+  Uring.exit t
+
 let () =
   Test_data.setup ();
   Random.self_init ();
@@ -331,6 +346,7 @@ let () =
       tc "cancel" test_cancel;
       tc "cancel_late" test_cancel_late;
       tc "cancel_invalid" test_cancel_invalid;
+      tc "free_busy" test_free_busy;
     ];
   ]
 
