@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <string.h>
 #include <poll.h>
+#include <sys/uio.h>
 
 #undef URING_DEBUG
 #ifdef URING_DEBUG
@@ -47,9 +48,11 @@
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
 
+// Note that this does not free the ring data. You must not allow this to be
+// GC'd until the ring has been released by calling ocaml_uring_exit.
 static struct custom_operations ring_ops = {
   "uring.ring",
-  custom_finalize_default, /* TODO: Finalize should check we've taken down the ring and if not, take it down */
+  custom_finalize_default,
   custom_compare_default,
   custom_hash_default,
   custom_serialize_default,
@@ -62,16 +65,22 @@ value ocaml_uring_setup(value entries) {
   CAMLparam1(entries);
   CAMLlocal1(v_uring);
 
+  v_uring = caml_alloc_custom_mem(&ring_ops, sizeof(struct io_uring*), sizeof(struct io_uring));
+  Ring_val(v_uring) = NULL;
+
+  // On OOM, this raises. [v_uring] will be freed by the GC.
   struct io_uring* ring = (struct io_uring*)caml_stat_alloc(sizeof(struct io_uring));
+  Ring_val(v_uring) = ring;
 
   int status = io_uring_queue_init(Long_val(entries), ring, 0);
 
   if (status == 0) {
-      v_uring = caml_alloc_custom_mem(&ring_ops, sizeof(struct io_uring*), sizeof(struct io_uring));
-      Ring_val(v_uring) = ring;
-      CAMLreturn(v_uring);
-  } else
-     unix_error(-status, "io_uring_queue_init", Nothing);
+    CAMLreturn(v_uring);
+  } else {
+    caml_stat_free(ring);
+    // The GC will free [v_uring].
+    unix_error(-status, "io_uring_queue_init", Nothing);
+  }
 }
 
 value ocaml_uring_register_ba(value v_uring, value v_ba) {
@@ -87,16 +96,62 @@ value ocaml_uring_register_ba(value v_uring, value v_ba) {
   CAMLreturn(Val_unit);
 }
 
-value ocaml_uring_unregister_ba(value v_uring, value v_ba) {
-  CAMLparam2(v_uring, v_ba);
+// Note that the ring must be idle when calling this.
+value ocaml_uring_unregister_buffers(value v_uring) {
+  CAMLparam1(v_uring);
   struct io_uring *ring = Ring_val(v_uring);
-  dprintf("uring %p: unregistering buffer");
+  dprintf("uring %p: unregistering buffers");
   int ret = io_uring_unregister_buffers(ring);
   if (ret)
     unix_error(-ret, "io_uring_register_buffers", Nothing);
   CAMLreturn(Val_unit);
 }
 
+#define Iovec_val(v) (*((struct iovec **) Data_custom_val(v)))
+
+static void finalize_iovec(value v) {
+  caml_stat_free(Iovec_val(v));
+  Iovec_val(v) = NULL;
+}
+
+static struct custom_operations iovec_ops = {
+  "uring.iovec_ops",
+  finalize_iovec,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+// allocate a custom block containing a C array of iovecs[len], initialised from v_cstructs.
+// The result must not be used after v_cstructs is GC'd.
+value
+ocaml_uring_make_iovec(value v_cstructs, value v_len) {
+  CAMLparam1(v_cstructs);
+  CAMLlocal2(v, l);
+  int len = Int_val(v_len);
+  int i;
+  struct iovec *iovs;
+  // Allocate the custom block on the OCaml heap:
+  v = caml_alloc_custom_mem(&iovec_ops, sizeof(struct iovec_ops *), len * sizeof(struct iovec));
+  Iovec_val(v) = NULL;
+  iovs = caml_stat_alloc(len * sizeof(struct iovec));
+  Iovec_val(v) = iovs;
+  for (i = 0, l = v_cstructs; i < len; l = Field(l, 1), i++) {
+    value v_cs = Field(l, 0);
+    value v_ba = Field(v_cs, 0);
+    value v_off = Field(v_cs, 1);
+    value v_len = Field(v_cs, 2);
+    iovs[i].iov_base = Caml_ba_data_val(v_ba) + Long_val(v_off);
+    iovs[i].iov_len = Long_val(v_len);
+    dprintf("adding iov %d: %p (%ld, %ld)\n", i, iovs[i].iov_base, Long_val(v_off), Long_val(v_len));
+  }
+  CAMLreturn(v);
+}
+
+// Note that the ring must be idle when calling this.
 value ocaml_uring_exit(value v_uring) {
   CAMLparam1(v_uring);
   struct io_uring *ring = Ring_val(v_uring);
@@ -105,6 +160,7 @@ value ocaml_uring_exit(value v_uring) {
     io_uring_queue_exit(ring);
     caml_stat_free(ring);
     Ring_val(v_uring) = NULL;
+    // Can now allow the GC to release v_uring
   }
   CAMLreturn(Val_unit);
 }
@@ -143,10 +199,13 @@ static struct custom_operations open_how_ops = {
   custom_fixed_length_default
 };
 
+// v_path is copied into the returned block.
 value
 ocaml_uring_make_open_how(value v_flags, value v_mode, value v_resolve, value v_path) {
   CAMLparam1(v_path);
   CAMLlocal1(v);
+  if (!caml_string_is_c_safe(v_path))
+    caml_invalid_argument("ocaml_uring_make_open_how: path is not C-safe");
   int path_len = caml_string_length(v_path) + 1;
   struct open_how_data *data;
   v = caml_alloc_custom_mem(&open_how_ops, sizeof(struct open_how_data *), sizeof(struct open_how_data) + path_len);
@@ -160,6 +219,7 @@ ocaml_uring_make_open_how(value v_flags, value v_mode, value v_resolve, value v_
   CAMLreturn(v);
 }
 
+// Caller must ensure v_open_how is not GC'd until the job is finished.
 value
 ocaml_uring_submit_openat2(value v_uring, value v_id, value v_fd, value v_open_how) {
   CAMLparam2(v_uring, v_open_how);
@@ -197,12 +257,13 @@ ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_
   CAMLreturn(Val_true);
 }
 
+// Caller must ensure v_iov is not GC'd until the job is finished.
 value
 ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, value v_off) {
-  CAMLparam1(v_uring);
+  CAMLparam2(v_uring, v_iov);
   struct io_uring *ring = Ring_val(v_uring);
-  struct iovec *iovs = (struct iovec *) (Field(v_iov, 0)  & ~1);
-  int len = Wosize_val(Field(v_iov, 1));
+  struct iovec *iovs = Iovec_val(Field(v_iov, 0));
+  int len = Int_val(Field(v_iov, 1));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
   dprintf("submit_readv: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_off));
@@ -211,12 +272,13 @@ ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, val
   CAMLreturn(Val_true);
 }
 
+// Caller must ensure v_iov is not GC'd until the job is finished.
 value
 ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, value v_off) {
-  CAMLparam1(v_uring);
+  CAMLparam2(v_uring, v_iov);
   struct io_uring *ring = Ring_val(v_uring);
-  struct iovec *iovs = (struct iovec *) (Field(v_iov, 0) & ~1);
-  int len = Wosize_val(Field(v_iov, 1));
+  struct iovec *iovs = Iovec_val(Field(v_iov, 0));
+  int len = Int_val(Field(v_iov, 1));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
   dprintf("submit_writev: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_off));
@@ -225,6 +287,7 @@ ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, va
   CAMLreturn(Val_true);
 }
 
+// Caller must ensure the buffers are not released until this job completes.
 value
 ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
@@ -249,6 +312,7 @@ ocaml_uring_submit_readv_fixed_byte(value* values, int argc) {
 			  values[6]);
 }
 
+// Caller must ensure the buffers are not released until this job completes.
 value
 ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);

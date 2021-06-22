@@ -233,8 +233,8 @@ let test_readv () =
   Test_data.with_fd @@ fun fd ->
 
   let b1_len = 3 and b2_len = 7 in
-  let b1 = Iovec.Buffer.create b1_len and b2 = Iovec.Buffer.create b2_len in
-  let iov = Iovec.alloc [| b1; b2 |] in
+  let b1 = Cstruct.create b1_len and b2 = Cstruct.create b2_len in
+  let iov = [b1; b2] in
 
   assert_some ~__POS__ (Uring.readv t fd iov `Readv ~file_offset:Int63.zero);
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
@@ -242,8 +242,8 @@ let test_readv () =
   let token, read = consume t in
   assert_      ~__POS__ (token = `Readv);
   check_int    ~__POS__ ~expected:(b1_len + b2_len) read;
-  check_string ~__POS__ ~expected:"A t"     (Bigstringaf.to_string b1);
-  check_string ~__POS__ ~expected:"est fil" (Bigstringaf.to_string b2);
+  check_string ~__POS__ ~expected:"A t"     (Cstruct.to_string b1);
+  check_string ~__POS__ ~expected:"est fil" (Cstruct.to_string b2);
   ()
 
 (* Ask to read from a pipe (with no data available), then cancel it. *)
@@ -328,7 +328,7 @@ let test_free_busy () =
 let () =
   Test_data.setup ();
   Random.self_init ();
-  let tc name f = Alcotest.test_case name `Quick f in
+  let tc name f = Alcotest.test_case name `Quick (fun () -> f (); Gc.full_major ()) in
   Alcotest.run __FILE__ [
     "heap", [
       tc "normal_usage" Heap.test_normal_usage;

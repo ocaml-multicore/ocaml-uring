@@ -1,6 +1,0 @@
-(library
- (name iovec)
- (public_name iovec)
- (foreign_stubs
-  (language c)
-  (names iovec_stubs)))

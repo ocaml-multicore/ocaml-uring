@@ -17,7 +17,7 @@ type t
   (** [No_space] is raised when an allocation request cannot
       be satisfied. *)
 
-  val init: block_size:int -> Iovec.Buffer.t -> int -> t
+  val init: block_size:int -> Cstruct.buffer -> int -> t
   (** [init ~block_size buf slots] initialises a region from
       the buffer [buf] with total size of [block_size * slots]. *)
 
@@ -37,7 +37,7 @@ type t
       offset in its associated region.  This can be used in IO calls
       involving that memory. *)
 
-  val to_bigstring : ?len:int -> chunk -> Iovec.Buffer.t
+  val to_bigstring : ?len:int -> chunk -> Cstruct.buffer
   (** [to_bigstring ?len chunk] will create a {!Bigarray} into the
       chunk of memory. Note that this is a zero-copy view into the
       underlying region [t] and so the [chunk] should not be freed
