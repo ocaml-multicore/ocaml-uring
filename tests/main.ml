@@ -317,7 +317,7 @@ let test_free_busy () =
   assert_some ~__POS__ (Uring.read t ~file_offset:Int63.minus_one r 0 1 `Read);
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
   check_raises ~__POS__
-    (Invalid_argument "Can't free ring; 1 request(s) still active!")
+    (Invalid_argument "exit: 1 request(s) still active!")
     (fun () -> Uring.exit t);
   Unix.close w;
   let token, r_read = consume t in
@@ -349,4 +349,3 @@ let () =
       tc "free_busy" test_free_busy;
     ];
   ]
-

@@ -40,10 +40,12 @@ val buf : 'a t -> Cstruct.buffer
 
 val realloc : 'a t -> Cstruct.buffer -> unit
 (** [realloc t buf] will replace the internal fixed buffer associated with
-    uring [t] with a fresh one. TODO: specify semantics of outstanding requests. *)
+    uring [t] with a fresh one.
+    @raise Invalid_argument if there are any requests in progress *)
 
 val exit : 'a t -> unit
-(** [exit t] will shut down the uring [t]. Any subsequent requests will fail. *)
+(** [exit t] will shut down the uring [t]. Any subsequent requests will fail.
+    @raise Invalid_argument if there are any requests in progress *)
 
 (** {2 Queueing operations} *)
 

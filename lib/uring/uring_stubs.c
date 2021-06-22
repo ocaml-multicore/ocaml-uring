@@ -83,6 +83,7 @@ value ocaml_uring_setup(value entries) {
   }
 }
 
+// Note that the ring must be idle when calling this.
 value ocaml_uring_register_ba(value v_uring, value v_ba) {
   CAMLparam2(v_uring, v_ba);
   struct io_uring *ring = Ring_val(v_uring);

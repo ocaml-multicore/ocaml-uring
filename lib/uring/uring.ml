@@ -228,18 +228,22 @@ let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth () =
   register_gc_root t;
   t
 
+let ensure_idle t op =
+  match Heap.in_use t.data with
+  | 0 -> ()
+  | n ->
+    Fmt.invalid_arg "%s: %d request(s) still active!" op n
+
 let realloc t iobuf =
+  ensure_idle t "realloc";
   Uring.unregister_buffers t.uring;
   t.fixed_iobuf <- iobuf;
   Uring.register_bigarray t.uring iobuf
 
 let exit t =
-  match Heap.in_use t.data with
-  | 0 ->
-    Uring.exit t.uring;
-    unregister_gc_root t
-  | n ->
-    Fmt.invalid_arg "Can't free ring; %d request(s) still active!" n
+  ensure_idle t "exit";
+  Uring.exit t.uring;
+  unregister_gc_root t
 
 let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a job option =
  fun t fn datum ~extra_data ->
