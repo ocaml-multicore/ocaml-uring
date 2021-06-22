@@ -35,8 +35,9 @@ val queue_depth : 'a t -> int
 (** [queue_depth t] returns the total number of submission slots for the uring [t] *)
 
 val buf : 'a t -> Cstruct.buffer
-(** [buf t] will return the fixed internal memory buffer associated with
-    uring [t]. TODO: replace with {!Region.t} instead. *)
+(** [buf t] is the fixed internal memory buffer associated with uring [t].
+    You will normally want to wrap this with {!Region.alloc} or similar
+    to divide the buffer into chunks. *)
 
 val realloc : 'a t -> Cstruct.buffer -> unit
 (** [realloc t buf] will replace the internal fixed buffer associated with
@@ -147,19 +148,25 @@ val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 
     the memory pointed to by [iov].  The user data [d] will be returned by
     {!wait} or {!peek} upon completion. *)
 
-val read : 'a t -> file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> 'a job option
-(** [read t ~file_offset fd off d] will submit a [read(2)] request to uring [t].
-    It reads from absolute [file_offset] on the [fd] file descriptor and writes
-    the results into the fixed memory buffer associated with uring [t] at offset
-    [off]. TODO: replace [off] with {!Region.chunk} instead?
+val read_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
+(** [read t ~file_offset fd ~off ~len d] will submit a [read(2)] request to uring [t].
+    It reads up to [len] bytes from absolute [file_offset] on the [fd] file descriptor and
+    writes the results into the fixed memory buffer associated with uring [t] at offset [off].
     The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
 
-val write : 'a t -> file_offset:offset -> Unix.file_descr -> int -> int -> 'a -> 'a job option
+val read_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
+(** [read_chunk] is like [read_fixed], but gets the offset from [chunk].
+    @param len Restrict the read to the first [len] bytes of [chunk]. *)
+
+val write_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
 (** [write t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
-    It writes into absolute [file_offset] on the [fd] file descriptor from
-    the fixed memory buffer associated with uring [t] at offset [off].
-    TODO: replace [off] with {!Region.chunk} instead?
+    It writes up to [len] bytes into absolute [file_offset] on the [fd] file descriptor
+    from the fixed memory buffer associated with uring [t] at offset [off].
     The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
+
+val write_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
+(** [write_chunk] is like [write_fixed], but gets the offset from [chunk].
+    @param len Restrict the write to the first [len] bytes of [chunk]. *)
 
 val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a -> 'a job option
 (** [splice t ~src ~dst ~len d] will submit a request to copy [len] bytes from [src] to [dst].

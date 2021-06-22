@@ -231,8 +231,7 @@ let create ?(fixed_buf_len=default_iobuf_len) ~queue_depth () =
 let ensure_idle t op =
   match Heap.in_use t.data with
   | 0 -> ()
-  | n ->
-    Fmt.invalid_arg "%s: %d request(s) still active!" op n
+  | n -> Fmt.invalid_arg "%s: %d request(s) still active!" op n
 
 let realloc t iobuf =
   ensure_idle t "realloc";
@@ -280,10 +279,20 @@ let readv t ~file_offset fd buffers user_data =
   let iovec = Iovec.make buffers in
   with_id_full t (fun id -> Uring.submit_readv t.uring fd id iovec file_offset) user_data ~extra_data:iovec
 
-let read t ~file_offset fd off len user_data =
+let read_fixed t ~file_offset fd ~off ~len user_data =
   with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
-let write t ~file_offset fd off len user_data =
+let read_chunk ?len t ~file_offset fd chunk user_data =
+  let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
+  if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
+  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+
+let write_fixed t ~file_offset fd ~off ~len user_data =
+  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+
+let write_chunk ?len t ~file_offset fd chunk user_data =
+  let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
+  if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
   with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
 let writev t ~file_offset fd buffers user_data =
