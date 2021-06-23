@@ -246,6 +246,20 @@ let test_readv () =
   check_string ~__POS__ ~expected:"est fil" (Cstruct.to_string b2);
   ()
 
+(* Test using cstructs with offsets. *)
+let test_readv2 () =
+  with_uring ~queue_depth:1 @@ fun t ->
+  Test_data.with_fd @@ fun fd ->
+  let b = Cstruct.of_string "Gathered [    ] and [   ]" in
+  let b1 = Cstruct.sub b 10 4 and b2 = Cstruct.sub b 21 3 in
+  let iov = [b1; b2] in
+  assert_some ~__POS__ (Uring.readv t fd iov `Readv ~file_offset:Int63.zero);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  let token, read = consume t in
+  assert_      ~__POS__ (token = `Readv);
+  check_int    ~__POS__ ~expected:7 read;
+  check_string ~__POS__ ~expected:"Gathered [A te] and [st ]" (Cstruct.to_string b)
+
 let test_region () =
   with_uring ~queue_depth:1 ~fixed_buf_len:64 @@ fun t ->
   Test_data.with_fd @@ fun fd ->
@@ -363,6 +377,7 @@ let () =
       tc "resolve" test_resolve;
       tc "read" test_read;
       tc "readv" test_readv;
+      tc "readv2" test_readv2;
       tc "region" test_region;
       tc "cancel" test_cancel;
       tc "cancel_late" test_cancel_late;
