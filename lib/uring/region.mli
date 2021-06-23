@@ -37,21 +37,21 @@ type t
       offset in its associated region.  This can be used in IO calls
       involving that memory. *)
 
-  val to_bigstring : ?len:int -> chunk -> Cstruct.buffer
-  (** [to_bigstring ?len chunk] will create a {!Bigarray} into the
-      chunk of memory. Note that this is a zero-copy view into the
-      underlying region [t] and so the [chunk] should not be freed
-      until this Bigarray reference is no longer used.
+  val to_cstruct : ?len:int -> chunk -> Cstruct.t
+  (** [to_cstruct chunk] is a cstruct of [chunk]'s slice of the region.
+      Note that this is a zero-copy view into the underlying region [t]
+      and so [chunk] should not be freed until this cstruct is no longer used.
+      @param len Use only the first [len] bytes of [chunk]. *)
 
-      If [len] is specified then the returned view is of that size,
-      and otherwise it defaults to [block_size]. *)
+  val to_bigstring : ?len:int -> chunk -> Cstruct.buffer
+  (** [to_bigstring] is like {!to_cstruct}, but creates a {!Bigarray}.
+      Note that this is a zero-copy view into the underlying region [t]
+      and so [chunk] should not be freed until this Bigarray reference is no longer used.
+      @param len Use only the first [len] bytes of [chunk]. *)
 
   val to_string : ?len:int -> chunk -> string
-  (** [to_string ?len chunk] will return a copy of the [chunk]
-      as an OCaml string.
-
-      If [len] is specified then the returned view is of that size,
-      and otherwise it defaults to [block_size]. *)
+  (** [to_string ?len chunk] will return a copy of [chunk] as an OCaml string.
+      @param len Use only the first [len] bytes of [chunk]. *)
 
   val avail : t -> int
   (** [avail t] is the number of free chunks of memory remaining

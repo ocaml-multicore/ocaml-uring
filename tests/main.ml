@@ -123,8 +123,8 @@ let test_invalid_queue_depth () =
   check_raises ~__POS__ (Invalid_argument "Non-positive queue depth: 0")
     (fun () -> ignore (Uring.create ~queue_depth:0 ()))
 
-let with_uring ~queue_depth fn =
-  let t = Uring.create ~queue_depth () in
+let with_uring ?fixed_buf_len ~queue_depth fn =
+  let t = Uring.create ?fixed_buf_len ~queue_depth () in
   fn t;
   Uring.exit t  (* Only free if there wasn't an error *)
 
@@ -217,7 +217,7 @@ let test_read () =
   let off = 3 in
   let len = 5 in
   let file_offset = Int63.of_int 2 in
-  assert_some ~__POS__ (Uring.read t ~file_offset fd off len `Read);
+  assert_some ~__POS__ (Uring.read_fixed t ~file_offset fd ~off ~len `Read);
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
 
   let token, read = consume t in
@@ -246,12 +246,46 @@ let test_readv () =
   check_string ~__POS__ ~expected:"est fil" (Cstruct.to_string b2);
   ()
 
+(* Test using cstructs with offsets. *)
+let test_readv2 () =
+  with_uring ~queue_depth:1 @@ fun t ->
+  Test_data.with_fd @@ fun fd ->
+  let b = Cstruct.of_string "Gathered [    ] and [   ]" in
+  let b1 = Cstruct.sub b 10 4 and b2 = Cstruct.sub b 21 3 in
+  let iov = [b1; b2] in
+  assert_some ~__POS__ (Uring.readv t fd iov `Readv ~file_offset:Int63.zero);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  let token, read = consume t in
+  assert_      ~__POS__ (token = `Readv);
+  check_int    ~__POS__ ~expected:7 read;
+  check_string ~__POS__ ~expected:"Gathered [A te] and [st ]" (Cstruct.to_string b)
+
+let test_region () =
+  with_uring ~queue_depth:1 ~fixed_buf_len:64 @@ fun t ->
+  Test_data.with_fd @@ fun fd ->
+  let region = Uring.Region.init (Uring.buf t) 4 ~block_size:16 in
+  let chunk = Uring.Region.alloc region in
+  assert_some ~__POS__ (Uring.read_chunk t fd chunk `Read ~file_offset:Int63.zero);
+  let token, read = consume t in
+  assert_      ~__POS__ (token = `Read);
+  check_int    ~__POS__ ~expected:11 read;
+  check_string ~__POS__ ~expected:"A test file" (Uring.Region.to_string ~len:read chunk);
+  check_raises ~__POS__
+    (Invalid_argument "to_cstruct: requested length 17 > block size 16")
+    (fun () -> Uring.read_chunk ~len:17 t fd chunk `Read ~file_offset:Int63.zero |> ignore);
+  with_uring ~queue_depth:1 (fun t2 ->
+    check_raises ~__POS__
+      (Invalid_argument "Chunk does not belong to ring!")
+      (fun () -> Uring.read_chunk ~len:16 t2 fd chunk `Read ~file_offset:Int63.zero |> ignore);
+    );
+  ()
+
 (* Ask to read from a pipe (with no data available), then cancel it. *)
 let test_cancel () =
   with_uring ~queue_depth:5 @@ fun t ->
   (* while true do *)
   let r, w = Unix.pipe () in
-  let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
+  let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get in
   assert_some ~__POS__ (Uring.cancel t read `Cancel);
   check_int   ~__POS__ (Uring.submit t) ~expected:2;
   let t1, r1 = consume t in
@@ -280,7 +314,7 @@ let test_cancel () =
 let test_cancel_late () =
   with_uring ~queue_depth:5 @@ fun t ->
   let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0 in
-  let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
+  let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get in
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
   assert_some ~__POS__ (Uring.cancel t read `Cancel);
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
@@ -300,7 +334,7 @@ let test_cancel_late () =
 let test_cancel_invalid () =
   with_uring ~queue_depth:5 @@ fun t ->
   let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0 in
-  let read = Uring.read t ~file_offset:Int63.zero r 0 1 `Read |> Option.get in
+  let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get in
   let token, r_read = consume t in
   assert_   ~__POS__ (token = `Read);
   check_int ~__POS__ ~expected:1    r_read;   (* Success *)
@@ -314,10 +348,10 @@ let test_free_busy () =
   let t = Uring.create ~queue_depth:1 () in
   let r, w = Unix.pipe () in
   Fun.protect ~finally:(fun () -> Unix.close r) @@ fun () ->
-  assert_some ~__POS__ (Uring.read t ~file_offset:Int63.minus_one r 0 1 `Read);
+  assert_some ~__POS__ (Uring.read_fixed t ~file_offset:Int63.minus_one r ~off:0 ~len:1 `Read);
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
   check_raises ~__POS__
-    (Invalid_argument "Can't free ring; 1 request(s) still active!")
+    (Invalid_argument "exit: 1 request(s) still active!")
     (fun () -> Uring.exit t);
   Unix.close w;
   let token, r_read = consume t in
@@ -343,10 +377,11 @@ let () =
       tc "resolve" test_resolve;
       tc "read" test_read;
       tc "readv" test_readv;
+      tc "readv2" test_readv2;
+      tc "region" test_region;
       tc "cancel" test_cancel;
       tc "cancel_late" test_cancel_late;
       tc "cancel_invalid" test_cancel_invalid;
       tc "free_busy" test_free_busy;
     ];
   ]
-

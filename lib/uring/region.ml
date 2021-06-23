@@ -30,13 +30,22 @@ let free ({freelist; _}, v) =
 
 let length ({block_size;_}, _) = block_size
 
-let to_bigstring ?len ({buf;block_size;_}, chunk) =
-  let len = match len with None -> block_size | Some v -> min v block_size in
-  Bigstringaf.sub buf ~off:chunk ~len
+let length_option t = function
+  | None -> t.block_size
+  | Some len ->
+    if len > t.block_size then
+      invalid_arg (Printf.sprintf "to_cstruct: requested length %d > block size %d" len t.block_size)
+    else
+      len
 
-let to_string ?len ({buf; block_size;_},chunk) =
-  let len = match len with None -> block_size | Some v -> min v block_size in
-  Bigstringaf.substring buf ~off:chunk ~len
+let to_cstruct ?len (t, chunk) =
+  Cstruct.of_bigarray ~off:chunk ~len:(length_option t len) t.buf
+
+let to_bigstring ?len (t, chunk) =
+  Bigstringaf.sub t.buf ~off:chunk ~len:(length_option t len)
+
+let to_string ?len (t, chunk) =
+  Bigstringaf.substring t.buf ~off:chunk ~len:(length_option t len)
 
 let avail {freelist;_} = Queue.length freelist
 
