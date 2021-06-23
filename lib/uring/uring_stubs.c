@@ -462,7 +462,6 @@ static value Val_cqe_some(value id, value res) {
 value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
 {
   CAMLparam2(v_uring, v_timeout);
-  CAMLlocal1(v_ret);
   double timeout = Double_val(v_timeout);
   struct __kernel_timespec t;
   t.tv_sec = (time_t) timeout;
@@ -491,7 +490,6 @@ value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
 value ocaml_uring_wait_cqe(value v_uring)
 {
   CAMLparam1(v_uring);
-  CAMLlocal1(v_ret);
   long id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
@@ -516,7 +514,6 @@ value ocaml_uring_wait_cqe(value v_uring)
 value ocaml_uring_peek_cqe(value v_uring)
 {
   CAMLparam1(v_uring);
-  CAMLlocal1(v_ret);
   long id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
