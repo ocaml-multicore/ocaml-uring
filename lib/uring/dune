@@ -24,10 +24,9 @@
      %{project_root}/vendor/liburing
      (progn
       (run ./configure)
-      ;; TODO discover.ml for liburing cflags
       (setenv
        CFLAGS
-       "-g -fomit-frame-pointer -fPIC"
+       "%{ocaml-config:ocamlc_cflags}"
        (run make -j -C src))))
     (copy %{project_root}/vendor/liburing/src/liburing.a liburing.a)
     (copy %{project_root}/vendor/liburing/src/liburing.so.2.0.0 dlluring.so)
