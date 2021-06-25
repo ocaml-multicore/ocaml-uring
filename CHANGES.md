@@ -1,3 +1,3 @@
-## dev
+## v0.1
 
-- no public release
+- Initial release.

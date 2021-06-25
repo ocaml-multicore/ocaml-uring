@@ -4,12 +4,12 @@
 (formatting disabled)
 (source (github ocaml-multicore/ocaml-uring))
 (license ISC)
-(authors "Anil Madhavapeddy" "Sadiq Jaffer")
+(authors "Anil Madhavapeddy" "Sadiq Jaffer" "Thomas Leonard")
 (maintainers "anil@recoil.org")
 (package
  (name uring)
  (synopsis "OCaml bindings for Linux io_uring")
- (description "Bindings to the Linux io_uring kernel IO interfaces.")
+ (description "Bindings to the Linux io_uring kernel IO interfaces. See https://github.com/ocaml-multicore/eio for a higher-level API using this.")
  (depends
   (cstruct (>= 6.0.0))
   (ocaml (>= 4.12.0))
