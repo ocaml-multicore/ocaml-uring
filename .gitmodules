@@ -1,3 +1,0 @@
-[submodule "liburing"]
-	path = vendor/liburing
-	url = https://github.com/axboe/liburing
