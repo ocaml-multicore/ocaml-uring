@@ -3,7 +3,7 @@
 (generate_opam_files true)
 (formatting disabled)
 (source (github ocaml-multicore/ocaml-uring))
-(license ISC)
+(license "(ISC AND MIT)")
 (authors "Anil Madhavapeddy" "Sadiq Jaffer" "Thomas Leonard")
 (maintainers "anil@recoil.org")
 (package

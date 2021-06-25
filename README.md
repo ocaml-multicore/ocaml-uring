@@ -1,6 +1,6 @@
 # ocaml-uring -- bindings to Linux io_uring
 
-These are OCaml bindings for the Linux [io_uring][] stack
+These are OCaml bindings for the Linux [io_uring][liburing] stack
 (an alternative to using syscalls such as `select` or `epoll`).
 
 The [Eio][] library provides a higher-level effects-based API
@@ -16,5 +16,11 @@ To use the library directly:
 
 The `tests` directory contains some examples.
 
-[io_uring]: https://github.com/axboe/liburing
+## License
+
+This library is released under the ISC license (see [LICENSE.md](./LICENSE.md)),
+but note that the repository also vendors [liburing][] -
+see [vendor/liburing/README](./vendor/liburing/README).
+
+[liburing]: https://github.com/axboe/liburing
 [Eio]: https://github.com/ocaml-multicore/eio
