@@ -58,14 +58,6 @@ let queue_read uring t len =
 let eagain = -11
 let eintr = -4
 
-let rec advance cs = function
-  | 0 -> cs
-  | n ->
-    match cs with
-    | [] -> failwith "Can't advance past end of vector!"
-    | c :: cs when n >= Cstruct.length c -> advance cs (n - Cstruct.length c)
-    | c :: cs -> Cstruct.shift c n :: cs
-
 (* Check that a read has completely finished, and if not
  * queue it up for completing the remaining amount *)
 let handle_read_completion uring req res =
@@ -83,7 +75,7 @@ let handle_read_completion uring req res =
     raise (Failure ("unix errorno " ^ (string_of_int n)))
   | n when n < bytes_to_read ->
     (* handle short read so new iovec and resubmit *)
-    req.iov.next <- advance req.iov.next n;
+    req.iov.next <- Cstruct.shiftv req.iov.next n;
     req.off <- req.off + n;
     let r = Uring.readv ~file_offset:(Int63.of_int req.off) uring req.t.infd req.iov.next req in
     assert(r <> None);
@@ -112,7 +104,7 @@ let handle_write_completion uring req res =
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < bytes_to_write ->
     (* handle short write so new iovec and resubmit *)
-    req.iov.next <- advance req.iov.next n;
+    req.iov.next <- Cstruct.shiftv req.iov.next n;
     req.off <- req.off + n;
     let r = Uring.writev ~file_offset:req.fileoff uring req.t.infd req.iov.next req in
     assert(r <> None);
