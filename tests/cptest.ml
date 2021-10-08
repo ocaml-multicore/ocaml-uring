@@ -7,8 +7,8 @@ let _reset_buffer_cache () =
    OS.Cmd.run shc
 
 let fill_file_with_random ~count dst =
-   let ofile = Fmt.strf "of=%s" dst in
-   let count = Fmt.strf "count=%d" count in
+   let ofile = Fmt.str "of=%s" dst in
+   let count = Fmt.str "count=%d" count in
    Cmd.(v "dd" % "if=/dev/urandom" % ofile % "bs=27k" % count) |>
    OS.Cmd.run
 
@@ -17,8 +17,8 @@ let queue_depth = 64
 let count = 50000
 
 let run_cp_test impl ~block_size ~queue_depth count =
-  let fname_in = Fmt.strf "cptest-%d.in" count in
-  let fname_out = Fmt.strf "cptest-%d.out" count in
+  let fname_in = Fmt.str "cptest-%d.in" count in
+  let fname_out = Fmt.str "cptest-%d.out" count in
   (if Sys.file_exists fname_in then Ok () else
   fill_file_with_random ~count fname_in) >>= fun () ->
   impl block_size queue_depth fname_in fname_out ();
