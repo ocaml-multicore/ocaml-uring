@@ -21,7 +21,7 @@
   (bechamel (and (>= 0.1.0) :with-test))
   (logs (and :with-test (>= 0.5.0)))
   cmdliner
-  (fmt (>= 0.8.4))
+  (fmt (>= 0.8.10))
   bigstringaf
   (optint (>= 0.1.0))
   (alcotest (and (>= 1.4.0) :with-test))))

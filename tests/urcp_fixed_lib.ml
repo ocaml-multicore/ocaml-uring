@@ -95,7 +95,7 @@ let handle_write_completion uring req res =
     let r = Uring.write_fixed ~file_offset:req.fileoff uring req.t.outfd ~off:req.fixed_off ~len:req.len req in
     assert(r <> None);
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
-  | n when n < 0 -> failwith (Fmt.strf "unix error %d" (-n))
+  | n when n < 0 -> failwith (Fmt.str "unix error %d" (-n))
   | n when n < bytes_to_write ->
     (* handle short write  *)
     req.off <- req.off + n;
