@@ -43,7 +43,7 @@
 (executable
  (name cptest)
  (modules cptest)
- (libraries urcp_fixed_lib urcp_lib lwtcp_lib uring bos bechamel notty.unix
+ (libraries urcp_fixed_lib urcp_lib lwtcp_lib uring bechamel notty.unix
    bechamel-notty))
 
 (rule

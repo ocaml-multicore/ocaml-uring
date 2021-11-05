@@ -16,7 +16,6 @@
   dune-configurator
   (lwt (and :with-test (>= 5.0.0)))
   (notty (and (>= 0.2.2) :with-test))
-  (bos (and (>= 0.2.0) :with-test))
   (bechamel-notty (and (>= 0.1.0) :with-test))
   (bechamel (and (>= 0.1.0) :with-test))
   (logs (and :with-test (>= 0.5.0)))
