@@ -15,7 +15,6 @@ depends: [
   "dune-configurator"
   "lwt" {with-test & >= "5.0.0"}
   "notty" {>= "0.2.2" & with-test}
-  "bos" {>= "0.2.0" & with-test}
   "bechamel-notty" {>= "0.1.0" & with-test}
   "bechamel" {>= "0.1.0" & with-test}
   "logs" {with-test & >= "0.5.0"}

@@ -1,16 +1,21 @@
-open Bos
-open Rresult
-open R.Infix
+let rec await pid =
+  match Unix.waitpid [] pid with
+  | (_pid, status) -> status
+  | exception Unix.Unix_error (Unix.EINTR, _, _) -> await pid
+
+let run prog args =
+  await (Unix.create_process prog (Array.of_list (prog :: args)) Unix.stdin Unix.stdout Unix.stderr)
+
+let check_status = function
+  | Unix.WEXITED 0 -> ()
+  | _ -> assert false
 
 let _reset_buffer_cache () =
-   let shc = Cmd.(v "sh" % "-c" % "echo 1 > /proc/sys/vm/drop_caches") in
-   OS.Cmd.run shc
+  Unix.system "echo 1 > /proc/sys/vm/drop_caches" |> check_status
 
 let fill_file_with_random ~count dst =
-   let ofile = Fmt.str "of=%s" dst in
-   let count = Fmt.str "count=%d" count in
-   Cmd.(v "dd" % "if=/dev/urandom" % ofile % "bs=27k" % count) |>
-   OS.Cmd.run
+  run "dd" [ "if=/dev/urandom"; Fmt.str "of=%s" dst; "bs=27k"; Fmt.str "count=%d" count ]
+  |> check_status
 
 let block_size = 32 * 1024
 let queue_depth = 64
@@ -19,8 +24,7 @@ let count = 50000
 let run_cp_test impl ~block_size ~queue_depth count =
   let fname_in = Fmt.str "cptest-%d.in" count in
   let fname_out = Fmt.str "cptest-%d.out" count in
-  (if Sys.file_exists fname_in then Ok () else
-  fill_file_with_random ~count fname_in) >>= fun () ->
+  if not (Sys.file_exists fname_in) then fill_file_with_random ~count fname_in;
   impl block_size queue_depth fname_in fname_out ();
   (* TODO check they are the same file *)
   at_exit (fun () -> try Sys.remove fname_in with _ -> ());
