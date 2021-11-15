@@ -23,6 +23,7 @@
     (chdir
      %{project_root}/vendor/liburing
      (progn
+      (run chmod +w src/include/liburing/compat.h)
       (run ./configure)
       (setenv
        CFLAGS
