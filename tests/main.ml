@@ -316,6 +316,7 @@ let test_cancel_late () =
   let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0 in
   let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get in
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  Unix.sleepf 0.001;
   assert_some ~__POS__ (Uring.cancel t read `Cancel);
   check_int   ~__POS__ (Uring.submit t) ~expected:1;
   let t1, r1 = consume t in
@@ -326,8 +327,14 @@ let test_cancel_late () =
     | `Cancel, `Read -> r2, r1
     | _ -> assert false
   in
-  check_int ~__POS__ ~expected:1    r_read;   (* Success *)
-  check_int ~__POS__ ~expected:(-2) r_cancel; (* ENOENT *)
+  if r_read = 1 then (
+    check_int ~__POS__ ~expected:1    r_read;   (* Success *)
+    check_int ~__POS__ ~expected:(-2) r_cancel; (* ENOENT *)
+  ) else (
+    (* This isn't the case we want to test, but it can happen sometimes. *)
+    check_int ~__POS__ ~expected:(-125) r_read; (* ECANCELED *)
+    check_int ~__POS__ ~expected:1 r_cancel;    (* Success *)
+  );
   Unix.close r
 
 (* By the time we cancel, we already knew the operation was over. *)
