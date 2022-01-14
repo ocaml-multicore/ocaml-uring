@@ -123,8 +123,8 @@ let test_invalid_queue_depth () =
   check_raises ~__POS__ (Invalid_argument "Non-positive queue depth: 0")
     (fun () -> ignore (Uring.create ~queue_depth:0 ()))
 
-let with_uring ?fixed_buf_len ~queue_depth fn =
-  let t = Uring.create ?fixed_buf_len ~queue_depth () in
+let with_uring ?(fixed_buf_len=1024) ~queue_depth fn =
+  let t = Uring.create ~fixed_buf_len ~queue_depth () in
   fn t;
   Uring.exit t  (* Only free if there wasn't an error *)
 
@@ -225,8 +225,8 @@ let test_read () =
   check_int ~__POS__ read ~expected:len;
 
   let fbuf = Uring.buf t in
-  check_string ~__POS__  ~expected:"test "
-    (Bigstringaf.substring fbuf ~off ~len)
+  let got = Cstruct.of_bigarray fbuf ~off ~len in
+  check_string ~__POS__  ~expected:"test " (Cstruct.to_string got)
 
 let test_readv () =
   with_uring ~queue_depth:1 @@ fun t ->
