@@ -3,7 +3,7 @@
 
 (* TODO turn into a variable length slab allocator *)
 type t = {
-  buf: Bigstringaf.t;
+  buf: Cstruct.buffer;
   block_size: int;
   slots: int;
   freelist: int Queue.t;
@@ -42,10 +42,10 @@ let to_cstruct ?len (t, chunk) =
   Cstruct.of_bigarray ~off:chunk ~len:(length_option t len) t.buf
 
 let to_bigstring ?len (t, chunk) =
-  Bigstringaf.sub t.buf ~off:chunk ~len:(length_option t len)
+  Bigarray.Array1.sub t.buf chunk (length_option t len)
 
 let to_string ?len (t, chunk) =
-  Bigstringaf.substring t.buf ~off:chunk ~len:(length_option t len)
+  Cstruct.to_string (to_cstruct ?len (t, chunk))
 
 let avail {freelist;_} = Queue.length freelist
 

@@ -225,8 +225,8 @@ let test_read () =
   check_int ~__POS__ read ~expected:len;
 
   let fbuf = Uring.buf t in
-  check_string ~__POS__  ~expected:"test "
-    (Bigstringaf.substring fbuf ~off ~len)
+  let got = Cstruct.of_bigarray fbuf ~off ~len in
+  check_string ~__POS__  ~expected:"test " (Cstruct.to_string got)
 
 let test_readv () =
   with_uring ~queue_depth:1 @@ fun t ->
