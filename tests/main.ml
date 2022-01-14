@@ -123,8 +123,8 @@ let test_invalid_queue_depth () =
   check_raises ~__POS__ (Invalid_argument "Non-positive queue depth: 0")
     (fun () -> ignore (Uring.create ~queue_depth:0 ()))
 
-let with_uring ?fixed_buf_len ~queue_depth fn =
-  let t = Uring.create ?fixed_buf_len ~queue_depth () in
+let with_uring ?(fixed_buf_len=1024) ~queue_depth fn =
+  let t = Uring.create ~fixed_buf_len ~queue_depth () in
   fn t;
   Uring.exit t  (* Only free if there wasn't an error *)
 
