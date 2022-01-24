@@ -61,9 +61,10 @@ static struct custom_operations ring_ops = {
   custom_fixed_length_default
 };
 
-value ocaml_uring_setup(value entries) {
+value ocaml_uring_setup(value entries, value polling_timeout) {
   CAMLparam1(entries);
   CAMLlocal1(v_uring);
+  struct io_uring_params params;
 
   v_uring = caml_alloc_custom_mem(&ring_ops, sizeof(struct io_uring*), sizeof(struct io_uring));
   Ring_val(v_uring) = NULL;
@@ -72,7 +73,12 @@ value ocaml_uring_setup(value entries) {
   struct io_uring* ring = (struct io_uring*)caml_stat_alloc(sizeof(struct io_uring));
   Ring_val(v_uring) = ring;
 
-  int status = io_uring_queue_init(Long_val(entries), ring, 0);
+  memset(&params, 0, sizeof(params));
+  if (Is_some(polling_timeout)) {
+    params.flags |= IORING_SETUP_SQPOLL;
+    params.sq_thread_idle = Int_val(Some_val(polling_timeout));
+  }
+  int status = io_uring_queue_init_params(Long_val(entries), ring, &params);
 
   if (status == 0) {
     CAMLreturn(v_uring);
