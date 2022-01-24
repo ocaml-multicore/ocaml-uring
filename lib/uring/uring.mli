@@ -25,11 +25,13 @@ type 'a job
 (** A handle for a submitted job, which can be used to cancel it.
     If an operation returns [None], this means that submission failed because the ring is full. *)
 
-val create : ?fixed_buf_len:int -> queue_depth:int -> unit -> 'a t
+val create : ?fixed_buf_len:int -> ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
 (** [create ?fixed_buf_len ~queue_depth] will return a fresh Io_uring structure
     [t]. Each [t] has associated with it a fixed region of memory that is used
     for the "fixed buffer" mode of io_uring to avoid data copying between
-    userspace and the kernel. *)
+    userspace and the kernel.
+    @param polling_timeout If given, use polling mode with the given idle timeout (in ms).
+                           This requires privileges. *)
 
 val queue_depth : 'a t -> int
 (** [queue_depth t] returns the total number of submission slots for the uring [t] *)
