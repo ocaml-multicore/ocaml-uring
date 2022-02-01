@@ -10,6 +10,7 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include "helpers.h"
 #include "liburing.h"
 
 static void close_files(int *files, int nr_files, int add)
@@ -36,7 +37,7 @@ static int *open_files(int nr_files, int extra, int add)
 	int *files;
 	int i;
 
-	files = calloc(nr_files + extra, sizeof(int));
+	files = t_calloc(nr_files + extra, sizeof(int));
 
 	for (i = 0; i < nr_files; i++) {
 		if (!add)
@@ -107,7 +108,7 @@ static int test_sqe_update(struct io_uring *ring)
 	struct io_uring_cqe *cqe;
 	int *fds, i, ret;
 
-	fds = malloc(sizeof(int) * 10);
+	fds = t_malloc(sizeof(int) * 10);
 	for (i = 0; i < 10; i++)
 		fds[i] = -1;
 
@@ -127,6 +128,7 @@ static int test_sqe_update(struct io_uring *ring)
 
 	ret = cqe->res;
 	io_uring_cqe_seen(ring, cqe);
+	free(fds);
 	if (ret == -EINVAL) {
 		fprintf(stdout, "IORING_OP_FILES_UPDATE not supported, skipping\n");
 		return 0;

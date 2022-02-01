@@ -10,6 +10,7 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include "helpers.h"
 #include "liburing.h"
 
 #define FILE_SIZE	(256 * 1024)
@@ -17,39 +18,6 @@
 #define BUFFERS		(FILE_SIZE / BS)
 
 static struct iovec *vecs;
-
-static int create_buffers(void)
-{
-	int i;
-
-	vecs = malloc(BUFFERS * sizeof(struct iovec));
-	for (i = 0; i < BUFFERS; i++) {
-		if (posix_memalign(&vecs[i].iov_base, BS, BS))
-			return 1;
-		vecs[i].iov_len = BS;
-	}
-
-	return 0;
-}
-
-static int create_file(const char *file)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(FILE_SIZE);
-	memset(buf, 0xaa, FILE_SIZE);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, FILE_SIZE);
-	close(fd);
-	return ret != FILE_SIZE;
-}
 
 #define ENTRIES	8
 
@@ -210,98 +178,6 @@ static int reap_events(struct io_uring *ring, unsigned nr_events, int do_wait)
 }
 
 /*
- * Setup ring with CQ_NODROP and check we get -EBUSY on trying to submit new IO
- * on an overflown ring, and that we get all the events (even overflows) when
- * we finally reap them.
- */
-static int test_overflow_nodrop(void)
-{
-	struct __kernel_timespec ts;
-	struct io_uring_sqe *sqe;
-	struct io_uring_params p;
-	struct io_uring ring;
-	unsigned pending;
-	int ret, i, j;
-
-	memset(&p, 0, sizeof(p));
-	ret = io_uring_queue_init_params(4, &ring, &p);
-	if (ret) {
-		fprintf(stderr, "io_uring_queue_init failed %d\n", ret);
-		return 1;
-	}
-	if (!(p.features & IORING_FEAT_NODROP)) {
-		fprintf(stdout, "FEAT_NODROP not supported, skipped\n");
-		return 0;
-	}
-
-	ts.tv_sec = 0;
-	ts.tv_nsec = 10000000;
-
-	/* submit 4x4 SQEs, should overflow the ring by 8 */
-	pending = 0;
-	for (i = 0; i < 4; i++) {
-		for (j = 0; j < 4; j++) {
-			sqe = io_uring_get_sqe(&ring);
-			if (!sqe) {
-				fprintf(stderr, "get sqe failed\n");
-				goto err;
-			}
-
-			io_uring_prep_timeout(sqe, &ts, -1U, 0);
-			sqe->user_data = (i * 4) + j;
-		}
-
-		ret = io_uring_submit(&ring);
-		if (ret <= 0) {
-			if (ret == -EBUSY)
-				break;
-			fprintf(stderr, "sqe submit failed: %d, %d\n", ret, pending);
-			goto err;
-		}
-		pending += ret;
-	}
-
-	/* wait for timers to fire */
-	usleep(2 * 10000);
-
-	/*
-	 * We should have 16 pending CQEs now, 8 of them in the overflow list. Any
-	 * attempt to queue more IO should return -EBUSY
-	 */
-	sqe = io_uring_get_sqe(&ring);
-	if (!sqe) {
-		fprintf(stderr, "get sqe failed\n");
-		goto err;
-	}
-
-	io_uring_prep_nop(sqe);
-	ret = io_uring_submit(&ring);
-	if (ret != -EBUSY) {
-		fprintf(stderr, "expected sqe submit busy: %d\n", ret);
-		goto err;
-	}
-
-	/* reap the events we should have available */
-	ret = reap_events(&ring, pending, 1);
-	if (ret < 0) {
-		fprintf(stderr, "ret=%d\n", ret);
-		goto err;
-	}
-
-	if (*ring.cq.koverflow) {
-		fprintf(stderr, "cq ring overflow %d, expected 0\n",
-				*ring.cq.koverflow);
-		goto err;
-	}
-
-	io_uring_queue_exit(&ring);
-	return 0;
-err:
-	io_uring_queue_exit(&ring);
-	return 1;
-}
-
-/*
  * Submit some NOPs and watch if the overflow is correct
  */
 static int test_overflow(void)
@@ -365,108 +241,9 @@ err:
 	return 1;
 }
 
-/*
- * Test attempted submit with overflown cq ring that can't get flushed
- */
-static int test_overflow_nodrop_submit_ebusy(void)
-{
-	struct __kernel_timespec ts;
-	struct io_uring_sqe *sqe;
-	struct io_uring_params p;
-	struct io_uring ring;
-	unsigned pending;
-	int ret, i, j;
-
-	memset(&p, 0, sizeof(p));
-	ret = io_uring_queue_init_params(4, &ring, &p);
-	if (ret) {
-		fprintf(stderr, "io_uring_queue_init failed %d\n", ret);
-		return 1;
-	}
-	if (!(p.features & IORING_FEAT_NODROP)) {
-		fprintf(stdout, "FEAT_NODROP not supported, skipped\n");
-		return 0;
-	}
-
-	ts.tv_sec = 1;
-	ts.tv_nsec = 0;
-
-	/* submit 4x4 SQEs, should overflow the ring by 8 */
-	pending = 0;
-	for (i = 0; i < 4; i++) {
-		for (j = 0; j < 4; j++) {
-			sqe = io_uring_get_sqe(&ring);
-			if (!sqe) {
-				fprintf(stderr, "get sqe failed\n");
-				goto err;
-			}
-
-			io_uring_prep_timeout(sqe, &ts, -1U, 0);
-			sqe->user_data = (i * 4) + j;
-		}
-
-		ret = io_uring_submit(&ring);
-		if (ret <= 0) {
-			fprintf(stderr, "sqe submit failed: %d, %d\n", ret, pending);
-			goto err;
-		}
-		pending += ret;
-	}
-
-	/* wait for timers to fire */
-	usleep(1100000);
-
-	/*
-	 * We should have 16 pending CQEs now, 8 of them in the overflow list. Any
-	 * attempt to queue more IO should return -EBUSY
-	 */
-	sqe = io_uring_get_sqe(&ring);
-	if (!sqe) {
-		fprintf(stderr, "get sqe failed\n");
-		goto err;
-	}
-
-	io_uring_prep_nop(sqe);
-	ret = io_uring_submit(&ring);
-	if (ret != -EBUSY) {
-		fprintf(stderr, "expected sqe submit busy: %d\n", ret);
-		goto err;
-	}
-
-	/*
-	 * Now peek existing events so the CQ ring is empty, apart from the
-	 * backlog
-	 */
-	ret = reap_events(&ring, pending, 0);
-	if (ret < 0) {
-		fprintf(stderr, "ret=%d\n", ret);
-		goto err;
-	} else if (ret < 8) {
-		fprintf(stderr, "only found %d events, expected 8\n", ret);
-		goto err;
-	}
-
-	/*
-	 * We should now be able to submit our previous nop that's still
-	 * in the sq ring, as the kernel can flush the existing backlog
-	 * to the now empty CQ ring.
-	 */
-	ret = io_uring_submit(&ring);
-	if (ret != 1) {
-		fprintf(stderr, "submit got %d, expected 1\n", ret);
-		goto err;
-	}
-
-	io_uring_queue_exit(&ring);
-	return 0;
-err:
-	io_uring_queue_exit(&ring);
-	return 1;
-}
-
-
 int main(int argc, char *argv[])
 {
+	const char *fname = ".cq-overflow";
 	unsigned iters, drops;
 	unsigned long usecs;
 	int ret;
@@ -480,33 +257,16 @@ int main(int argc, char *argv[])
 		return ret;
 	}
 
-	ret = test_overflow_nodrop();
-	if (ret) {
-		printf("test_overflow_nodrop failed\n");
-		return ret;
-	}
+	t_create_file(fname, FILE_SIZE);
 
-	ret = test_overflow_nodrop_submit_ebusy();
-	if (ret) {
-		fprintf(stderr, "test_overflow_npdrop_submit_ebusy failed\n");
-		return ret;
-	}
-
-	if (create_file(".basic-rw")) {
-		fprintf(stderr, "file creation failed\n");
-		goto err;
-	}
-	if (create_buffers()) {
-		fprintf(stderr, "file creation failed\n");
-		goto err;
-	}
+	vecs = t_create_buffers(BUFFERS, BS);
 
 	iters = 0;
 	usecs = 1000;
 	do {
 		drops = 0;
 
-		if (test_io(".basic-rw", usecs, &drops, 0)) {
+		if (test_io(fname, usecs, &drops, 0)) {
 			fprintf(stderr, "test_io nofault failed\n");
 			goto err;
 		}
@@ -516,19 +276,19 @@ int main(int argc, char *argv[])
 		iters++;
 	} while (iters < 40);
 
-	if (test_io(".basic-rw", usecs, &drops, 0)) {
+	if (test_io(fname, usecs, &drops, 0)) {
 		fprintf(stderr, "test_io nofault failed\n");
 		goto err;
 	}
 
-	if (test_io(".basic-rw", usecs, &drops, 1)) {
+	if (test_io(fname, usecs, &drops, 1)) {
 		fprintf(stderr, "test_io fault failed\n");
 		goto err;
 	}
 
-	unlink(".basic-rw");
+	unlink(fname);
 	return 0;
 err:
-	unlink(".basic-rw");
+	unlink(fname);
 	return 1;
 }

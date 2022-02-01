@@ -10,6 +10,7 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include "helpers.h"
 #include "liburing.h"
 
 static int test_link_drain_one(struct io_uring *ring)
@@ -28,7 +29,7 @@ static int test_link_drain_one(struct io_uring *ring)
 		return 1;
 	}
 
-	iovecs.iov_base = malloc(4096);
+	iovecs.iov_base = t_malloc(4096);
 	iovecs.iov_len = 4096;
 
 	for (i = 0; i < 5; i++) {
@@ -110,8 +111,9 @@ int test_link_drain_multi(struct io_uring *ring)
 		perror("open");
 		return 1;
 	}
+	unlink("testfile");
 
-	iovecs.iov_base = malloc(4096);
+	iovecs.iov_base = t_malloc(4096);
 	iovecs.iov_len = 4096;
 
 	for (i = 0; i < 9; i++) {
@@ -188,12 +190,10 @@ int test_link_drain_multi(struct io_uring *ring)
 
 	free(iovecs.iov_base);
 	close(fd);
-	unlink("testfile");
 	return 0;
 err:
 	free(iovecs.iov_base);
 	close(fd);
-	unlink("testfile");
 	return 1;
 
 }

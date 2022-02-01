@@ -10,6 +10,7 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include "helpers.h"
 #include "liburing.h"
 
 static int test_single_fsync(struct io_uring *ring)
@@ -62,14 +63,15 @@ static int test_barrier_fsync(struct io_uring *ring)
 	int i, fd, ret;
 	off_t off;
 
-	fd = open("testfile", O_WRONLY | O_CREAT, 0644);
+	fd = open("fsync-testfile", O_WRONLY | O_CREAT, 0644);
 	if (fd < 0) {
 		perror("open");
 		return 1;
 	}
+	unlink("fsync-testfile");
 
-	for (i = 0; i < 4; i++) {
-		iovecs[i].iov_base = malloc(4096);
+	for (i = 0; i < ARRAY_SIZE(iovecs); i++) {
+		iovecs[i].iov_base = t_malloc(4096);
 		iovecs[i].iov_len = 4096;
 	}
 
@@ -128,33 +130,18 @@ static int test_barrier_fsync(struct io_uring *ring)
 		io_uring_cqe_seen(ring, cqe);
 	}
 
-	unlink("testfile");
-	return 0;
+
+	ret = 0;
+	goto out;
 err:
-	unlink("testfile");
-	return 1;
+	ret = 1;
+out:
+	for (i = 0; i < ARRAY_SIZE(iovecs); i++)
+		free(iovecs[i].iov_base);
+	return ret;
 }
 
 #define FILE_SIZE 1024
-
-static int create_file(const char *file)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(FILE_SIZE);
-	memset(buf, 0xaa, FILE_SIZE);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, FILE_SIZE);
-	close(fd);
-	return ret != FILE_SIZE;
-}
 
 static int test_sync_file_range(struct io_uring *ring)
 {
@@ -162,10 +149,7 @@ static int test_sync_file_range(struct io_uring *ring)
 	struct io_uring_sqe *sqe;
 	struct io_uring_cqe *cqe;
 
-	if (create_file(".sync_file_range")) {
-		fprintf(stderr, "file creation failed\n");
-		return 1;
-	}
+	t_create_file(".sync_file_range", FILE_SIZE);
 
 	fd = open(".sync_file_range", O_RDWR);
 	save_errno = errno;
@@ -181,13 +165,8 @@ static int test_sync_file_range(struct io_uring *ring)
 		fprintf(stderr, "sqe get failed\n");
 		return 1;
 	}
-	memset(sqe, 0, sizeof(*sqe));
-	sqe->opcode = IORING_OP_SYNC_FILE_RANGE;
-	sqe->off = 0;
-	sqe->len = 0;
-	sqe->sync_range_flags = 0;
+	io_uring_prep_sync_file_range(sqe, fd, 0, 0, 0);
 	sqe->user_data = 1;
-	sqe->fd = fd;
 
 	ret = io_uring_submit(ring);
 	if (ret != 1) {

@@ -1,14 +1,15 @@
 #!/bin/bash
 
-TESTS="$@"
+TESTS=("$@")
 RET=0
 TIMEOUT=60
 DMESG_FILTER="cat"
-TEST_DIR=$(dirname $0)
+TEST_DIR=$(dirname "$0")
 FAILED=""
 SKIPPED=""
-MAYBE_FAILED=""
-declare -A TEST_FILES
+TIMED_OUT=""
+TEST_FILES=""
+declare -A TEST_MAP
 
 # Only use /dev/kmsg if running as root
 DO_KMSG="1"
@@ -16,10 +17,17 @@ DO_KMSG="1"
 
 # Include config.local if exists and check TEST_FILES for valid devices
 if [ -f "$TEST_DIR/config.local" ]; then
-	. $TEST_DIR/config.local
-	for dev in ${TEST_FILES[@]}; do
+	# shellcheck disable=SC1091
+	. "$TEST_DIR/config.local"
+	for dev in $TEST_FILES; do
 		if [ ! -e "$dev" ]; then
 			echo "Test file $dev not valid"
+			exit 1
+		fi
+	done
+	for dev in "${TEST_MAP[@]}"; do
+		if [ ! -e "$dev" ]; then
+			echo "Test file in map $dev not valid"
 			exit 1
 		fi
 	done
@@ -30,7 +38,7 @@ _check_dmesg()
 	local dmesg_marker="$1"
 	local seqres="$2.seqres"
 
-	if [ $DO_KMSG -eq 0 ]; then
+	if [ "$DO_KMSG" -eq 0 ]; then
 		return 0
 	fi
 
@@ -59,24 +67,31 @@ run_test()
 {
 	local test_name="$1"
 	local dev="$2"
-	local test_string=$test_name
+	local test_exec=("./$test_name")
+	local test_string="$test_name"
+	local out_name="$test_name"
 
 	# Specify test string to print
 	if [ -n "$dev" ]; then
+		test_exec+=("$dev")
 		test_string="$test_name $dev"
+		local suffix
+		suffix=$(basename "$dev")
+		out_name="$out_name.$suffix"
 	fi
 
 	# Log start of the test
 	if [ "$DO_KMSG" -eq 1 ]; then
 		local dmesg_marker="Running test $test_string:"
-		echo $dmesg_marker | tee /dev/kmsg
+		echo "$dmesg_marker" > /dev/kmsg
 	else
 		local dmesg_marker=""
-		echo Running test $test_name $dev
 	fi
+	printf "Running test %-55s" "$test_string"
 
 	# Do we have to exclude the test ?
-	echo $TEST_EXCLUDE | grep -w "$test_name" > /dev/null 2>&1
+	echo "$TEST_EXCLUDE" | grep -w "$test_name" > /dev/null 2>&1
+	# shellcheck disable=SC2181
 	if [ $? -eq 0 ]; then
 		echo "Test skipped"
 		SKIPPED="$SKIPPED <$test_string>"
@@ -84,12 +99,19 @@ run_test()
 	fi
 
 	# Run the test
-	timeout -s INT -k $TIMEOUT $TIMEOUT ./$test_name $dev
+	T_START=$(date +%s)
+	timeout -s INT -k $TIMEOUT $TIMEOUT "${test_exec[@]}"
+	T_END=$(date +%s)
 	local status=$?
+
+	if [ -e ./core ]; then
+		mv core "core-$test_name"
+	fi
 
 	# Check test status
 	if [ "$status" -eq 124 ]; then
 		echo "Test $test_name timed out (may not be a failure)"
+		TIMED_OUT="$TIMED_OUT <$test_string>"
 	elif [ "$status" -ne 0 ]; then
 		echo "Test $test_name failed with ret $status"
 		FAILED="$FAILED <$test_string>"
@@ -98,21 +120,36 @@ run_test()
 		echo "Test $test_name failed dmesg check"
 		FAILED="$FAILED <$test_string>"
 		RET=1
-	elif [ -n "$dev" ]; then
-		sleep .1
-		ps aux | grep "\[io_wq_manager\]" > /dev/null
-		if [ $? -eq 0 ]; then
-			MAYBE_FAILED="$MAYBE_FAILED $test_string"
+	else
+		if [ -f "output/$out_name" ]; then
+			T_PREV=$(cat "output/$out_name")
+		else
+			T_PREV=""
 		fi
+		T_DIFF=$((T_END-T_START))
+		if [ -n "$T_PREV" ]; then
+			echo "$T_DIFF sec [$T_PREV]"
+		else
+			echo "$T_DIFF sec"
+		fi
+		echo $T_DIFF > "output/$out_name"
 	fi
 }
 
 # Run all specified tests
-for tst in $TESTS; do
-	if [ ! -n "${TEST_FILES[$tst]}" ]; then
-		run_test $tst
+for tst in "${TESTS[@]}"; do
+	if [ ! -d output ]; then
+		mkdir output
+	fi
+	if [ -z "${TEST_MAP[$tst]}" ]; then
+		run_test "$tst"
+		if [ -n "$TEST_FILES" ]; then
+			for dev in $TEST_FILES; do
+				run_test "$tst" "$dev"
+			done
+		fi
 	else
-		run_test $tst ${TEST_FILES[$tst]}
+		run_test "$tst" "${TEST_MAP[$tst]}"
 	fi
 done
 
@@ -120,18 +157,14 @@ if [ -n "$SKIPPED" ]; then
 	echo "Tests skipped: $SKIPPED"
 fi
 
+if [ -n "$TIMED_OUT" ]; then
+	echo "Tests timed out: $TIMED_OUT"
+fi
+
 if [ "${RET}" -ne 0 ]; then
 	echo "Tests failed: $FAILED"
 	exit $RET
 else
-	sleep 1
-	ps aux | grep "\[io_wq_manager\]" > /dev/null
-	if [ $? -ne 0 ]; then
-		MAYBE_FAILED=""
-	fi
-	if [ ! -z "$MAYBE_FAILED" ]; then
-		echo "Tests _maybe_ failed: $MAYBE_FAILED"
-	fi
 	echo "All tests passed"
 	exit 0
 fi

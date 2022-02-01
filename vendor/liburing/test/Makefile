@@ -3,13 +3,26 @@ datadir ?= $(prefix)/share
 
 INSTALL=install
 
+ifneq ($(MAKECMDGOALS),clean)
+include ../config-host.mak
+endif
+
 CPPFLAGS ?=
 override CPPFLAGS += -D_GNU_SOURCE -D__SANE_USERSPACE_TYPES__ \
 	-I../src/include/ -include ../config-host.h
 CFLAGS ?= -g -O2
 XCFLAGS =
-override CFLAGS += -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
+override CFLAGS += -D_GNU_SOURCE \
+	-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
 	-L../src/
+
+ifdef CONFIG_HAVE_STRINGOP_OVERFLOW
+  XCFLAGS += -Wstringop-overflow=0
+endif
+ifdef CONFIG_HAVE_ARRAY_BOUNDS
+  XCFLAGS += -Warray-bounds=0
+endif
+
 CXXFLAGS ?=
 override CXXFLAGS += $(CFLAGS) -std=c++11
 
@@ -34,7 +47,6 @@ test_targets += \
 	connect \
 	cq-full \
 	cq-overflow \
-	cq-overflow-peek \
 	cq-peek-batch \
 	cq-ready \
 	cq-size \
@@ -43,6 +55,7 @@ test_targets += \
 	defer \
 	double-poll-crash \
 	eeed8b54e0df-test \
+	empty-eownerdead \
 	eventfd \
 	eventfd-disable \
 	eventfd-ring \
@@ -55,6 +68,7 @@ test_targets += \
 	files-exit-hang-timeout \
 	fixed-link \
 	fsync \
+	hardlink \
 	io-cancel \
 	io_uring_enter \
 	io_uring_register \
@@ -66,6 +80,8 @@ test_targets += \
 	link-timeout \
 	link_drain \
 	madvise \
+	mkdir \
+	multicqes_drain \
 	nop \
 	nop-all-sizes \
 	open-close \
@@ -78,6 +94,7 @@ test_targets += \
 	poll-cancel-ton \
 	poll-link \
 	poll-many \
+	poll-mshot-update \
 	poll-ring \
 	poll-v-poll \
 	probe \
@@ -86,6 +103,7 @@ test_targets += \
 	rename \
 	ring-leak \
 	ring-leak2 \
+	rw_merge_test \
 	self \
 	send_recv \
 	send_recvmsg \
@@ -99,10 +117,15 @@ test_targets += \
 	sq-poll-dup \
 	sq-poll-kthread \
 	sq-poll-share \
+	sqpoll-disable-exit \
+	sqpoll-exit-hang \
+	sqpoll-cancel-hang \
 	sqpoll-sleep \
 	sq-space_left \
 	stdout \
 	submit-reuse \
+	submit-link-fail \
+	symlink \
 	teardowns \
 	thread-exit \
 	timeout \
@@ -110,15 +133,13 @@ test_targets += \
 	timeout-overflow \
 	unlink \
 	wakeup-hang \
+	sendmsg_fs_cve \
+	rsrc_tags \
 	# EOL
 
 all_targets += $(test_targets)
 
 include ../Makefile.quiet
-
-ifneq ($(MAKECMDGOALS),clean)
-include ../config-host.mak
-endif
 
 ifdef CONFIG_HAVE_STATX
 test_targets += statx
@@ -130,15 +151,21 @@ test_targets += sq-full-cpp
 endif
 all_targets += sq-full-cpp
 
-all: $(test_targets)
+helpers = helpers.o
 
-%: %.c
-	$(QUIET_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< -luring $(XCFLAGS)
+all: ${helpers} $(test_targets)
 
-%: %.cc
-	$(QUIET_CXX)$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $< -luring $(XCFLAGS)
+helpers.o: helpers.c helpers.c
+	$(QUIET_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $< -luring
+
+%: %.c ${helpers} helpers.h
+	$(QUIET_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< ${helpers} -luring $(XCFLAGS)
+
+%: %.cc ${helpers} helpers.h
+	$(QUIET_CXX)$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $< ${helpers} -luring $(XCFLAGS)
 
 test_srcs := \
+	helpers.c \
 	232c93d07b74-test.c \
 	35fa71a030ca-test.c \
 	500f9fbadef8-test.c \
@@ -158,7 +185,6 @@ test_srcs := \
 	close-opath.c \
 	connect.c \
 	cq-full.c \
-	cq-overflow-peek.c \
 	cq-overflow.c \
 	cq-peek-batch.c \
 	cq-ready.c\
@@ -168,6 +194,7 @@ test_srcs := \
 	defer.c \
 	double-poll-crash.c \
 	eeed8b54e0df-test.c \
+	empty-eownerdead.c \
 	eventfd-disable.c \
 	eventfd-ring.c \
 	eventfd.c \
@@ -180,6 +207,7 @@ test_srcs := \
 	files-exit-hang-timeout.c \
 	fixed-link.c \
 	fsync.c \
+	hardlink.c \
 	io-cancel.c \
 	io_uring_enter.c \
 	io_uring_register.c \
@@ -191,6 +219,8 @@ test_srcs := \
 	link.c \
 	link_drain.c \
 	madvise.c \
+	mkdir.c \
+	multicqes_drain.c \
 	nop-all-sizes.c \
 	nop.c \
 	open-close.c \
@@ -201,6 +231,8 @@ test_srcs := \
 	poll-cancel-ton.c \
 	poll-cancel.c \
 	poll-link.c \
+	poll-many.c \
+	poll-mshot-update.c \
 	poll-ring.c \
 	poll-v-poll.c \
 	poll.c \
@@ -210,6 +242,7 @@ test_srcs := \
 	rename.c \
 	ring-leak.c \
 	ring-leak2.c \
+	rw_merge_test.c \
 	self.c \
 	send_recvmsg.c \
 	shared-wq.c \
@@ -224,11 +257,16 @@ test_srcs := \
 	sq-poll-dup.c \
 	sq-poll-kthread.c \
 	sq-poll-share.c \
+	sqpoll-disable-exit.c \
+	sqpoll-exit-hang.c \
+	sqpoll-cancel-hang.c \
 	sqpoll-sleep.c \
 	sq-space_left.c \
 	statx.c \
 	stdout.c \
 	submit-reuse.c \
+	submit-link-fail.c \
+	symlink.c \
 	teardowns.c \
 	thread-exit.c \
 	timeout-new.c \
@@ -236,6 +274,8 @@ test_srcs := \
 	timeout.c \
 	unlink.c \
 	wakeup-hang.c \
+	sendmsg_fs_cve.c \
+	rsrc_tags.c \
 	# EOL
 
 test_objs := $(patsubst %.c,%.ol,$(patsubst %.cc,%.ol,$(test_srcs)))
@@ -255,6 +295,7 @@ pipe-eof: XCFLAGS = -lpthread
 timeout-new: XCFLAGS = -lpthread
 thread-exit: XCFLAGS = -lpthread
 ring-leak2: XCFLAGS = -lpthread
+poll-mshot-update: XCFLAGS = -lpthread
 
 install: $(test_targets) runtests.sh runtests-loop.sh
 	$(INSTALL) -D -d -m 755 $(datadir)/liburing-test/
@@ -262,7 +303,8 @@ install: $(test_targets) runtests.sh runtests-loop.sh
 	$(INSTALL) -D -m 755 runtests.sh  $(datadir)/liburing-test/
 	$(INSTALL) -D -m 755 runtests-loop.sh  $(datadir)/liburing-test/
 clean:
-	@rm -f $(all_targets) $(test_objs)
+	@rm -f $(all_targets) $(test_objs) helpers.o output/*
+	@rm -rf output/
 
 runtests: all
 	@./runtests.sh $(test_targets)

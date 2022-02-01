@@ -478,6 +478,7 @@ value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
   int res;
   dprintf("cqe: waiting, timeout %fs\n", timeout);
   caml_enter_blocking_section();
+  io_uring_submit(ring);
   res = io_uring_wait_cqe_timeout(ring, &cqe, &t);
   caml_leave_blocking_section();
   if (res < 0) {
@@ -502,6 +503,7 @@ value ocaml_uring_wait_cqe(value v_uring)
   int res;
   dprintf("cqe: waiting\n");
   caml_enter_blocking_section();
+  io_uring_submit(ring);
   res = io_uring_wait_cqe(ring, &cqe);
   caml_leave_blocking_section();
   if (res < 0) {

@@ -1,5 +1,5 @@
 Name: liburing
-Version: 0.7
+Version: 2.0
 Release: 1%{?dist}
 Summary: Linux-native io_uring I/O access library
 License: (GPLv2 with exceptions and LGPLv2+) or MIT
@@ -7,6 +7,7 @@ Source0: https://brick.kernel.dk/snaps/%{name}-%{version}.tar.gz
 Source1: https://brick.kernel.dk/snaps/%{name}-%{version}.tar.gz.asc
 URL: https://git.kernel.dk/cgit/liburing/
 BuildRequires: gcc
+BuildRequires: make
 
 %description
 Provides native async IO for the Linux kernel, in a fast and efficient
@@ -45,6 +46,7 @@ for the Linux-native io_uring.
 %{_libdir}/pkgconfig/*
 %{_mandir}/man2/*
 %{_mandir}/man3/*
+%{_mandir}/man7/*
 
 %changelog
 * Thu Oct 31 2019 Jeff Moyer <jmoyer@redhat.com> - 0.2-1

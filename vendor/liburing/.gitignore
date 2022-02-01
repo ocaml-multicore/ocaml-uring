@@ -45,6 +45,7 @@
 /test/defer
 /test/double-poll-crash
 /test/eeed8b54e0df-test
+/test/empty-eownerdead
 /test/eventfd
 /test/eventfd-disable
 /test/eventfd-ring
@@ -57,6 +58,7 @@
 /test/files-exit-hang-timeout
 /test/fixed-link
 /test/fsync
+/test/hardlink
 /test/io-cancel
 /test/io_uring_enter
 /test/io_uring_register
@@ -68,6 +70,7 @@
 /test/link-timeout
 /test/link_drain
 /test/madvise
+/test/mkdir
 /test/nop
 /test/nop-all-sizes
 /test/open-close
@@ -91,6 +94,7 @@
 /test/self
 /test/send_recv
 /test/send_recvmsg
+/test/sendmsg_fs_cve
 /test/shared-wq
 /test/short-read
 /test/shutdown
@@ -103,11 +107,14 @@
 /test/sq-poll-dup
 /test/sq-poll-kthread
 /test/sq-poll-share
+/test/sqpoll-disable-exit
+/test/sqpoll-exit-hang
 /test/sqpoll-sleep
 /test/sq-space_left
 /test/statx
 /test/stdout
 /test/submit-reuse
+/test/symlink
 /test/teardowns
 /test/thread-exit
 /test/timeout
@@ -115,6 +122,13 @@
 /test/timeout-overflow
 /test/unlink
 /test/wakeup-hang
+/test/multicqes_drain
+/test/poll-mshot-update
+/test/rsrc_tags
+/test/rw_merge_test
+/test/sqpoll-cancel-hang
+/test/testfile
+/test/submit-link-fail
 /test/*.dmesg
 
 config-host.h

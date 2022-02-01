@@ -13,6 +13,8 @@
 #include <sys/poll.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
+
+#include "helpers.h"
 #include "liburing.h"
 
 #define FILE_SIZE	(128 * 1024 * 1024)
@@ -23,39 +25,6 @@
 
 static struct iovec *vecs;
 static struct io_uring rings[NR_RINGS];
-
-static int create_buffers(void)
-{
-	int i;
-
-	vecs = malloc(BUFFERS * sizeof(struct iovec));
-	for (i = 0; i < BUFFERS; i++) {
-		if (posix_memalign(&vecs[i].iov_base, BS, BS))
-			return 1;
-		vecs[i].iov_len = BS;
-	}
-
-	return 0;
-}
-
-static int create_file(const char *file)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(FILE_SIZE);
-	memset(buf, 0xaa, FILE_SIZE);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, FILE_SIZE);
-	close(fd);
-	return ret != FILE_SIZE;
-}
 
 static int wait_io(struct io_uring *ring, int nr_ios)
 {
@@ -192,18 +161,15 @@ int main(int argc, char *argv[])
 		fname = argv[1];
 	} else {
 		fname = ".basic-rw";
-		if (create_file(fname)) {
-			fprintf(stderr, "file creation failed\n");
-			goto err;
-		}
+		t_create_file(fname, FILE_SIZE);
 	}
 
-	if (create_buffers()) {
-		fprintf(stderr, "file creation failed\n");
-		goto err;
-	}
+	vecs = t_create_buffers(BUFFERS, BS);
 
 	fd = open(fname, O_RDONLY | O_DIRECT);
+	if (fname != argv[1])
+		unlink(fname);
+
 	if (fd < 0) {
 		perror("open");
 		return -1;
@@ -228,11 +194,7 @@ int main(int argc, char *argv[])
 		goto err;
 	}
 
-	if (fname != argv[1])
-		unlink(fname);
 	return 0;
 err:
-	if (fname != argv[1])
-		unlink(fname);
 	return 1;
 }
