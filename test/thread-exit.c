@@ -14,30 +14,11 @@
 #include <sys/poll.h>
 #include <pthread.h>
 
+#include "helpers.h"
 #include "liburing.h"
 
 #define NR_IOS	8
 #define WSIZE	512
-
-static int create_file(const char *file, size_t size)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(size);
-	memset(buf, 0xaa, size);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, size);
-	close(fd);
-	free(buf);
-	return ret != size;
-}
 
 struct d {
 	int fd;
@@ -54,7 +35,7 @@ static void *do_io(void *data)
 	char *buffer;
 	int ret;
 
-	buffer = malloc(WSIZE);
+	buffer = t_malloc(WSIZE);
 	memset(buffer, 0x5a, WSIZE);
 	sqe = io_uring_get_sqe(d->ring);
 	if (!sqe) {
@@ -105,14 +86,12 @@ int main(int argc, char *argv[])
 	} else {
 		fname = ".thread.exit";
 		do_unlink = 1;
-	}
-
-	if (do_unlink && create_file(fname, 4096)) {
-		fprintf(stderr, "file create failed\n");
-		return 1;
+		t_create_file(fname, 4096);
 	}
 
 	fd = open(fname, O_WRONLY);
+	if (do_unlink)
+		unlink(fname);
 	if (fd < 0) {
 		perror("open");
 		return 1;
@@ -146,11 +125,7 @@ int main(int argc, char *argv[])
 		io_uring_cqe_seen(&ring, cqe);
 	}
 
-	if (do_unlink)
-		unlink(fname);
 	return d.err;
 err:
-	if (do_unlink)
-		unlink(fname);
 	return 1;
 }

@@ -23,11 +23,14 @@
 #include <sys/resource.h>
 #include <limits.h>
 #include <sys/time.h>
+
+#include "helpers.h"
 #include "liburing.h"
 #include "liburing/barrier.h"
 #include "../src/syscall.h"
 
 #define IORING_MAX_ENTRIES 4096
+#define IORING_MAX_ENTRIES_FALLBACK 128
 
 int
 expect_failed_submit(struct io_uring *ring, int error)
@@ -124,10 +127,10 @@ io_prep_read(struct io_uring_sqe *sqe, int fd, off_t offset, size_t len)
 {
 	struct iovec *iov;
 
-	iov = malloc(sizeof(*iov));
+	iov = t_malloc(sizeof(*iov));
 	assert(iov);
 
-	iov->iov_base = malloc(len);
+	iov->iov_base = t_malloc(len);
 	assert(iov->iov_base);
 	iov->iov_len = len;
 
@@ -216,6 +219,8 @@ main(int argc, char **argv)
 		return 0;
 
 	ret = io_uring_queue_init(IORING_MAX_ENTRIES, &ring, 0);
+	if (ret == -ENOMEM)
+		ret = io_uring_queue_init(IORING_MAX_ENTRIES_FALLBACK, &ring, 0);
 	if (ret < 0) {
 		perror("io_uring_queue_init");
 		exit(1);
@@ -232,7 +237,7 @@ main(int argc, char **argv)
 	status |= try_io_uring_enter(0, 0, 0, 0, NULL, -1, EOPNOTSUPP);
 
 	/* to_submit: 0, flags: 0;  should get back 0. */
-	status |= try_io_uring_enter(ring.ring_fd, 1, 0, 0, NULL, 0, 0);
+	status |= try_io_uring_enter(ring.ring_fd, 0, 0, 0, NULL, 0, 0);
 
 	/* fill the sq ring */
 	sq_entries = *ring.sq.kring_entries;

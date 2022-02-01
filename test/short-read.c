@@ -8,29 +8,12 @@
 #include <sys/types.h>
 #include <sys/poll.h>
 
+
+#include "helpers.h"
 #include "liburing.h"
 
 #define BUF_SIZE 4096
 #define FILE_SIZE 1024
-
-static int create_file(const char *file)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(FILE_SIZE);
-	memset(buf, 0xaa, FILE_SIZE);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, FILE_SIZE);
-	close(fd);
-	return ret != FILE_SIZE;
-}
 
 int main(int argc, char *argv[])
 {
@@ -43,13 +26,10 @@ int main(int argc, char *argv[])
 	if (argc > 1)
 		return 0;
 
-	vec.iov_base = malloc(BUF_SIZE);
+	vec.iov_base = t_malloc(BUF_SIZE);
 	vec.iov_len = BUF_SIZE;
 
-	if (create_file(".short-read")) {
-		fprintf(stderr, "file creation failed\n");
-		return 1;
-	}
+	t_create_file(".short-read", FILE_SIZE);
 
 	fd = open(".short-read", O_RDONLY);
 	save_errno = errno;

@@ -12,6 +12,8 @@
 #include <sys/poll.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
+
+#include "helpers.h"
 #include "liburing.h"
 
 #define FILE_SIZE	(128 * 1024)
@@ -23,27 +25,13 @@ static int no_read;
 static int no_buf_select;
 static int warned;
 
-static int create_buffers(void)
-{
-	int i;
-
-	vecs = malloc(BUFFERS * sizeof(struct iovec));
-	for (i = 0; i < BUFFERS; i++) {
-		if (posix_memalign(&vecs[i].iov_base, BS, BS))
-			return 1;
-		vecs[i].iov_len = BS;
-	}
-
-	return 0;
-}
-
 static int create_nonaligned_buffers(void)
 {
 	int i;
 
-	vecs = malloc(BUFFERS * sizeof(struct iovec));
+	vecs = t_malloc(BUFFERS * sizeof(struct iovec));
 	for (i = 0; i < BUFFERS; i++) {
-		char *p = malloc(3 * BS);
+		char *p = t_malloc(3 * BS);
 
 		if (!p)
 			return 1;
@@ -54,25 +42,6 @@ static int create_nonaligned_buffers(void)
 	return 0;
 }
 
-static int create_file(const char *file)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(FILE_SIZE);
-	memset(buf, 0xaa, FILE_SIZE);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, FILE_SIZE);
-	close(fd);
-	return ret != FILE_SIZE;
-}
-
 static int __test_io(const char *file, struct io_uring *ring, int write,
 		     int buffered, int sqthread, int fixed, int nonvec,
 		     int buf_select, int seq, int exp_len)
@@ -80,7 +49,7 @@ static int __test_io(const char *file, struct io_uring *ring, int write,
 	struct io_uring_sqe *sqe;
 	struct io_uring_cqe *cqe;
 	int open_flags;
-	int i, fd, ret;
+	int i, fd = -1, ret;
 	off_t offset;
 
 #ifdef VERBOSE
@@ -88,13 +57,6 @@ static int __test_io(const char *file, struct io_uring *ring, int write,
 							buffered, sqthread,
 							fixed, nonvec);
 #endif
-	if (sqthread && geteuid()) {
-#ifdef VERBOSE
-		fprintf(stdout, "SKIPPED (not root)\n");
-#endif
-		return 0;
-	}
-
 	if (write)
 		open_flags = O_WRONLY;
 	else
@@ -102,19 +64,22 @@ static int __test_io(const char *file, struct io_uring *ring, int write,
 	if (!buffered)
 		open_flags |= O_DIRECT;
 
+	if (fixed) {
+		ret = t_register_buffers(ring, vecs, BUFFERS);
+		if (ret == T_SETUP_SKIP)
+			return 0;
+		if (ret != T_SETUP_OK) {
+			fprintf(stderr, "buffer reg failed: %d\n", ret);
+			goto err;
+		}
+	}
+
 	fd = open(file, open_flags);
 	if (fd < 0) {
 		perror("file open");
 		goto err;
 	}
 
-	if (fixed) {
-		ret = io_uring_register_buffers(ring, vecs, BUFFERS);
-		if (ret) {
-			fprintf(stderr, "buffer reg failed: %d\n", ret);
-			goto err;
-		}
-	}
 	if (sqthread) {
 		ret = io_uring_register_files(ring, &fd, 1);
 		if (ret) {
@@ -266,30 +231,21 @@ static int test_io(const char *file, int write, int buffered, int sqthread,
 		   int fixed, int nonvec, int exp_len)
 {
 	struct io_uring ring;
-	int ret, ring_flags;
+	int ret, ring_flags = 0;
 
-	if (sqthread) {
-		if (geteuid()) {
-			if (!warned) {
-				fprintf(stderr, "SQPOLL requires root, skipping\n");
-				warned = 1;
-			}
-			return 0;
-		}
+	if (sqthread)
 		ring_flags = IORING_SETUP_SQPOLL;
-	} else {
-		ring_flags = 0;
-	}
 
-	ret = io_uring_queue_init(64, &ring, ring_flags);
-	if (ret) {
+	ret = t_create_ring(64, &ring, ring_flags);
+	if (ret == T_SETUP_SKIP)
+		return 0;
+	if (ret != T_SETUP_OK) {
 		fprintf(stderr, "ring create failed: %d\n", ret);
 		return 1;
 	}
 
 	ret = __test_io(file, &ring, write, buffered, sqthread, fixed, nonvec,
 			0, 0, exp_len);
-
 	io_uring_queue_exit(&ring);
 	return ret;
 }
@@ -363,7 +319,7 @@ static int has_nonvec_read(void)
 		exit(ret);
 	}
 
-	p = calloc(1, sizeof(*p) + 256 * sizeof(struct io_uring_probe_op));
+	p = t_calloc(1, sizeof(*p) + 256 * sizeof(struct io_uring_probe_op));
 	ret = io_uring_register_probe(&ring, p, 256);
 	/* if we don't have PROBE_REGISTER, we don't have OP_READ/WRITE */
 	if (ret == -EINVAL) {
@@ -692,6 +648,11 @@ static int test_write_efbig(void)
 	int i, fd, ret;
 	loff_t off;
 
+	if (geteuid()) {
+		fprintf(stdout, "Not root, skipping %s\n", __FUNCTION__);
+		return 0;
+	}
+
 	if (getrlimit(RLIMIT_FSIZE, &old_rlim) < 0) {
 		perror("getrlimit");
 		return 1;
@@ -709,6 +670,7 @@ static int test_write_efbig(void)
 		perror("file open");
 		goto err;
 	}
+	unlink(".efbig");
 
 	ret = io_uring_queue_init(32, &ring, 0);
 	if (ret) {
@@ -765,29 +727,26 @@ static int test_write_efbig(void)
 err:
 	if (fd != -1)
 		close(fd);
-	unlink(".efbig");
 	return 1;
 }
 
 int main(int argc, char *argv[])
 {
 	int i, ret, nr;
+	char buf[256];
 	char *fname;
 
 	if (argc > 1) {
 		fname = argv[1];
 	} else {
-		fname = ".basic-rw";
-		if (create_file(fname)) {
-			fprintf(stderr, "file creation failed\n");
-			goto err;
-		}
+		srand((unsigned)time(NULL));
+		snprintf(buf, sizeof(buf), ".basic-rw-%u-%u",
+			(unsigned)rand(), (unsigned)getpid());
+		fname = buf;
+		t_create_file(fname, FILE_SIZE);
 	}
 
-	if (create_buffers()) {
-		fprintf(stderr, "file creation failed\n");
-		goto err;
-	}
+	vecs = t_create_buffers(BUFFERS, BS);
 
 	/* if we don't have nonvec read, skip testing that */
 	nr = has_nonvec_read() ? 32 : 16;

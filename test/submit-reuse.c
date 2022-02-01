@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <sys/time.h>
 
+#include "helpers.h"
 #include "liburing.h"
 
 #define STR_SIZE	32768
@@ -35,26 +36,6 @@ static void *flusher(void *__data)
 	}
 
 	return NULL;
-}
-
-static int create_file(const char *file)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(FILE_SIZE);
-	memset(buf, 0xaa, FILE_SIZE);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, FILE_SIZE);
-	fsync(fd);
-	close(fd);
-	return ret != FILE_SIZE;
 }
 
 static char str1[STR_SIZE];
@@ -159,11 +140,6 @@ static int test_reuse(int argc, char *argv[], int split, int async)
 	int do_unlink = 1;
 	void *tret;
 
-	if (argc > 1) {
-		fname1 = argv[1];
-		do_unlink = 0;
-	}
-
 	ret = io_uring_queue_init_params(32, &ring, &p);
 	if (ret) {
 		fprintf(stderr, "io_uring_queue_init: %d\n", ret);
@@ -172,25 +148,29 @@ static int test_reuse(int argc, char *argv[], int split, int async)
 
 	if (!(p.features & IORING_FEAT_SUBMIT_STABLE)) {
 		fprintf(stdout, "FEAT_SUBMIT_STABLE not there, skipping\n");
+		io_uring_queue_exit(&ring);
 		no_stable = 1;
 		return 0;
 	}
 
-	if (do_unlink && create_file(fname1)) {
-		fprintf(stderr, "file creation failed\n");
-		goto err;
-	}
-	if (create_file(".reuse.2")) {
-		fprintf(stderr, "file creation failed\n");
-		goto err;
+	if (argc > 1) {
+		fname1 = argv[1];
+		do_unlink = 0;
+	} else {
+		t_create_file(fname1, FILE_SIZE);
 	}
 
 	fd1 = open(fname1, O_RDONLY);
+	if (do_unlink)
+		unlink(fname1);
 	if (fd1 < 0) {
 		perror("open fname1");
 		goto err;
 	}
+
+	t_create_file(".reuse.2", FILE_SIZE);
 	fd2 = open(".reuse.2", O_RDONLY);
+	unlink(".reuse.2");
 	if (fd2 < 0) {
 		perror("open .reuse.2");
 		goto err;
@@ -229,15 +209,9 @@ static int test_reuse(int argc, char *argv[], int split, int async)
 	close(fd2);
 	close(fd1);
 	io_uring_queue_exit(&ring);
-	if (do_unlink)
-		unlink(fname1);
-	unlink(".reuse.2");
 	return 0;
 err:
 	io_uring_queue_exit(&ring);
-	if (do_unlink)
-		unlink(fname1);
-	unlink(".reuse.2");
 	return 1;
 
 }
