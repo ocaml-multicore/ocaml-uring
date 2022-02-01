@@ -7,6 +7,7 @@
   (language c)
   (names uring_stubs)
   (include_dirs include)
+  (flags :standard "-D_GNU_SOURCE")
   (extra_deps include/liburing/compat.h)))
 
 (rule
@@ -29,7 +30,7 @@
        "%{ocaml-config:ocamlc_cflags}"
        (run make -j -C src))))
     (copy %{project_root}/vendor/liburing/src/liburing.a liburing.a)
-    (copy %{project_root}/vendor/liburing/src/liburing.so.2.0.0 dlluring.so)
+    (copy %{project_root}/vendor/liburing/src/liburing.so.2.1.0 dlluring.so)
     (copy %{project_root}/vendor/liburing/src/include/liburing.h liburing.h)
     (copy %{project_root}/vendor/liburing/src/include/liburing/io_uring.h
       io_uring.h)

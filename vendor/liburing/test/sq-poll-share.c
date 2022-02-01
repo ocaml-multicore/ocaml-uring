@@ -12,6 +12,8 @@
 #include <sys/poll.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
+
+#include "helpers.h"
 #include "liburing.h"
 
 #define FILE_SIZE	(128 * 1024 * 1024)
@@ -22,45 +24,19 @@
 
 static struct iovec *vecs;
 
-static int create_buffers(void)
-{
-	int i;
-
-	vecs = malloc(BUFFERS * sizeof(struct iovec));
-	for (i = 0; i < BUFFERS; i++) {
-		if (posix_memalign(&vecs[i].iov_base, BS, BS))
-			return 1;
-		vecs[i].iov_len = BS;
-	}
-
-	return 0;
-}
-
-static int create_file(const char *file)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(FILE_SIZE);
-	memset(buf, 0xaa, FILE_SIZE);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, FILE_SIZE);
-	close(fd);
-	return ret != FILE_SIZE;
-}
-
 static int wait_io(struct io_uring *ring, int nr_ios)
 {
 	struct io_uring_cqe *cqe;
 
 	while (nr_ios) {
-		io_uring_wait_cqe(ring, &cqe);
+		int ret = io_uring_wait_cqe(ring, &cqe);
+
+		if (ret == -EAGAIN) {
+			continue;
+		} else if (ret) {
+			fprintf(stderr, "io_uring_wait_cqe failed %i\n", ret);
+			return 1;
+		}
 		if (cqe->res != BS) {
 			fprintf(stderr, "Unexpected ret %d\n", cqe->res);
 			return 1;
@@ -107,18 +83,14 @@ int main(int argc, char *argv[])
 		fname = argv[1];
 	} else {
 		fname = ".basic-rw";
-		if (create_file(fname)) {
-			fprintf(stderr, "file creation failed\n");
-			goto err;
-		}
+		t_create_file(fname, FILE_SIZE);
 	}
 
-	if (create_buffers()) {
-		fprintf(stderr, "file creation failed\n");
-		goto err;
-	}
+	vecs = t_create_buffers(BUFFERS, BS);
 
 	fd = open(fname, O_RDONLY | O_DIRECT);
+	if (fname != argv[1])
+		unlink(fname);
 	if (fd < 0) {
 		perror("open");
 		return -1;
@@ -159,11 +131,7 @@ int main(int argc, char *argv[])
 		ios += BUFFERS;
 	}
 
-	if (fname != argv[1])
-		unlink(fname);
 	return 0;
 err:
-	if (fname != argv[1])
-		unlink(fname);
 	return 1;
 }

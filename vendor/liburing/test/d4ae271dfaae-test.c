@@ -11,29 +11,10 @@
 #include <unistd.h>
 #include <string.h>
 
+#include "helpers.h"
 #include "liburing.h"
 
 #define FILE_SIZE	(128 * 1024)
-
-static int create_file(const char *file)
-{
-	ssize_t ret;
-	char *buf;
-	int fd;
-
-	buf = malloc(FILE_SIZE);
-	memset(buf, 0xaa, FILE_SIZE);
-
-	fd = open(file, O_WRONLY | O_CREAT, 0644);
-	if (fd < 0) {
-		perror("open file");
-		return 1;
-	}
-	ret = write(fd, buf, FILE_SIZE);
-	fsync(fd);
-	close(fd);
-	return ret != FILE_SIZE;
-}
 
 int main(int argc, char *argv[])
 {
@@ -46,39 +27,32 @@ int main(int argc, char *argv[])
 	char *fname;
 	void *buf;
 
-	if (geteuid()) {
-		fprintf(stdout, "Test requires root, skipping\n");
-		return 0;
-	}
-
 	memset(&p, 0, sizeof(p));
 	p.flags = IORING_SETUP_SQPOLL;
-	ret = io_uring_queue_init_params(4, &ring, &p);
-	if (ret < 0) {
-		fprintf(stderr, "queue_init: %s\n", strerror(-ret));
+	ret = t_create_ring_params(4, &ring, &p);
+	if (ret == T_SETUP_SKIP)
+		return 0;
+	else if (ret < 0)
 		return 1;
-	}
 
 	if (argc > 1) {
 		fname = argv[1];
 	} else {
 		fname = ".sqpoll.tmp";
-		if (create_file(fname)) {
-			fprintf(stderr, "file creation failed\n");
-			goto out;
-		}
+		t_create_file(fname, FILE_SIZE);
 	}
 
 	fd = open(fname, O_RDONLY | O_DIRECT);
+	if (fname != argv[1])
+		unlink(fname);
 	if (fd < 0) {
 		perror("open");
 		goto out;
 	}
 
-	iovecs = calloc(10, sizeof(struct iovec));
+	iovecs = t_calloc(10, sizeof(struct iovec));
 	for (i = 0; i < 10; i++) {
-		if (posix_memalign(&buf, 4096, 4096))
-			goto out;
+		t_posix_memalign(&buf, 4096, 4096);
 		iovecs[i].iov_base = buf;
 		iovecs[i].iov_len = 4096;
 	}
@@ -117,8 +91,6 @@ int main(int argc, char *argv[])
 
 	close(fd);
 out:
-	if (fname != argv[1])
-		unlink(fname);
 	io_uring_queue_exit(&ring);
 	return ret;
 }

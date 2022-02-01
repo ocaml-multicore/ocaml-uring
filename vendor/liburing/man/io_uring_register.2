@@ -88,12 +88,105 @@ then issuing a new call to
 .BR io_uring_register ()
 with the new buffers.
 
-Note that registering buffers will wait for the ring to idle. If the application
-currently has requests in-flight, the registration will wait for those to
-finish before proceeding.
+Note that before 5.13 registering buffers would wait for the ring to idle.
+If the application currently has requests in-flight, the registration will
+wait for those to finish before proceeding.
 
 An application need not unregister buffers explicitly before shutting
 down the io_uring instance. Available since 5.1.
+
+.TP
+.B IORING_REGISTER_BUFFERS2
+Register buffers for I/O. Similar to
+.B IORING_REGISTER_BUFFERS
+but aims to have a more extensible ABI.
+
+.I arg
+points to a
+.I struct io_uring_rsrc_register,
+and
+.I nr_args
+should be set to the number of bytes in the structure.
+
+.PP
+.in +8n
+.EX
+struct io_uring_rsrc_register {
+    __u32 nr;
+    __u32 resv;
+    __u64 resv2;
+    __aligned_u64 data;
+    __aligned_u64 tags;
+};
+
+.EE
+.in
+.PP
+
+.in +8n
+
+The
+.I data
+field contains a pointer to a
+.I struct iovec
+array of
+.I nr
+entries.
+The
+.I tags
+field should either be 0, then tagging is disabled, or point to an array
+of
+.I nr
+"tags" (unsigned 64 bit integers). If a tag is zero, then tagging for this
+particular resource (a buffer in this case) is disabled. Otherwise, after the
+resource had been unregistered and it's not used anymore, a CQE will be
+posted with
+.I user_data
+set to the specified tag and all other fields zeroed.
+
+Note that resource updates, e.g.
+.B IORING_REGISTER_BUFFERS_UPDATE,
+don't necessarily deallocate resources by the time it returns, but they might
+be held alive until all requests using it complete.
+
+Available since 5.13.
+
+.TP
+.B IORING_REGISTER_BUFFERS_UPDATE
+Updates registered buffers with new ones, either turning a sparse entry into
+a real one, or replacing an existing entry.
+
+.I arg
+must contain a pointer to a struct io_uring_rsrc_update2, which contains
+an offset on which to start the update, and an array of
+.I struct iovec.
+.I tags
+points to an array of tags.
+.I nr
+must contain the number of descriptors in the passed in arrays.
+See
+.B IORING_REGISTER_BUFFERS2
+for the resource tagging description.
+
+.PP
+.in +8n
+.EX
+
+struct io_uring_rsrc_update2 {
+    __u32 offset;
+    __u32 resv;
+    __aligned_u64 data;
+    __aligned_u64 tags;
+    __u32 nr;
+    __u32 resv2;
+};
+.EE
+.in
+.PP
+
+.in +8n
+
+Available since 5.13.
 
 .TP
 .B IORING_UNREGISTER_BUFFERS
@@ -128,15 +221,46 @@ See
 .B IORING_REGISTER_FILES_UPDATE
 for how to update files in place.
 
-Note that registering files will wait for the ring to idle. If the application
-currently has requests in-flight, the registration will wait for those to
-finish before proceeding. See
+Note that before 5.13 registering files would wait for the ring to idle.
+If the application currently has requests in-flight, the registration will
+wait for those to finish before proceeding. See
 .B IORING_REGISTER_FILES_UPDATE
 for how to update an existing set without that limitation.
 
 Files are automatically unregistered when the io_uring instance is
-torn down. An application need only unregister if it wishes to
+torn down. An application needs only unregister if it wishes to
 register a new set of fds. Available since 5.1.
+
+.TP
+.B IORING_REGISTER_FILES2
+Register files for I/O. Similar to
+.B IORING_REGISTER_FILES.
+
+.I arg
+points to a
+.I struct io_uring_rsrc_register,
+and
+.I nr_args
+should be set to the number of bytes in the structure.
+
+The
+.I data
+field contains a pointer to an array of
+.I nr
+file descriptors (signed 32 bit integers).
+.I tags
+field should either be 0 or or point to an array of
+.I nr
+"tags" (unsigned 64 bit integers). See
+.B IORING_REGISTER_BUFFERS2
+for more info on resource tagging.
+
+Note that resource updates, e.g.
+.B IORING_REGISTER_FILES_UPDATE,
+don't necessarily deallocate resources, they might be held until all requests
+using that resource complete.
+
+Available since 5.13.
 
 .TP
 .B IORING_REGISTER_FILES_UPDATE
@@ -146,7 +270,9 @@ real one, removing an existing entry (new one is set to -1), or replacing
 an existing entry with a new existing entry.
 
 .I arg
-must contain a pointer to a struct io_uring_files_update, which contains
+must contain a pointer to a
+.I struct io_uring_files_update,
+which contains
 an offset on which to start the update, and an array of file descriptors to
 use for the update.
 .I nr_args
@@ -158,6 +284,29 @@ File descriptors can be skipped if they are set to
 Skipping an fd will not touch the file associated with the previous
 fd at that index. Available since 5.12.
 
+.TP
+.B IORING_REGISTER_FILES_UPDATE2
+Similar to IORING_REGISTER_FILES_UPDATE, replaces existing files in the
+registered file set with new ones, either turning a sparse entry (one where
+fd is equal to -1) into a real one, removing an existing entry (new one is
+set to -1), or replacing an existing entry with a new existing entry.
+
+.I arg
+must contain a pointer to a
+.I struct io_uring_rsrc_update2,
+which contains
+an offset on which to start the update, and an array of file descriptors to
+use for the update stored in
+.I data.
+.I tags
+points to an array of tags.
+.I nr
+must contain the number of descriptors in the passed in arrays.
+See
+.B IORING_REGISTER_BUFFERS2
+for the resource tagging description.
+
+Available since 5.13.
 
 .TP
 .B IORING_UNREGISTER_FILES
@@ -291,6 +440,57 @@ must be specified in the call to
 .BR io_uring_setup (2)).
 
 Available since 5.10.
+
+.TP
+.B IORING_REGISTER_IOWQ_AFF
+By default, async workers created by io_uring will inherit the CPU mask of its
+parent. This is usually all the CPUs in the system, unless the parent is being
+run with a limited set. If this isn't the desired outcome, the application
+may explicitly tell io_uring what CPUs the async workers may run on.
+.I arg
+must point to a
+.B cpu_set_t
+mask, and
+.I nr_args
+the byte size of that mask.
+
+Available since 5.14.
+
+.TP
+.B IORING_UNREGISTER_IOWQ_AFF
+Undoes a CPU mask previously set with
+.B IORING_REGISTER_IOWQ_AFF.
+Must not have
+.I arg
+or
+.I nr_args
+set.
+
+Available since 5.14.
+
+.TP
+.B IORING_REGISTER_IOWQ_MAX_WORKERS
+By default, io_uring limits the unbounded workers created to the maximum
+processor count set by
+.I RLIMIT_NPROC
+and the bounded workers is a function of the SQ ring size and the number
+of CPUs in the system. Sometimes this can be excessive (or too little, for
+bounded), and this command provides a way to change the count per ring (per NUMA
+node) instead.
+
+.I arg
+must be set to an
+.I unsigned int
+pointer to an array of two values, with the values in the array being set to
+the maximum count of workers per NUMA node. Index 0 holds the bounded worker
+count, and index 1 holds the unbounded worker count. On successful return, the
+passed in array will contain the previous maximum valyes for each type. If the
+count being passed in is 0, then this command returns the current maximum values
+and doesn't modify the current setting.
+.I nr_args
+must be set to 2, as the command takes two values.
+
+Available since 5.15.
 
 .SH RETURN VALUE
 

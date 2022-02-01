@@ -10,6 +10,7 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include "helpers.h"
 #include "liburing.h"
 
 #define BLOCK	4096
@@ -25,12 +26,13 @@ static int get_file_fd(void)
 	int fd;
 
 	fd = open("testfile", O_RDWR | O_CREAT, 0644);
+	unlink("testfile");
 	if (fd < 0) {
 		perror("open file");
 		return -1;
 	}
 
-	buf = malloc(BLOCK);
+	buf = t_malloc(BLOCK);
 	ret = write(fd, buf, BLOCK);
 	if (ret != BLOCK) {
 		if (ret < 0)
@@ -53,12 +55,6 @@ err:
 	return fd;
 }
 
-static void put_file_fd(int fd)
-{
-	close(fd);
-	unlink("testfile");
-}
-
 int main(int argc, char *argv[])
 {
 	struct io_uring ring;
@@ -70,7 +66,7 @@ int main(int argc, char *argv[])
 	if (argc > 1)
 		return 0;
 
-	iov.iov_base = malloc(4096);
+	iov.iov_base = t_malloc(4096);
 	iov.iov_len = 4096;
 
 	ret = io_uring_queue_init(2, &ring, 0);
@@ -110,9 +106,9 @@ int main(int argc, char *argv[])
 		goto err;
 	}
 
-	put_file_fd(fd);
+	close(fd);
 	return 0;
 err:
-	put_file_fd(fd);
+	close(fd);
 	return 1;
 }
