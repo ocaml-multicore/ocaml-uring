@@ -7,6 +7,7 @@
   (language c)
   (names uring_stubs)
   (include_dirs include)
+  (flags :standard "-D_GNU_SOURCE")
   (extra_deps include/liburing/compat.h)))
 
 (rule
