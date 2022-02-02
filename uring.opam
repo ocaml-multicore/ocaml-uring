@@ -7,7 +7,7 @@ maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy" "Sadiq Jaffer" "Thomas Leonard"]
 license: "(ISC AND MIT)"
 homepage: "https://github.com/ocaml-multicore/ocaml-uring"
-doc: "https://ocaml-multicore.github.io/ocaml-uring"
+doc: "https://ocaml-multicore.github.io/ocaml-uring/"
 bug-reports: "https://github.com/ocaml-multicore/ocaml-uring/issues"
 depends: [
   "dune" {>= "2.7"}
@@ -43,3 +43,4 @@ dev-repo: "git+https://github.com/ocaml-multicore/ocaml-uring.git"
 depexts: [
   ["linux-headers"] {os-distribution = "alpine"}
 ]
+available: [os = "linux"]
