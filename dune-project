@@ -6,6 +6,7 @@
 (license "(ISC AND MIT)")
 (authors "Anil Madhavapeddy" "Sadiq Jaffer" "Thomas Leonard")
 (maintainers "anil@recoil.org")
+(documentation "https://ocaml-multicore.github.io/ocaml-uring/")
 (package
  (name uring)
  (synopsis "OCaml bindings for Linux io_uring")
