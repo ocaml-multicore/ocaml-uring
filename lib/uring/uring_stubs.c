@@ -435,6 +435,8 @@ ocaml_uring_make_msghdr(value v_sockaddr, value v_iov) {
   v = caml_alloc_custom_mem(&msghdr_ops, sizeof(struct msghdr *), sizeof(struct msghdr));
   Msghdr_val(v) = NULL;
   msg = (struct msghdr *) caml_stat_alloc(sizeof(struct msghdr));
+  // The msghdr must zero-ed to avoid unwanted errors
+  memset(msg, 0, sizeof(struct msghdr));
   Msghdr_val(v) = msg;
   struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
   // Store the address and iovec data in the message
