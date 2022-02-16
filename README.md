@@ -1,5 +1,7 @@
 # ocaml-uring -- bindings to Linux io_uring
 
+* [API documentation](https://ocaml-multicore.github.io/ocaml-uring/uring/index.html)
+
 These are OCaml bindings for the Linux [io_uring][liburing] stack
 (an alternative to using syscalls such as `select` or `epoll`).
 
