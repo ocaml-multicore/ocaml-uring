@@ -35,10 +35,10 @@ let cmd =
         `P "$(tname) copies a file using Linux io_uring.";
       ]
     in
-    ( Term.(pure run $ fixed $ block_size $ queue_depth $ infile $ outfile $ setup_log),
-      Term.info "urcp" ~version:"1.0.0" ~doc ~man )
+  let info = Cmd.info "urcp" ~version:"1.0.0" ~doc ~man in
+    Cmd.v info Term.(const run $ fixed $ block_size $ queue_depth $ infile $ outfile $ setup_log)
   
 let () =
-  match Term.eval cmd with
-  | `Error _ -> exit 1
-  | _ -> exit (if Logs.err_count () > 0 then 1 else 0)
+  match Cmd.eval cmd with
+  | 0 -> exit (if Logs.err_count () > 0 then 1 else 0)
+  | _ -> exit 1
