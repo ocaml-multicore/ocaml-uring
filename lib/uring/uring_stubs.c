@@ -423,7 +423,7 @@ static struct custom_operations msghdr_ops = {
   custom_fixed_length_default
 };
 
-// allocate a custom block containing a sendmsg/recvmsg msghdr 
+// v_sockaddr and v_iov must not be freed before the msghdr as it contains pointers to them
 value
 ocaml_uring_make_msghdr(value v_sockaddr, value v_iov) {
   CAMLparam2(v_sockaddr, v_iov);
@@ -432,7 +432,7 @@ ocaml_uring_make_msghdr(value v_sockaddr, value v_iov) {
   struct iovec *iovs = Iovec_val(Field(v_iov, 0));
   int iovs_len = Int_val(Field(v_iov, 1));
   // Allocate a pointer on the OCaml heap for the msghdr
-  v = caml_alloc_custom_mem(&msghdr_ops, sizeof(struct msghdr_ops *), sizeof(struct iovec));
+  v = caml_alloc_custom_mem(&msghdr_ops, sizeof(struct msghdr *), sizeof(struct msghdr));
   Msghdr_val(v) = NULL;
   msg = (struct msghdr *) caml_stat_alloc(sizeof(struct msghdr));
   Msghdr_val(v) = msg;
@@ -459,6 +459,7 @@ ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockad
   CAMLreturn(Val_true);
 }
 
+// v_msghdr must not be GC'd while the call is in progress
 value
 ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghdr) {
   CAMLparam2(v_uring, v_msghdr);
@@ -472,6 +473,7 @@ ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghd
   CAMLreturn(Val_true);
 }
 
+// v_msghdr must not be GC'd while the call is in progress
 value
 ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghdr) {
   CAMLparam2(v_uring, v_msghdr);
