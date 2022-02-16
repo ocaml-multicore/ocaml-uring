@@ -19,7 +19,7 @@
   (bechamel-notty (and (>= 0.1.0) :with-test))
   (bechamel (and (>= 0.1.0) :with-test))
   (logs (and :with-test (>= 0.5.0)))
-  (cmdliner :with-test)
+  (cmdliner (and :with-test (>= 1.1.0)))
   (fmt (>= 0.8.10))
   (optint (>= 0.1.0))
   (alcotest (and (>= 1.4.0) :with-test))))
