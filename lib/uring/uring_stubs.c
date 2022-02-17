@@ -405,6 +405,48 @@ ocaml_uring_extract_sockaddr(value v) {
   CAMLreturn(v_sockaddr);
 }
 
+#define Msghdr_val(v) (*((struct msghdr **) Data_custom_val(v)))
+
+static void finalize_msghdr(value v) {
+  caml_stat_free(Msghdr_val(v));
+  Msghdr_val(v) = NULL;
+}
+
+static struct custom_operations msghdr_ops = {
+  "uring.msghdr_ops",
+  finalize_msghdr,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+// v_sockaddr and v_iov must not be freed before the msghdr as it contains pointers to them
+value
+ocaml_uring_make_msghdr(value v_sockaddr, value v_iov) {
+  CAMLparam2(v_sockaddr, v_iov);
+  CAMLlocal1(v);
+  struct msghdr *msg;
+  struct iovec *iovs = Iovec_val(Field(v_iov, 0));
+  int iovs_len = Int_val(Field(v_iov, 1));
+  // Allocate a pointer on the OCaml heap for the msghdr
+  v = caml_alloc_custom_mem(&msghdr_ops, sizeof(struct msghdr *), sizeof(struct msghdr));
+  Msghdr_val(v) = NULL;
+  msg = (struct msghdr *) caml_stat_alloc(sizeof(struct msghdr));
+  // The msghdr must zero-ed to avoid unwanted errors
+  memset(msg, 0, sizeof(struct msghdr));
+  Msghdr_val(v) = msg;
+  struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
+  // Store the address and iovec data in the message
+  msg->msg_name = &(addr->sock_addr_addr);
+  msg->msg_namelen = sizeof(addr->sock_addr_addr);
+  msg->msg_iov = iovs;
+  msg->msg_iovlen = iovs_len;
+  CAMLreturn(v);
+}
+
 // v_sockaddr must not be GC'd while the call is in progress
 value
 ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockaddr) {
@@ -415,6 +457,34 @@ ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockad
   sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
   io_uring_prep_connect(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), addr->sock_addr_len);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  CAMLreturn(Val_true);
+}
+
+// v_msghdr must not be GC'd while the call is in progress
+value
+ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghdr) {
+  CAMLparam2(v_uring, v_msghdr);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) CAMLreturn(Val_false);
+  dprintf("submit_sendmsg\n");
+  io_uring_prep_sendmsg(sqe, Int_val(v_fd), msg, 0);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  CAMLreturn(Val_true);
+}
+
+// v_msghdr must not be GC'd while the call is in progress
+value
+ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghdr) {
+  CAMLparam2(v_uring, v_msghdr);
+  struct io_uring *ring = Ring_val(v_uring);
+  struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) CAMLreturn(Val_false);
+  dprintf("submit_recvmsg:msghdr %p: registering iobuf base %p len %lu\n", msg, msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
+  io_uring_prep_recvmsg(sqe, Int_val(v_fd), msg, 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   CAMLreturn(Val_true);
 }

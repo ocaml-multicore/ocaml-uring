@@ -130,6 +130,22 @@ module Iovec = struct
     (iovec, len, buffers)
 end
 
+(* Used for the sendmsg/recvmsg calls. Liburing doesn't support sendto/recvfrom at the time of writing. *)
+module Msghdr = struct
+  type msghdr
+  type t = msghdr * Sockaddr.t * Iovec.t
+  external make_msghdr : Sockaddr.t -> Iovec.t-> msghdr = "ocaml_uring_make_msghdr"
+
+  let get_sockaddr (_, addr, _) = addr
+
+  let create_with_addr addr buffs =
+    let iovs = Iovec.make buffs in
+    make_msghdr addr iovs, addr, iovs
+
+  let create buffs =
+    create_with_addr (Sockaddr.create ()) buffs
+end
+
 type 'a job = 'a Heap.entry
 
 module Uring = struct
@@ -157,6 +173,8 @@ module Uring = struct
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
   external submit_openat2 : t -> id -> Unix.file_descr -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
+  external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
+  external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
 
   type cqe_option = private
     | Cqe_none
@@ -314,6 +332,14 @@ let connect t fd addr user_data =
 
 let accept t fd addr user_data =
   with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) user_data ~extra_data:addr
+
+let send_msg t fd addr buffers user_data =
+  let addr = Sockaddr.of_unix addr in
+  let msghdr = Msghdr.create_with_addr addr buffers in
+  with_id_full t (fun id -> Uring.submit_send_msg t.uring id fd msghdr) user_data ~extra_data:msghdr
+
+let recv_msg t fd msghdr user_data =
+  with_id_full t (fun id -> Uring.submit_recv_msg t.uring id fd msghdr) user_data ~extra_data:msghdr
 
 let cancel t job user_data =
   ignore (Heap.ptr job : Uring.id);  (* Check it's still valid *)
