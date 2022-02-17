@@ -137,6 +137,7 @@ module Uring = struct
 
   external create : int -> int option -> t = "ocaml_uring_setup"
   external exit : t -> unit = "ocaml_uring_exit"
+  external probe : unit -> bool = "ocaml_uring_probe"
 
   external unregister_buffers : t -> unit = "ocaml_uring_unregister_buffers"
   external register_bigarray : t ->  Cstruct.buffer -> unit = "ocaml_uring_register_ba"
@@ -243,6 +244,8 @@ let exit t =
   ensure_idle t "exit";
   Uring.exit t.uring;
   unregister_gc_root t
+
+let probe = Uring.probe
 
 let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a job option =
  fun t fn datum ~extra_data ->

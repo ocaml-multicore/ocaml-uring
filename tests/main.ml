@@ -367,6 +367,7 @@ let test_free_busy () =
   Uring.exit t
 
 let () =
+  if Uring.probe () then () else failwith "Unsupported io_uring operations";
   Test_data.setup ();
   Random.self_init ();
   let tc name f = Alcotest.test_case name `Quick (fun () -> f (); Gc.full_major ()) in

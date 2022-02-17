@@ -50,6 +50,10 @@ val exit : 'a t -> unit
 (** [exit t] will shut down the uring [t]. Any subsequent requests will fail.
     @raise Invalid_argument if there are any requests in progress *)
 
+val probe : unit -> bool
+(** [probe ()] checks whether or not the necessary io_uring operations are available.
+    The function returns [true] if all are available and [false] otherwise. *)
+
 (** {2 Queueing operations} *)
 
 val noop : 'a t -> 'a -> 'a job option
