@@ -202,24 +202,25 @@ val cancel : 'a t -> 'a job -> 'a -> 'a job option
 module Msghdr : sig
   type t
 
-  val create : Cstruct.t list -> t
+  val create : ?n_fds:int -> ?addr:Sockaddr.t -> Cstruct.t list -> t
   (** [create buffs] makes a new [msghdr] using the [buffs] 
-      for the underlying [iovec]. A dummy socket address is used
-      and will be filled when data is received.*)
+      for the underlying [iovec].
+      @param addr The remote address.
+                  Use {!Sockaddr.create} to create a dummy address that will be filled when data is received.
+      @param n_fds Reserve space to receive this many FDs (default 0) *)
 
-  val get_sockaddr : t -> Sockaddr.t
-  (** [get_sockaddr t] gets the socket address from [t]. When used
-      with {!recv_msg} the socket will only be the sender address once the message
-      is received, until then the address will be a dummy address. *)
+  val get_fds : t -> Unix.file_descr list
 end 
 
-val send_msg : 'a t -> Unix.file_descr -> Unix.sockaddr -> Cstruct.t list -> 'a -> 'a job option
-(** [send_msg t fd addr buffs d] will submit a [sendmsg(2)] request. The [Msghdr] will be constructed
-    from the address ([addr]) and the buffers ([buffs]). *)
+val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+(** [send_msg t fd buffs d] will submit a [sendmsg(2)] request. The [Msghdr] will be constructed
+    from the FDs ([fds]), address ([dst]) and buffers ([buffs]).
+    @param dst Destination address.
+    @param fds Extra file descriptors to attach to the message. *)
 
 val recv_msg : 'a t -> Unix.file_descr -> Msghdr.t -> 'a -> 'a job option
 (** [recv_msg t fd msghdr d] will submit a [recvmsg(2)] request. If the request is 
-    successful then the [msghdr] will contain the sender address and the data sent. *)
+    successful then the [msghdr] will contain the sender address and the data received. *)
 
 (** {2 Submitting operations} *)
 

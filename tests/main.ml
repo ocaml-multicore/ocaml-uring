@@ -366,6 +366,34 @@ let test_free_busy () =
   check_int ~__POS__ ~expected:0    r_read;
   Uring.exit t
 
+let test_send_msg () =
+  let r, w = Unix.pipe () in
+  let t = Uring.create ~queue_depth:2 () in
+  let a, b = Unix.(socketpair PF_UNIX SOCK_STREAM 0) in
+  let bufs = [Cstruct.of_string "hi"] in
+  assert_some ~__POS__ (Uring.send_msg t a ~fds:[r; w] bufs `Send);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  let _, r_send = consume t in
+  check_int ~__POS__ ~expected:2 r_send;
+  let recv_buf = Cstruct.of_string "XX" in
+  let recv = Uring.Msghdr.create ~n_fds:2 [recv_buf] in
+  check_int ~__POS__ ~expected:0 (List.length (Uring.Msghdr.get_fds recv));
+  assert_some ~__POS__ (Uring.recv_msg t b recv `Recv);
+  check_int   ~__POS__ (Uring.submit t) ~expected:1;
+  let _, r_recv = consume t in
+  check_int ~__POS__ ~expected:2 r_recv;
+  check_string ~__POS__ ~expected:"hi" (Cstruct.to_string recv_buf);
+  let r2, w2 =
+    match Uring.Msghdr.get_fds recv with
+    | [r2; w2] -> r2, w2
+    | _ -> failwith "Expected two FDs!"
+  in
+  check_int ~__POS__ ~expected:5 (Unix.write_substring w2 "to-w2" 0 5);
+  check_string ~__POS__ ~expected:"to-w2" (really_input_string (Unix.in_channel_of_descr r) 5);
+  check_int ~__POS__ ~expected:4 (Unix.write_substring w "to-w" 0 4);
+  check_string ~__POS__ ~expected:"to-w" (really_input_string (Unix.in_channel_of_descr r2) 4);
+  List.iter Unix.close [r; w; r2; w2]
+
 let () =
   Test_data.setup ();
   Random.self_init ();
@@ -389,6 +417,7 @@ let () =
       tc "cancel" test_cancel;
       tc "cancel_late" test_cancel_late;
       tc "cancel_invalid" test_cancel_invalid;
+      tc "send_msg" test_send_msg;
       tc "free_busy" test_free_busy;
     ];
   ]
