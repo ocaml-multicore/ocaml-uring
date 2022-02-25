@@ -341,7 +341,7 @@ let test_cancel_late () =
   ) else (
     (* This isn't the case we want to test, but it can happen sometimes. *)
     check_int ~__POS__ ~expected:(-125) r_read; (* ECANCELED *)
-    check_int ~__POS__ ~expected:1 r_cancel;    (* Success *)
+    check_int ~__POS__ ~expected:0 r_cancel;    (* Success *)
   );
   Unix.close r
 
