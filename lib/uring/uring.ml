@@ -235,16 +235,12 @@ let register_gc_root t =
 let unregister_gc_root t =
   update_gc_roots (Ring_set.remove (Generic_ring.T t))
 
-let default_iobuf_len = 1024 * 1024 (* 1MB *)
-
-let create ?(fixed_buf_len=default_iobuf_len) ?polling_timeout ~queue_depth () =
+let create ?polling_timeout ~queue_depth () =
   if queue_depth < 1 then Fmt.invalid_arg "Non-positive queue depth: %d" queue_depth;
   let uring = Uring.create queue_depth polling_timeout in
-  (* TODO posix memalign this to page *)
-  let fixed_iobuf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
-  Uring.register_bigarray uring fixed_iobuf;
   let data = Heap.create queue_depth in
   let id = object end in
+  let fixed_iobuf = Cstruct.empty.buffer in
   let t = { id; uring; fixed_iobuf; data; dirty=false; queue_depth } in
   register_gc_root t;
   t
@@ -254,11 +250,16 @@ let ensure_idle t op =
   | 0 -> ()
   | n -> Fmt.invalid_arg "%s: %d request(s) still active!" op n
 
-let realloc t iobuf =
-  ensure_idle t "realloc";
-  Uring.unregister_buffers t.uring;
+let set_fixed_buffer t iobuf =
+  ensure_idle t "set_fixed_buffer";
+  if Bigarray.Array1.dim t.fixed_iobuf > 0 then
+    Uring.unregister_buffers t.uring;
   t.fixed_iobuf <- iobuf;
-  Uring.register_bigarray t.uring iobuf
+  if Bigarray.Array1.dim iobuf > 0 then (
+    match Uring.register_bigarray t.uring iobuf with
+    | () -> Ok ()
+    | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
+  ) else Ok ()
 
 let exit t =
   ensure_idle t "exit";
