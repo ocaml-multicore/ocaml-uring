@@ -25,30 +25,41 @@ type 'a job
 (** A handle for a submitted job, which can be used to cancel it.
     If an operation returns [None], this means that submission failed because the ring is full. *)
 
-val create : ?fixed_buf_len:int -> ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
-(** [create ?fixed_buf_len ~queue_depth] will return a fresh Io_uring structure
-    [t]. Each [t] has associated with it a fixed region of memory that is used
-    for the "fixed buffer" mode of io_uring to avoid data copying between
-    userspace and the kernel.
+val create : ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
+(** [create ~queue_depth] will return a fresh Io_uring structure [t].
+    Initially, [t] has no fixed buffer. Use {!set_fixed_buffer} if you want one.
     @param polling_timeout If given, use polling mode with the given idle timeout (in ms).
                            This requires privileges. *)
 
 val queue_depth : 'a t -> int
 (** [queue_depth t] returns the total number of submission slots for the uring [t] *)
 
-val buf : 'a t -> Cstruct.buffer
-(** [buf t] is the fixed internal memory buffer associated with uring [t].
-    You will normally want to wrap this with {!Region.alloc} or similar
-    to divide the buffer into chunks. *)
-
-val realloc : 'a t -> Cstruct.buffer -> unit
-(** [realloc t buf] will replace the internal fixed buffer associated with
-    uring [t] with a fresh one.
-    @raise Invalid_argument if there are any requests in progress *)
-
 val exit : 'a t -> unit
 (** [exit t] will shut down the uring [t]. Any subsequent requests will fail.
     @raise Invalid_argument if there are any requests in progress *)
+
+(** {2 Fixed buffers}
+
+    Each uring may have associated with it a fixed region of memory that is used
+    for the "fixed buffer" mode of io_uring to avoid data copying between
+    userspace and the kernel. *)
+
+val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
+(** [set_fixed_buffer t buf] sets [buf] as the fixed buffer for [t].
+
+    You will normally want to wrap this with {!Region.alloc} or similar
+    to divide the buffer into chunks.
+
+    If [t] already has a buffer set, the old one will be removed.
+
+    Returns [`ENOMEM] if insufficient kernel resources are available
+    or the caller's RLIMIT_MEMLOCK resource limit would be exceeded.
+
+    @raise Invalid_argument if there are any requests in progress *)
+
+val buf : 'a t -> Cstruct.buffer
+(** [buf t] is the fixed internal memory buffer associated with uring [t]
+    using {!set_fixed_buffer}, or a zero-length buffer if none is set. *)
 
 (** {2 Queueing operations} *)
 

@@ -158,9 +158,16 @@ let run_cp block_size queue_depth infile outfile () =
    let t = { freelist; block_size; insize; offset=Int63.zero; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
    Logs.debug (fun l -> l "starting: %a bs=%d qd=%d" pp t block_size queue_depth);
    let fixed_buf_len = queue_depth * block_size in
-   let uring = Uring.create ~fixed_buf_len ~queue_depth () in
-   copy_file uring t;
-   Unix.close infd;
-   Unix.close outfd;
-   Uring.exit uring;
-   Gc.compact () (* TODO to aid debugging with valgrind, remove soon *)
+   let uring = Uring.create ~queue_depth () in
+   let fbuf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
+   Fun.protect
+     (fun () ->
+        match Uring.set_fixed_buffer uring fbuf with
+        | Ok () -> copy_file uring t
+        | Error `ENOMEM -> failwith "Can't lock memory (check RLIMIT_MEMLOCK)"
+     )
+     ~finally:(fun () ->
+        Unix.close infd;
+        Unix.close outfd;
+        Uring.exit uring
+     )
