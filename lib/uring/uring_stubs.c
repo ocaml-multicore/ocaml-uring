@@ -27,6 +27,7 @@
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
 #include <caml/socketaddr.h>
+#include <sys/socket.h>
 #include <errno.h>
 #include <string.h>
 #include <poll.h>
@@ -423,28 +424,88 @@ static struct custom_operations msghdr_ops = {
   custom_fixed_length_default
 };
 
+struct msghdr_with_cmsg {
+  struct msghdr msg;
+  struct cmsghdr cmsg;
+};
+
 // v_sockaddr and v_iov must not be freed before the msghdr as it contains pointers to them
 value
-ocaml_uring_make_msghdr(value v_sockaddr, value v_iov) {
-  CAMLparam2(v_sockaddr, v_iov);
+ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt, value v_iov) {
+  CAMLparam3(v_fds, v_sockaddr_opt, v_iov);
   CAMLlocal1(v);
   struct msghdr *msg;
   struct iovec *iovs = Iovec_val(Field(v_iov, 0));
   int iovs_len = Int_val(Field(v_iov, 1));
+  int n_fds = Int_val(v_n_fds);
+  int cmsg_offset, controllen, total_size;
+  cmsg_offset = sizeof(struct msghdr_with_cmsg) - sizeof(struct cmsghdr);
+  controllen = n_fds > 0 ? CMSG_SPACE(sizeof(int) * n_fds) : 0;
+  total_size = cmsg_offset + controllen;
+  //dprintf("using %d bytes to hold %d FDs\n", total_size, n_fds);
   // Allocate a pointer on the OCaml heap for the msghdr
-  v = caml_alloc_custom_mem(&msghdr_ops, sizeof(struct msghdr *), sizeof(struct msghdr));
+  v = caml_alloc_custom_mem(&msghdr_ops, sizeof(struct msghdr *), total_size);
   Msghdr_val(v) = NULL;
-  msg = (struct msghdr *) caml_stat_alloc(sizeof(struct msghdr));
-  // The msghdr must zero-ed to avoid unwanted errors
-  memset(msg, 0, sizeof(struct msghdr));
+  msg = (struct msghdr *) caml_stat_alloc(total_size);
+  // The msghdr and cmsghdr must zero-ed to avoid unwanted errors
+  memset(msg, 0, total_size);
   Msghdr_val(v) = msg;
-  struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
-  // Store the address and iovec data in the message
-  msg->msg_name = &(addr->sock_addr_addr);
-  msg->msg_namelen = sizeof(addr->sock_addr_addr);
+  if (Is_some(v_sockaddr_opt)) {
+    struct sock_addr_data *addr = Sock_addr_val(Some_val(v_sockaddr_opt));
+    // Store the address and iovec data in the message
+    msg->msg_name = &(addr->sock_addr_addr);
+    msg->msg_namelen = sizeof(addr->sock_addr_addr);
+  } else {
+    msg->msg_name = NULL;
+  }
   msg->msg_iov = iovs;
   msg->msg_iovlen = iovs_len;
+  // Add the FDs to the message
+  if (n_fds > 0) {
+    int i;
+    struct cmsghdr *cm;
+    msg->msg_control = &(((struct msghdr_with_cmsg *) msg)->cmsg);
+    msg->msg_controllen = controllen;
+    if (Is_block(v_fds)) {
+      cm = CMSG_FIRSTHDR(msg);
+      cm->cmsg_level = SOL_SOCKET;
+      cm->cmsg_type = SCM_RIGHTS;
+      cm->cmsg_len = CMSG_LEN(n_fds * sizeof(int));
+      for (i = 0; i < n_fds; i++) {
+	int fd = -1;
+	if (Is_block(v_fds)) {
+	  fd = Int_val(Field(v_fds, 0));
+	  v_fds = Field(v_fds, 1);
+	}
+	((int *)CMSG_DATA(cm))[i] = fd;
+      }
+    }
+  }
   CAMLreturn(v);
+}
+
+value
+ocaml_uring_get_msghdr_fds(value v_msghdr) {
+  CAMLparam1(v_msghdr);
+  CAMLlocal2(v_list, v_cons);
+  struct msghdr *msg = Msghdr_val(v_msghdr);
+  struct cmsghdr *cm;
+  v_list = Val_int(0);
+  for (cm = CMSG_FIRSTHDR(msg); cm; cm = CMSG_NXTHDR(msg, cm)) {
+    if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS) {
+      int *fds = (int *) CMSG_DATA(cm);
+      int n_fds = (cm->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+      int i;
+      for (i = n_fds - 1; i >= 0; i--) {
+	int fd = Val_int(fds[i]);
+	value v_cons = caml_alloc_tuple(2);
+	Store_field(v_cons, 0, fd);
+	Store_field(v_cons, 1, v_list);
+	v_list = v_cons;
+      }
+    }
+  }
+  CAMLreturn(v_list);
 }
 
 // v_sockaddr must not be GC'd while the call is in progress

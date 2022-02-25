@@ -133,17 +133,20 @@ end
 (* Used for the sendmsg/recvmsg calls. Liburing doesn't support sendto/recvfrom at the time of writing. *)
 module Msghdr = struct
   type msghdr
-  type t = msghdr * Sockaddr.t * Iovec.t
-  external make_msghdr : Sockaddr.t -> Iovec.t-> msghdr = "ocaml_uring_make_msghdr"
+  type t = msghdr * Sockaddr.t option * Iovec.t
+  external make_msghdr : int -> Unix.file_descr list -> Sockaddr.t option -> Iovec.t-> msghdr = "ocaml_uring_make_msghdr"
+  external get_msghdr_fds : msghdr -> Unix.file_descr list = "ocaml_uring_get_msghdr_fds"
 
-  let get_sockaddr (_, addr, _) = addr
+  let get_fds (hdr, _, _) = get_msghdr_fds hdr
 
-  let create_with_addr addr buffs =
+  (* Create a value with space for [n_fds] file descriptors.
+     When sending, [fds] is used to fill those slots. When receiving, they can be left blank. *)
+  let create_with_addr ~n_fds ~fds ?addr buffs =
     let iovs = Iovec.make buffs in
-    make_msghdr addr iovs, addr, iovs
+    make_msghdr n_fds fds addr iovs, addr, iovs
 
-  let create buffs =
-    create_with_addr (Sockaddr.create ()) buffs
+  let create ?(n_fds=0) ?addr buffs =
+    create_with_addr ~n_fds ~fds:[] ?addr buffs
 end
 
 type 'a job = 'a Heap.entry
@@ -333,9 +336,10 @@ let connect t fd addr user_data =
 let accept t fd addr user_data =
   with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) user_data ~extra_data:addr
 
-let send_msg t fd addr buffers user_data =
-  let addr = Sockaddr.of_unix addr in
-  let msghdr = Msghdr.create_with_addr addr buffers in
+let send_msg ?(fds=[]) ?dst t fd buffers user_data =
+  let addr = Option.map Sockaddr.of_unix dst in
+  let n_fds = List.length fds in
+  let msghdr = Msghdr.create_with_addr ~n_fds ~fds ?addr buffers in
   with_id_full t (fun id -> Uring.submit_send_msg t.uring id fd msghdr) user_data ~extra_data:msghdr
 
 let recv_msg t fd msghdr user_data =
