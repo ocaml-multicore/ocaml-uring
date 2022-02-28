@@ -1,3 +1,20 @@
+## v0.3
+
+Breaking changes:
+
+- Don't allocate a fixed buffer by default (@talex5 #53).
+  If you want a fixed buffer, you now need to call `set_fixed_buffer`.
+
+New features:
+
+- Add sendmsg and recvmsg (@patricoferris #49).
+
+- Allow sending and receiving FDs using `SCM_RIGHTS` (@talex5 #52).
+
+Other changes:
+
+- Update tests to cmdliner 1.1.0 (@patricoferris #50).
+
 ## v0.2
 
 New features:
