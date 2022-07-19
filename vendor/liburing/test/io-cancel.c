@@ -11,7 +11,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/wait.h>
-#include <sys/poll.h>
+#include <poll.h>
 
 #include "helpers.h"
 #include "liburing.h"
@@ -128,7 +128,7 @@ static int start_cancel(struct io_uring *ring, int do_partial, int async_cancel)
 			fprintf(stderr, "sqe get failed\n");
 			goto err;
 		}
-		io_uring_prep_cancel(sqe, (void *) (unsigned long) i + 1, 0);
+		io_uring_prep_cancel64(sqe, i + 1, 0);
 		if (async_cancel)
 			sqe->flags |= IOSQE_ASYNC;
 		sqe->user_data = 0;
@@ -246,7 +246,7 @@ static int test_dont_cancel_another_ring(void)
 		fprintf(stderr, "%s: failed to get sqe\n", __FUNCTION__);
 		return 1;
 	}
-	io_uring_prep_cancel(sqe, (void *) (unsigned long)1, 0);
+	io_uring_prep_cancel64(sqe, 1, 0);
 	sqe->user_data = 2;
 
 	ret = io_uring_submit(&ring2);
@@ -326,7 +326,7 @@ static int test_cancel_req_across_fork(void)
 			fprintf(stderr, "%s: failed to get sqe\n", __FUNCTION__);
 			return 1;
 		}
-		io_uring_prep_cancel(sqe, (void *) (unsigned long)1, 0);
+		io_uring_prep_cancel64(sqe, 1, 0);
 		sqe->user_data = 2;
 
 		ret = io_uring_submit(&ring);
@@ -341,8 +341,21 @@ static int test_cancel_req_across_fork(void)
 				fprintf(stderr, "wait_cqe=%d\n", ret);
 				return 1;
 			}
-			if ((cqe->user_data == 1 && cqe->res != -EINTR) ||
-			    (cqe->user_data == 2 && cqe->res != -EALREADY && cqe->res)) {
+			switch (cqe->user_data) {
+			case 1:
+				if (cqe->res != -EINTR &&
+				    cqe->res != -ECANCELED) {
+					fprintf(stderr, "%i %i\n", (int)cqe->user_data, cqe->res);
+					exit(1);
+				}
+				break;
+			case 2:
+				if (cqe->res != -EALREADY && cqe->res) {
+					fprintf(stderr, "%i %i\n", (int)cqe->user_data, cqe->res);
+					exit(1);
+				}
+				break;
+			default:
 				fprintf(stderr, "%i %i\n", (int)cqe->user_data, cqe->res);
 				exit(1);
 			}

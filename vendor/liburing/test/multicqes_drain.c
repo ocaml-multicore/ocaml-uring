@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/poll.h>
+#include <poll.h>
 
 #include "liburing.h"
 
@@ -91,7 +91,7 @@ void io_uring_sqe_prep(int op, struct io_uring_sqe *sqe, unsigned sqe_flags, int
 			io_uring_prep_nop(sqe);
 			break;
 		case cancel:
-			io_uring_prep_poll_remove(sqe, (void *)(long)arg);
+			io_uring_prep_poll_remove(sqe, arg);
 			break;
 	}
 	sqe->flags = sqe_flags;
@@ -224,7 +224,7 @@ static int test_generic_drain(struct io_uring *ring)
 		goto err;
 	}
 
-	sleep(4);
+	sleep(1);
 	// TODO: randomize event triggerring order
 	for (i = 0; i < max_entry; i++) {
 		if (si[i].op != multi && si[i].op != single)
@@ -233,7 +233,7 @@ static int test_generic_drain(struct io_uring *ring)
 		if (trigger_event(pipes[i]))
 			goto err;
 	}
-	sleep(5);
+	sleep(1);
 	i = 0;
 	while (!io_uring_peek_cqe(ring, &cqe)) {
 		cqe_data[i] = cqe->user_data;
@@ -288,9 +288,9 @@ static int test_simple_drain(struct io_uring *ring)
 		}
 	}
 
-	io_uring_prep_poll_add(sqe[0], pipe1[0], POLLIN);
-	sqe[0]->len |= IORING_POLL_ADD_MULTI;
+	io_uring_prep_poll_multishot(sqe[0], pipe1[0], POLLIN);
 	sqe[0]->user_data = 0;
+
 	io_uring_prep_poll_add(sqe[1], pipe2[0], POLLIN);
 	sqe[1]->user_data = 1;
 
@@ -320,6 +320,7 @@ static int test_simple_drain(struct io_uring *ring)
 
 	io_uring_prep_poll_remove(sqe[0], 0);
 	sqe[0]->user_data = 2;
+
 	io_uring_prep_nop(sqe[1]);
 	sqe[1]->flags |= IOSQE_IO_DRAIN;
 	sqe[1]->user_data = 3;
@@ -333,18 +334,21 @@ static int test_simple_drain(struct io_uring *ring)
 		goto err;
 	}
 
-
 	for (i = 0; i < 6; i++) {
 		ret = io_uring_wait_cqe(ring, &cqe);
 		if (ret < 0) {
 			printf("wait completion %d\n", ret);
 			goto err;
 		}
-		io_uring_cqe_seen(ring, cqe);
 		if ((i == 5) && (cqe->user_data != 3))
 			goto err;
+		io_uring_cqe_seen(ring, cqe);
 	}
 
+	close(pipe1[0]);
+	close(pipe1[1]);
+	close(pipe2[0]);
+	close(pipe2[1]);
 	return 0;
 err:
 	return 1;

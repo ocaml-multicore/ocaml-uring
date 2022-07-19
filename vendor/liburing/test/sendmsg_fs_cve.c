@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: MIT */
 /*
  * repro-CVE-2020-29373 -- Reproducer for CVE-2020-29373.
  *
@@ -20,6 +21,7 @@
 
 #include <unistd.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/un.h>

@@ -1,3 +1,5 @@
+include ../Makefile.common
+
 prefix ?= /usr
 includedir ?= $(prefix)/include
 libdir ?= $(prefix)/lib
@@ -6,19 +8,16 @@ libdevdir ?= $(prefix)/lib
 CPPFLAGS ?=
 override CPPFLAGS += -D_GNU_SOURCE \
 	-Iinclude/ -include ../config-host.h
-CFLAGS ?= -g -fomit-frame-pointer -O2
-override CFLAGS += -D_GNU_SOURCE \
-	-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
+CFLAGS ?= -g -O2 -Wall -Wextra -fno-stack-protector
+override CFLAGS += -Wno-unused-parameter -Wno-sign-compare -DLIBURING_INTERNAL
 SO_CFLAGS=-fPIC $(CFLAGS)
 L_CFLAGS=$(CFLAGS)
 LINK_FLAGS=
 LINK_FLAGS+=$(LDFLAGS)
 ENABLE_SHARED ?= 1
 
-soname=liburing.so.2
-minor=1
-micro=0
-libname=$(soname).$(minor).$(micro)
+soname=liburing.so.$(VERSION_MAJOR)
+libname=liburing.so.$(VERSION)
 all_targets += liburing.a
 
 ifeq ($(ENABLE_SHARED),1)
@@ -33,18 +32,30 @@ endif
 
 all: $(all_targets)
 
-liburing_srcs := setup.c queue.c syscall.c register.c
+liburing_srcs := setup.c queue.c register.c
 
+ifeq ($(CONFIG_NOLIBC),y)
+	liburing_srcs += nolibc.c
+	override CFLAGS += -nostdlib -nodefaultlibs -ffreestanding
+	override CPPFLAGS += -nostdlib -nodefaultlibs -ffreestanding
+	override LINK_FLAGS += -nostdlib -nodefaultlibs
+else
+	liburing_srcs += syscall.c
+endif
+
+override CPPFLAGS += -MT "$@" -MMD -MP -MF "$@.d"
 liburing_objs := $(patsubst %.c,%.ol,$(liburing_srcs))
 liburing_sobjs := $(patsubst %.c,%.os,$(liburing_srcs))
-
-$(liburing_objs) $(liburing_sobjs): include/liburing/io_uring.h
 
 %.os: %.c
 	$(QUIET_CC)$(CC) $(CPPFLAGS) $(SO_CFLAGS) -c -o $@ $<
 
 %.ol: %.c
 	$(QUIET_CC)$(CC) $(CPPFLAGS) $(L_CFLAGS) -c -o $@ $<
+
+# Include compiler generated dependency files.
+-include $(liburing_objs:%=%.d)
+-include $(liburing_sobjs:%=%.d)
 
 AR ?= ar
 RANLIB ?= ranlib
@@ -68,9 +79,11 @@ ifeq ($(ENABLE_SHARED),1)
 	ln -sf $(relativelibdir)$(libname) $(libdevdir)/liburing.so
 endif
 
-$(liburing_objs): include/liburing.h
-
 clean:
 	@rm -f $(all_targets) $(liburing_objs) $(liburing_sobjs) $(soname).new
-	@rm -f *.so* *.a *.o
+	@rm -f *.so* *.a *.o *.d
 	@rm -f include/liburing/compat.h
+
+	@# When cleaning, we don't include ../config-host.mak,
+	@# so the nolibc objects are always skipped, clean them up!
+	@rm -f nolibc.ol nolibc.os

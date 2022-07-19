@@ -19,13 +19,8 @@ static char str[] = "This is a test of send and recv over io_uring!";
 
 #define MAX_MSG	128
 
-#define PORT	10200
+#define PORT	10202
 #define HOST	"127.0.0.1"
-
-#if 0
-#	define io_uring_prep_send io_uring_prep_write
-#	define io_uring_prep_recv io_uring_prep_read
-#endif
 
 static int recv_prep(struct io_uring *ring, struct iovec *iov, int *sock,
 		     int registerfiles)
@@ -200,7 +195,7 @@ static int do_send(void)
 		return 1;
 	}
 
-	ret = connect(sockfd, &saddr, sizeof(saddr));
+	ret = connect(sockfd, (struct sockaddr *)&saddr, sizeof(saddr));
 	if (ret < 0) {
 		perror("connect");
 		return 1;
@@ -259,7 +254,7 @@ static int test(int use_sqthread, int regfiles)
 	pthread_mutex_lock(&rd.mutex);
 	do_send();
 	pthread_join(recv_thread, &retval);
-	return (int)(intptr_t)retval;
+	return (intptr_t)retval;
 }
 
 int main(int argc, char *argv[])

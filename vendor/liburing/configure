@@ -1,10 +1,12 @@
 #!/bin/sh
 
+set -e
+
 cc=${CC:-gcc}
 cxx=${CXX:-g++}
 
 for opt do
-  optarg=$(expr "x$opt" : 'x[^=]*=\(.*\)')
+  optarg=$(expr "x$opt" : 'x[^=]*=\(.*\)' || true)
   case "$opt" in
   --help|-h) show_help=yes
   ;;
@@ -23,6 +25,8 @@ for opt do
   --cc=*) cc="$optarg"
   ;;
   --cxx=*) cxx="$optarg"
+  ;;
+  --nolibc) liburing_nolibc="yes"
   ;;
   *)
     echo "ERROR: unknown option $opt"
@@ -71,18 +75,23 @@ Options: [defaults in brackets after descriptions]
   --datadir=PATH           install shared data in PATH [$datadir]
   --cc=CMD                 use CMD as the C compiler
   --cxx=CMD                use CMD as the C++ compiler
+  --nolibc                 build liburing without libc
 EOF
 exit 0
 fi
 
-TMPC="$(mktemp --tmpdir fio-conf-XXXXXXXXXX.c)"
-TMPC2="$(mktemp --tmpdir fio-conf-XXXXXXXXXX-2.c)"
-TMPO="$(mktemp --tmpdir fio-conf-XXXXXXXXXX.o)"
-TMPE="$(mktemp --tmpdir fio-conf-XXXXXXXXXX.exe)"
+TMP_DIRECTORY="$(mktemp -d)"
+TMPC="$TMP_DIRECTORY/liburing-conf.c"
+TMPC2="$TMP_DIRECTORY/liburing-conf-2.c"
+TMPCXX="$TMP_DIRECTORY/liburing-conf-2.cpp"
+TMPO="$TMP_DIRECTORY/liburing-conf.o"
+TMPE="$TMP_DIRECTORY/liburing-conf.exe"
+
+touch $TMPC $TMPC2 $TMPCXX $TMPO $TMPE
 
 # NB: do not call "exit" in the trap handler; this is buggy with some shells;
 # see <1285349658-3122-1-git-send-email-loic.minier@linaro.org>
-trap "rm -f $TMPC $TMPC2 $TMPO $TMPE" EXIT INT QUIT TERM
+trap "rm -rf $TMP_DIRECTORY" EXIT INT QUIT TERM
 
 rm -rf config.log
 
@@ -165,7 +174,7 @@ compile_prog_cxx() {
   local_cflags="$1"
   local_ldflags="$2 $LIBS"
   echo "Compiling test case $3" >> config.log
-  do_cxx $CFLAGS $local_cflags -o $TMPE $TMPC $LDFLAGS $local_ldflags
+  do_cxx $CFLAGS $local_cflags -o $TMPE $TMPCXX $LDFLAGS $local_ldflags
 }
 
 has() {
@@ -265,9 +274,9 @@ print_config "__kernel_timespec" "$__kernel_timespec"
 open_how="no"
 cat > $TMPC << EOF
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
+#include <linux/openat2.h>
 int main(int argc, char **argv)
 {
   struct open_how how;
@@ -291,7 +300,6 @@ cat > $TMPC << EOF
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
-#include <linux/stat.h>
 int main(int argc, char **argv)
 {
   struct statx x;
@@ -305,9 +313,30 @@ fi
 print_config "statx" "$statx"
 
 ##########################################
+# check for glibc statx
+glibc_statx="no"
+cat > $TMPC << EOF
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <string.h>
+#include <sys/stat.h>
+int main(int argc, char **argv)
+{
+  struct statx x;
+
+  return memset(&x, 0, sizeof(x)) != NULL;
+}
+EOF
+if compile_prog "" "" "glibc_statx"; then
+  glibc_statx="yes"
+fi
+print_config "glibc_statx" "$glibc_statx"
+
+##########################################
 # check for C++
 has_cxx="no"
-cat > $TMPC << EOF
+cat > $TMPCXX << EOF
 #include <iostream>
 int main(int argc, char **argv)
 {
@@ -338,8 +367,30 @@ if compile_prog "" "" "has_ucontext"; then
 fi
 print_config "has_ucontext" "$has_ucontext"
 
+##########################################
+# check for memfd_create(2)
+has_memfd_create="no"
+cat > $TMPC << EOF
+#include <sys/mman.h>
+int main(int argc, char **argv)
+{
+  int memfd = memfd_create("test", 0);
+  return 0;
+}
+EOF
+if compile_prog "-Werror=implicit-function-declaration" "" "has_memfd_create"; then
+  has_memfd_create="yes"
+fi
+print_config "has_memfd_create" "$has_memfd_create"
+
 
 #############################################################################
+if test "$liburing_nolibc" = "yes"; then
+  output_sym "CONFIG_NOLIBC"
+else
+  liburing_nolibc="no"
+fi
+print_config "liburing_nolibc" "$liburing_nolibc"
 
 if test "$__kernel_rwf_t" = "yes"; then
   output_sym "CONFIG_HAVE_KERNEL_RWF_T"
@@ -353,6 +404,9 @@ fi
 if test "$statx" = "yes"; then
   output_sym "CONFIG_HAVE_STATX"
 fi
+if test "$glibc_statx" = "yes"; then
+  output_sym "CONFIG_HAVE_GLIBC_STATX"
+fi
 if test "$has_cxx" = "yes"; then
   output_sym "CONFIG_HAVE_CXX"
 fi
@@ -364,6 +418,9 @@ if test "$stringop_overflow" = "yes"; then
 fi
 if test "$array_bounds" = "yes"; then
   output_sym "CONFIG_HAVE_ARRAY_BOUNDS"
+fi
+if test "$has_memfd_create" = "yes"; then
+  output_sym "CONFIG_HAVE_MEMFD_CREATE"
 fi
 
 echo "CC=$cc" >> $config_host_mak
@@ -411,6 +468,16 @@ struct open_how {
 	uint64_t	mode;
 	uint64_t	resolve;
 };
+
+EOF
+else cat >> $compat_h << EOF
+#include <linux/openat2.h>
+
+EOF
+fi
+if [ "$glibc_statx" = "no" ] && [ "$statx" = "yes" ]; then
+cat >> $compat_h << EOF
+#include <sys/stat.h>
 
 EOF
 fi
