@@ -93,6 +93,13 @@ is set to a valid pointer, then this time value indicates the timeout for
 waiting on events. If an application is waiting on events and wishes to
 stop waiting after a specified amount of time, then this can be accomplished
 directly in version 5.11 and newer by using this feature.
+.TP
+.B IORING_ENTER_REGISTERED_RING
+If the ring file descriptor has been registered through use of
+.B IORING_REGISTER_RING_FDS,
+then setting this flag will tell the kernel that the
+.I ring_fd
+passed in is the registered ring offset rather than a normal file descriptor.
 
 .PP
 .PP
@@ -434,7 +441,7 @@ clock source. The request will complete with
 if the timeout got completed through expiration of the timer, or
 .I 0
 if the timeout got completed through requests completing on their own. If
-the timeout was cancelled before it expired, the request will complete with
+the timeout was canceled before it expired, the request will complete with
 .I -ECANCELED.
 Available since 5.4.
 
@@ -469,7 +476,7 @@ operation.
 must contain the
 .I user_data
 field of the previously issued timeout operation. If the specified timeout
-request is found and cancelled successfully, this request will terminate
+request is found and canceled successfully, this request will terminate
 with a result value of
 .I 0
 If the timeout request was found but expiration was already in progress,
@@ -517,15 +524,17 @@ field is set to a positive number, the file won't be installed into the
 normal file table as usual but will be placed into the fixed file table at index
 .I file_index - 1.
 In this case, instead of returning a file descriptor, the result will contain
-either 0 on success or an error. If there is already a file registered at this
-index, the request will fail with
-.B -EBADF.
-Only io_uring has access to such files and no other syscall can use them. See
+either 0 on success or an error. If the index points to a valid empty slot, the
+installation is guaranteed to not fail. If there is already a file in the slot,
+it will be replaced, similar to
+.B IORING_OP_FILES_UPDATE.
+Please note that only io_uring has access to such files and no other syscall
+can use them. See
 .B IOSQE_FIXED_FILE
 and
 .B IORING_REGISTER_FILES.
 
-Available since 5.15.
+Available since 5.5.
 
 .TP
 .B IORING_OP_ASYNC_CANCEL
@@ -533,16 +542,16 @@ Attempt to cancel an already issued request.
 .I addr
 must contain the
 .I user_data
-field of the request that should be cancelled. The cancellation request will
+field of the request that should be canceled. The cancelation request will
 complete with one of the following results codes. If found, the
 .I res
 field of the cqe will contain 0. If not found,
 .I res
-will contain -ENOENT. If found and attempted cancelled, the
+will contain -ENOENT. If found and attempted canceled, the
 .I res
 field will contain -EALREADY. In this case, the request may or may not
 terminate. In general, requests that are interruptible (like socket IO) will
-get cancelled, while disk IO requests cannot be cancelled if already started.
+get canceled, while disk IO requests cannot be canceled if already started.
 Available since 5.5.
 
 .TP
@@ -560,9 +569,9 @@ If used, the timeout specified in the command will cancel the linked command,
 unless the linked command completes before the timeout. The timeout will
 complete with
 .I -ETIME
-if the timer expired and the linked request was attempted cancelled, or
+if the timer expired and the linked request was attempted canceled, or
 .I -ECANCELED
-if the timer got cancelled because of completion of the linked request. Like
+if the timer got canceled because of completion of the linked request. Like
 .B IORING_OP_TIMEOUT
 the clock source used is
 .B CLOCK_MONOTONIC
@@ -656,10 +665,12 @@ field is set to a positive number, the file won't be installed into the
 normal file table as usual but will be placed into the fixed file table at index
 .I file_index - 1.
 In this case, instead of returning a file descriptor, the result will contain
-either 0 on success or an error. If there is already a file registered at this
-index, the request will fail with
-.B -EBADF.
-Only io_uring has access to such files and no other syscall can use them. See
+either 0 on success or an error. If the index points to a valid empty slot, the
+installation is guaranteed to not fail. If there is already a file in the slot,
+it will be replaced, similar to
+.B IORING_OP_FILES_UPDATE.
+Please note that only io_uring has access to such files and no other syscall
+can use them. See
 .B IOSQE_FIXED_FILE
 and
 .B IORING_REGISTER_FILES.
@@ -692,10 +703,12 @@ field is set to a positive number, the file won't be installed into the
 normal file table as usual but will be placed into the fixed file table at index
 .I file_index - 1.
 In this case, instead of returning a file descriptor, the result will contain
-either 0 on success or an error. If there is already a file registered at this
-index, the request will fail with
-.B -EBADF.
-Only io_uring has access to such files and no other syscall can use them. See
+either 0 on success or an error. If the index points to a valid empty slot, the
+installation is guaranteed to not fail. If there is already a file in the slot,
+it will be replaced, similar to
+.B IORING_OP_FILES_UPDATE.
+Please note that only io_uring has access to such files and no other syscall
+can use them. See
 .B IOSQE_FIXED_FILE
 and
 .B IORING_REGISTER_FILES.
@@ -711,6 +724,18 @@ system call.
 is the file descriptor to be closed. See also
 .BR close(2)
 for the general description of the related system call. Available since 5.6.
+If the
+.I file_index
+field is set to a positive number, this command can be used to close files
+that were direct opened through
+.B IORING_OP_OPENAT
+,
+.B IORING_OP_OPENAT2
+, or
+.B IORING_OP_ACCEPT
+using the io_uring specific direct descriptors. Note that only one of the
+descriptor fields may be set. The direct close feature is available since
+the 5.15 kernel, where direct descriptors were introduced.
 
 .TP
 .B IORING_OP_STATX
@@ -762,7 +787,9 @@ does not refer to a seekable file,
 .I off
 must be set to zero. If
 .I offs
-is set to -1, the offset will use (and advance) the file position, like the
+is set to
+.B -1
+, the offset will use (and advance) the file position, like the
 .BR read(2)
 and
 .BR write(2)
@@ -788,8 +815,9 @@ is an offset to read from,
 .I fd
 is the file descriptor to write to,
 .I off
-is an offset from which to start writing to. A sentinel value of -1 is used
-to pass the equivalent of a NULL for the offsets to
+is an offset from which to start writing to. A sentinel value of
+.B -1
+is used to pass the equivalent of a NULL for the offsets to
 .BR splice(2).
 .I len
 contains the number of bytes to copy.
@@ -890,8 +918,11 @@ Issue the equivalent of a
 .BR shutdown(2)
 system call.
 .I fd
-is the file descriptor to the socket being shutdown, no other fields should
-be set. Available since 5.11.
+is the file descriptor to the socket being shutdown, and
+.I len
+must be set to the
+.I how
+argument. No no other fields should be set. Available since 5.11.
 
 .TP
 .B IORING_OP_RENAMEAT
@@ -1003,6 +1034,27 @@ being passed in to
 .BR linkat(2).
 Available since 5.15.
 
+.TP
+.B IORING_OP_MSG_RING
+Send a message to an io_uring.
+.I fd
+must be set to a file descriptor of a ring that the application has access to,
+.I len
+can be set to any 32-bit value that the application wishes to pass on, and
+.I off
+should be set any 64-bit value that the application wishes to send. On the
+target ring, a CQE will be posted with the
+.I res
+field matching the
+.I len
+set, and a
+.I user_data
+field matching the
+.I off
+value being passed in. This request type can be used to either just wake or
+interrupt anyone waiting for completions on the target ring, ot it can be used
+to pass messages via the two fields. Available since 5.18.
+
 .PP
 The
 .I flags
@@ -1026,12 +1078,14 @@ submitted SQEs have completed, and new SQEs will not be started before this
 one completes. Available since 5.2.
 .TP
 .B IOSQE_IO_LINK
-When this flag is specified, it forms a link with the next SQE in the
-submission ring. That next SQE will not be started before this one completes.
-This, in effect, forms a chain of SQEs, which can be arbitrarily long. The tail
-of the chain is denoted by the first SQE that does not have this flag set.
-This flag has no effect on previous SQE submissions, nor does it impact SQEs
-that are outside of the chain tail. This means that multiple chains can be
+When this flag is specified, the SQE forms a link with the next SQE in the
+submission ring. That next SQE will not be started before the previous request
+completes. This, in effect, forms a chain of SQEs, which can be arbitrarily
+long. The tail of the chain is denoted by the first SQE that does not have this
+flag set. Chains are not supported across submission boundaries. Even if the
+last SQE in a submission has this flag set, it will still terminate the current
+chain. This flag has no effect on previous SQE submissions, nor does it impact
+SQEs that are outside of the chain tail. This means that multiple chains can be
 executing in parallel, or chains and individual SQEs. Only members inside the
 chain are serialized. A chain of SQEs will be broken, if any request in that
 chain ends in error. io_uring considers any unexpected result an error. This
@@ -1073,6 +1127,37 @@ are available and this flag is set, then the request will fail with
 as the error code. Once a buffer has been used, it is no longer available in
 the kernel pool. The application must re-register the given buffer again when
 it is ready to recycle it (eg has completed using it). Available since 5.7.
+.TP
+.B IOSQE_CQE_SKIP_SUCCESS
+Don't generate a CQE if the request completes successfully. If the request
+fails, an appropriate CQE will be posted as usual and if there is no
+.B IOSQE_IO_HARDLINK,
+CQEs for all linked requests will be omitted. The notion of failure/success is
+opcode specific and is the same as with breaking chains of
+.B IOSQE_IO_LINK.
+One special case is when the request has a linked timeout, then the CQE
+generation for the linked timeout is decided solely by whether it has
+.B IOSQE_CQE_SKIP_SUCCESS
+set, regardless whether it timed out or was canceled. In other words, if a
+linked timeout has the flag set, it's guaranteed to not post a CQE.
+
+The semantics are chosen to accommodate several use cases. First, when all but
+the last request of a normal link without linked timeouts are marked with the
+flag, only one CQE per lin is posted. Additionally, it enables supression of
+CQEs in cases where the side effects of a successfully executed operation is
+enough for userspace to know the state of the system. One such example would
+be writing to a synchronisation file.
+
+This flag is incompatible with
+.B IOSQE_IO_DRAIN.
+Using both of them in a single ring is undefined behavior, even when they are
+not used together in a single request. Currently, after the first request with
+.B IOSQE_CQE_SKIP_SUCCESS,
+all subsequent requests marked with drain will be failed at submission time.
+Note that the error reporting is best effort only, and restrictions may change
+in the future.
+
+Available since 5.17.
 
 .PP
 .I ioprio
@@ -1169,7 +1254,9 @@ is used for certain commands, like
 .B IORING_OP_POLL_ADD
 or in conjunction with
 .B IOSQE_BUFFER_SELECT
-, see those entries.
+or
+.B IORING_OP_MSG_RING,
+, see those entries for details.
 .I res
 is the operation-specific result, but io_uring-specific errors
 (e.g. flags or opcode invalid) are returned through this field.
@@ -1212,7 +1299,9 @@ completion queue entry (see section
 rather than through the system call itself.
 
 Errors that occur not on behalf of a submission queue entry are returned via the
-system call directly. On such an error, -1 is returned and
+system call directly. On such an error,
+.B -1
+is returned and
 .I errno
 is set appropriately.
 .PP

@@ -84,17 +84,35 @@ a read operation under
 .BR io_uring ,
 started with the
 .BR IORING_OP_READ
-operation,
-which issues the equivalent of the
+operation, issues the equivalent of the
 .BR read (2) 
-system call,
-would return as part of 
+system call. In practice, it mixes the semantics of
+.BR pread (2)
+and
+.BR preadv2 (2)
+in that it takes an explicit offset, and supports using -1 for the offset to
+indicate that the current file position should be used instead of passing in
+an explicit offset. See the opcode documentation for more details. Given that
+io_uring is an async interface,
+.I errno
+is never used for passing back error information. Instead,
 .I res
-what
-.BR read (2)
-would have returned if called directly,
-without using 
-.BR io_uring .
+will contain what the equivalent system call would have returned in case
+of success, and in case of error
+.I res
+will contain
+.I -errno .
+For example, if the normal read system call would have returned -1 and set
+.I errno
+to
+.B EINVAL ,
+then
+.I res
+would contain
+.B -EINVAL .
+If the normal system call would have returned a read size of 1024, then
+.I res
+would contain 1024.
 .IP \(bu
 Optionally, 
 .BR io_uring_enter (2)
@@ -259,7 +277,8 @@ you need to acquire a submission queue entry (SQE) from the submission
 queue (SQ),
 fill it up with details of the operation you want to submit and call 
 .BR io_uring_enter (2). 
-If you want to avoid calling 
+There are helper functions of the form io_uring_prep_X to enable proper
+setup of the SQE. If you want to avoid calling
 .BR io_uring_enter (2),
 you have the option of setting up Submission Queue Polling.
 .PP
@@ -466,7 +485,7 @@ them to the submission queue. This avoids the
 .BR io_uring_enter (2)
 call you need to make to tell the kernel to pick SQEs up.
 For high-performance applications,
-this means even lesser system call overheads.
+this means even fewer system call overheads.
 .SH CONFORMING TO
 .B io_uring
 is Linux-specific.
@@ -533,8 +552,8 @@ int io_uring_setup(unsigned entries, struct io_uring_params *p)
 int io_uring_enter(int ring_fd, unsigned int to_submit,
                    unsigned int min_complete, unsigned int flags)
 {
-    return (int) syscall(__NR_io_uring_enter, ring_fd, to_submit, min_complete,
-                         flags, NULL, 0);
+    return (int) syscall(__NR_io_uring_enter, ring_fd, to_submit,
+    			 min_complete, flags, NULL, 0);
 }
 
 int app_setup_uring(void) {
@@ -623,7 +642,7 @@ int app_setup_uring(void) {
 
 int read_from_cq() {
     struct io_uring_cqe *cqe;
-    unsigned head, reaped = 0;
+    unsigned head;
 
     /* Read barrier */
     head = io_uring_smp_load_acquire(cring_head);
@@ -678,10 +697,10 @@ int submit_to_sq(int fd, int op) {
     io_uring_smp_store_release(sring_tail, tail);
 
     /*
-    * Tell the kernel we have submitted events with the io_uring_enter() system
-    * call. We also pass in the IOURING_ENTER_GETEVENTS flag which causes the
-    * io_uring_enter() call to wait until min_complete (the 3rd param) events
-    * complete.
+    * Tell the kernel we have submitted events with the io_uring_enter()
+    * system call. We also pass in the IOURING_ENTER_GETEVENTS flag which
+    * causes the io_uring_enter() call to wait until min_complete
+    * (the 3rd param) events complete.
     * */
     int ret =  io_uring_enter(ring_fd, 1,1,
                               IORING_ENTER_GETEVENTS);

@@ -5,25 +5,28 @@
 .\"
 .TH io_uring_get_sqe 3 "July 10, 2020" "liburing-0.7" "liburing Manual"
 .SH NAME
-io_uring_get_sqe - get the next vacant event from the submission queue
+io_uring_get_sqe \- get the next available submission queue entry from the
+submission queue
 .SH SYNOPSIS
 .nf
-.BR "#include <liburing.h>"
+.B #include <liburing.h>
 .PP
-.BI "struct io_uring_sqe *io_uring_get_sqe(struct io_uring " *ring );
+.BI "struct io_uring_sqe *io_uring_get_sqe(struct io_uring *" ring ");"
 .fi
-.PP
 .SH DESCRIPTION
 .PP
-The io_uring_get_sqe() function gets the next vacant event from the submission
+The
+.BR io_uring_get_sqe (3)
+function gets the next available submission queue entry from the submission
 queue belonging to the
 .I ring
 param.
 
-On success io_uring_get_sqe() returns a pointer to the submission queue event.
-On failure NULL is returned.
+On success
+.BR io_uring_get_sqe (3)
+returns a pointer to the submission queue entry. On failure NULL is returned.
 
-If a submission queue event is returned, it should be filled out via one of the
+If a submission queue entry is returned, it should be filled out via one of the
 prep functions such as
 .BR io_uring_prep_read (3)
 and submitted via
@@ -32,6 +35,7 @@ and submitted via
 .SH RETURN VALUE
 .BR io_uring_get_sqe (3)
 returns a pointer to the next submission queue event on success and NULL on
-failure.
+failure. If NULL is returned, the SQ ring is currently full and entries must
+be submitted for processing before new ones can get allocated.
 .SH SEE ALSO
 .BR io_uring_submit (3)

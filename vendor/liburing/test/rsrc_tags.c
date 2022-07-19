@@ -27,7 +27,7 @@ static bool check_cq_empty(struct io_uring *ring)
 	struct io_uring_cqe *cqe = NULL;
 	int ret;
 
-	sleep(1); /* doesn't happen immediately, so wait */
+	usleep(1000); /* doesn't happen immediately, so wait */
 	ret = io_uring_peek_cqe(ring, &cqe); /* nothing should be there */
 	return ret == -EAGAIN;
 }
@@ -322,7 +322,7 @@ static int test_files(int ring_flags)
 	struct io_uring ring;
 	const int nr = 50;
 	int off = 5, i, ret, fd;
-	int files[nr];
+	__s32 files[nr];
 	__u64 tags[nr], tag;
 
 	for (i = 0; i < nr; ++i) {

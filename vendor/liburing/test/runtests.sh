@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 TESTS=("$@")
 RET=0
@@ -17,7 +17,7 @@ DO_KMSG="1"
 
 # Include config.local if exists and check TEST_FILES for valid devices
 if [ -f "$TEST_DIR/config.local" ]; then
-	# shellcheck disable=SC1091
+	# shellcheck source=/dev/null disable=SC1091
 	. "$TEST_DIR/config.local"
 	for dev in $TEST_FILES; do
 		if [ ! -e "$dev" ]; then
@@ -101,8 +101,8 @@ run_test()
 	# Run the test
 	T_START=$(date +%s)
 	timeout -s INT -k $TIMEOUT $TIMEOUT "${test_exec[@]}"
-	T_END=$(date +%s)
 	local status=$?
+	T_END=$(date +%s)
 
 	if [ -e ./core ]; then
 		mv core "core-$test_name"
@@ -139,7 +139,7 @@ run_test()
 # Run all specified tests
 for tst in "${TESTS[@]}"; do
 	if [ ! -d output ]; then
-		mkdir output
+		mkdir -p output
 	fi
 	if [ -z "${TEST_MAP[$tst]}" ]; then
 		run_test "$tst"

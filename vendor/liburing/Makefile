@@ -1,7 +1,5 @@
-NAME=liburing
-SPECFILE=$(NAME).spec
-VERSION=$(shell awk '/Version:/ { print $$2 }' $(SPECFILE))
-TAG = $(NAME)-$(VERSION)
+include Makefile.common
+
 RPMBUILD=$(shell `which rpmbuild >&/dev/null` && echo "rpmbuild" || echo "rpm")
 
 INSTALL=install
@@ -21,8 +19,10 @@ partcheck: all
 
 runtests: all
 	@$(MAKE) -C test runtests
-runtests-loop:
+runtests-loop: all
 	@$(MAKE) -C test runtests-loop
+runtests-parallel: all
+	@$(MAKE) -C test runtests-parallel
 
 config-host.mak: configure
 	@if [ ! -e "$@" ]; then					\

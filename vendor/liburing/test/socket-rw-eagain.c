@@ -15,6 +15,7 @@
 #include <sys/un.h>
 #include <netinet/tcp.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "liburing.h"
 
@@ -24,6 +25,7 @@ int main(int argc, char *argv[])
 	int32_t recv_s0;
 	int32_t val = 1;
 	struct sockaddr_in addr;
+	struct iovec iov_r[1], iov_w[1];
 
 	if (argc > 1)
 		return 0;
@@ -38,10 +40,10 @@ int main(int argc, char *argv[])
 	assert(ret != -1);
 
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = 0x0100007fU;
+	addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
 	do {
-		addr.sin_port = (rand() % 61440) + 4096;
+		addr.sin_port = htons((rand() % 61440) + 4096);
 		ret = bind(recv_s0, (struct sockaddr*)&addr, sizeof(addr));
 		if (!ret)
 			break;
@@ -92,36 +94,36 @@ int main(int argc, char *argv[])
 	}
 
 	struct io_uring m_io_uring;
+	struct io_uring_params p = { };
 
-	ret = io_uring_queue_init(32, &m_io_uring, 0);
+	ret = io_uring_queue_init_params(32, &m_io_uring, &p);
 	assert(ret >= 0);
+
+	if (p.features & IORING_FEAT_FAST_POLL)
+		return 0;
 
 	char recv_buff[128];
 	char send_buff[128];
 
 	{
-		struct iovec iov[1];
-
-		iov[0].iov_base = recv_buff;
-		iov[0].iov_len = sizeof(recv_buff);
+		iov_r[0].iov_base = recv_buff;
+		iov_r[0].iov_len = sizeof(recv_buff);
 
 		struct io_uring_sqe* sqe = io_uring_get_sqe(&m_io_uring);
 		assert(sqe != NULL);
 
-		io_uring_prep_readv(sqe, p_fd[0], iov, 1, 0);
+		io_uring_prep_readv(sqe, p_fd[0], iov_r, 1, 0);
 		sqe->user_data = 1;
 	}
 
 	{
-		struct iovec iov[1];
-
-		iov[0].iov_base = send_buff;
-		iov[0].iov_len = sizeof(send_buff);
+		iov_w[0].iov_base = send_buff;
+		iov_w[0].iov_len = sizeof(send_buff);
 
 		struct io_uring_sqe* sqe = io_uring_get_sqe(&m_io_uring);
 		assert(sqe != NULL);
 
-		io_uring_prep_writev(sqe, p_fd[1], iov, 1, 0);
+		io_uring_prep_writev(sqe, p_fd[1], iov_w, 1, 0);
 		sqe->user_data = 2;
 	}
 
