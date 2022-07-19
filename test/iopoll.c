@@ -9,7 +9,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/types.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
 #include "helpers.h"
@@ -151,6 +151,12 @@ static int __test_io(const char *file, struct io_uring *ring, int write, int sqt
 
 	ret = io_uring_submit(ring);
 	if (ret != BUFFERS) {
+		ret = io_uring_peek_cqe(ring, &cqe);
+		if (!ret && cqe->res == -EOPNOTSUPP) {
+			no_iopoll = 1;
+			io_uring_cqe_seen(ring, cqe);
+			goto out;
+		}
 		fprintf(stderr, "submit got %d, wanted %d\n", ret, BUFFERS);
 		goto err;
 	}
@@ -306,7 +312,7 @@ static int probe_buf_select(void)
 		fprintf(stdout, "Buffer select not supported, skipping\n");
 		return 0;
 	}
-	free(p);
+	io_uring_free_probe(p);
 	return 0;
 }
 

@@ -1,26 +1,18 @@
 /* SPDX-License-Identifier: MIT */
 #define _DEFAULT_SOURCE
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <signal.h>
-
+#include "lib.h"
+#include "syscall.h"
+#include "liburing.h"
+#include "int_flags.h"
 #include "liburing/compat.h"
 #include "liburing/io_uring.h"
-#include "liburing.h"
-
-#include "syscall.h"
 
 static void io_uring_unmap_rings(struct io_uring_sq *sq, struct io_uring_cq *cq)
 {
-	munmap(sq->ring_ptr, sq->ring_sz);
+	__sys_munmap(sq->ring_ptr, sq->ring_sz);
 	if (cq->ring_ptr && cq->ring_ptr != sq->ring_ptr)
-		munmap(cq->ring_ptr, cq->ring_sz);
+		__sys_munmap(cq->ring_ptr, cq->ring_sz);
 }
 
 static int io_uring_mmap(int fd, struct io_uring_params *p,
@@ -29,27 +21,33 @@ static int io_uring_mmap(int fd, struct io_uring_params *p,
 	size_t size;
 	int ret;
 
+	size = sizeof(struct io_uring_cqe);
+	if (p->flags & IORING_SETUP_CQE32)
+		size += sizeof(struct io_uring_cqe);
+
 	sq->ring_sz = p->sq_off.array + p->sq_entries * sizeof(unsigned);
-	cq->ring_sz = p->cq_off.cqes + p->cq_entries * sizeof(struct io_uring_cqe);
+	cq->ring_sz = p->cq_off.cqes + p->cq_entries * size;
 
 	if (p->features & IORING_FEAT_SINGLE_MMAP) {
 		if (cq->ring_sz > sq->ring_sz)
 			sq->ring_sz = cq->ring_sz;
 		cq->ring_sz = sq->ring_sz;
 	}
-	sq->ring_ptr = mmap(0, sq->ring_sz, PROT_READ | PROT_WRITE,
-			MAP_SHARED | MAP_POPULATE, fd, IORING_OFF_SQ_RING);
-	if (sq->ring_ptr == MAP_FAILED)
-		return -errno;
+	sq->ring_ptr = __sys_mmap(0, sq->ring_sz, PROT_READ | PROT_WRITE,
+				  MAP_SHARED | MAP_POPULATE, fd,
+				  IORING_OFF_SQ_RING);
+	if (IS_ERR(sq->ring_ptr))
+		return PTR_ERR(sq->ring_ptr);
 
 	if (p->features & IORING_FEAT_SINGLE_MMAP) {
 		cq->ring_ptr = sq->ring_ptr;
 	} else {
-		cq->ring_ptr = mmap(0, cq->ring_sz, PROT_READ | PROT_WRITE,
-				MAP_SHARED | MAP_POPULATE, fd, IORING_OFF_CQ_RING);
-		if (cq->ring_ptr == MAP_FAILED) {
+		cq->ring_ptr = __sys_mmap(0, cq->ring_sz, PROT_READ | PROT_WRITE,
+					  MAP_SHARED | MAP_POPULATE, fd,
+					  IORING_OFF_CQ_RING);
+		if (IS_ERR(cq->ring_ptr)) {
+			ret = PTR_ERR(cq->ring_ptr);
 			cq->ring_ptr = NULL;
-			ret = -errno;
 			goto err;
 		}
 	}
@@ -62,12 +60,13 @@ static int io_uring_mmap(int fd, struct io_uring_params *p,
 	sq->kdropped = sq->ring_ptr + p->sq_off.dropped;
 	sq->array = sq->ring_ptr + p->sq_off.array;
 
-	size = p->sq_entries * sizeof(struct io_uring_sqe);
-	sq->sqes = mmap(0, size, PROT_READ | PROT_WRITE,
-				MAP_SHARED | MAP_POPULATE, fd,
-				IORING_OFF_SQES);
-	if (sq->sqes == MAP_FAILED) {
-		ret = -errno;
+	size = sizeof(struct io_uring_sqe);
+	if (p->flags & IORING_SETUP_SQE128)
+		size += 64;
+	sq->sqes = __sys_mmap(0, size * p->sq_entries, PROT_READ | PROT_WRITE,
+			      MAP_SHARED | MAP_POPULATE, fd, IORING_OFF_SQES);
+	if (IS_ERR(sq->sqes)) {
+		ret = PTR_ERR(sq->sqes);
 err:
 		io_uring_unmap_rings(sq, cq);
 		return ret;
@@ -98,7 +97,8 @@ int io_uring_queue_mmap(int fd, struct io_uring_params *p, struct io_uring *ring
 	ret = io_uring_mmap(fd, p, &ring->sq, &ring->cq);
 	if (!ret) {
 		ring->flags = p->flags;
-		ring->ring_fd = fd;
+		ring->ring_fd = ring->enter_ring_fd = fd;
+		ring->int_flags = 0;
 	}
 	return ret;
 }
@@ -115,21 +115,24 @@ int io_uring_ring_dontfork(struct io_uring *ring)
 	if (!ring->sq.ring_ptr || !ring->sq.sqes || !ring->cq.ring_ptr)
 		return -EINVAL;
 
-	len = *ring->sq.kring_entries * sizeof(struct io_uring_sqe);
-	ret = madvise(ring->sq.sqes, len, MADV_DONTFORK);
-	if (ret == -1)
-		return -errno;
+	len = sizeof(struct io_uring_sqe);
+	if (ring->flags & IORING_SETUP_SQE128)
+		len += 64;
+	len *= *ring->sq.kring_entries;
+	ret = __sys_madvise(ring->sq.sqes, len, MADV_DONTFORK);
+	if (ret < 0)
+		return ret;
 
 	len = ring->sq.ring_sz;
-	ret = madvise(ring->sq.ring_ptr, len, MADV_DONTFORK);
-	if (ret == -1)
-		return -errno;
+	ret = __sys_madvise(ring->sq.ring_ptr, len, MADV_DONTFORK);
+	if (ret < 0)
+		return ret;
 
 	if (ring->cq.ring_ptr != ring->sq.ring_ptr) {
 		len = ring->cq.ring_sz;
-		ret = madvise(ring->cq.ring_ptr, len, MADV_DONTFORK);
-		if (ret == -1)
-			return -errno;
+		ret = __sys_madvise(ring->cq.ring_ptr, len, MADV_DONTFORK);
+		if (ret < 0)
+			return ret;
 	}
 
 	return 0;
@@ -140,13 +143,13 @@ int io_uring_queue_init_params(unsigned entries, struct io_uring *ring,
 {
 	int fd, ret;
 
-	fd = __sys_io_uring_setup(entries, p);
+	fd = ____sys_io_uring_setup(entries, p);
 	if (fd < 0)
-		return -errno;
+		return fd;
 
 	ret = io_uring_queue_mmap(fd, p, ring);
 	if (ret) {
-		close(fd);
+		__sys_close(fd);
 		return ret;
 	}
 
@@ -172,10 +175,20 @@ void io_uring_queue_exit(struct io_uring *ring)
 {
 	struct io_uring_sq *sq = &ring->sq;
 	struct io_uring_cq *cq = &ring->cq;
+	size_t sqe_size;
 
-	munmap(sq->sqes, *sq->kring_entries * sizeof(struct io_uring_sqe));
+	sqe_size = sizeof(struct io_uring_sqe);
+	if (ring->flags & IORING_SETUP_SQE128)
+		sqe_size += 64;
+	__sys_munmap(sq->sqes, sqe_size * *sq->kring_entries);
 	io_uring_unmap_rings(sq, cq);
-	close(ring->ring_fd);
+	/*
+	 * Not strictly required, but frees up the slot we used now rather
+	 * than at process exit time.
+	 */
+	if (ring->int_flags & INT_FLAG_REG_RING)
+		io_uring_unregister_ring_fd(ring);
+	__sys_close(ring->ring_fd);
 }
 
 struct io_uring_probe *io_uring_get_probe_ring(struct io_uring *ring)
@@ -185,7 +198,7 @@ struct io_uring_probe *io_uring_get_probe_ring(struct io_uring *ring)
 	int r;
 
 	len = sizeof(*probe) + 256 * sizeof(struct io_uring_probe_op);
-	probe = malloc(len);
+	probe = uring_malloc(len);
 	if (!probe)
 		return NULL;
 	memset(probe, 0, len);
@@ -194,7 +207,7 @@ struct io_uring_probe *io_uring_get_probe_ring(struct io_uring *ring)
 	if (r >= 0)
 		return probe;
 
-	free(probe);
+	uring_free(probe);
 	return NULL;
 }
 
@@ -215,36 +228,14 @@ struct io_uring_probe *io_uring_get_probe(void)
 
 void io_uring_free_probe(struct io_uring_probe *probe)
 {
-	free(probe);
+	uring_free(probe);
 }
 
-static int __fls(int x)
+static inline int __fls(int x)
 {
-	int r = 32;
-
 	if (!x)
 		return 0;
-	if (!(x & 0xffff0000u)) {
-		x <<= 16;
-		r -= 16;
-	}
-	if (!(x & 0xff000000u)) {
-		x <<= 8;
-		r -= 8;
-	}
-	if (!(x & 0xf0000000u)) {
-		x <<= 4;
-		r -= 4;
-	}
-	if (!(x & 0xc0000000u)) {
-		x <<= 2;
-		r -= 2;
-	}
-	if (!(x & 0x80000000u)) {
-		x <<= 1;
-		r -= 1;
-	}
-	return r;
+	return 8 * sizeof(x) - __builtin_clz(x);
 }
 
 static unsigned roundup_pow2(unsigned depth)
@@ -261,16 +252,23 @@ static size_t npages(size_t size, unsigned page_size)
 
 #define KRING_SIZE	320
 
-static size_t rings_size(unsigned entries, unsigned cq_entries, unsigned page_size)
+static size_t rings_size(struct io_uring_params *p, unsigned entries,
+			 unsigned cq_entries, unsigned page_size)
 {
 	size_t pages, sq_size, cq_size;
 
-	cq_size = KRING_SIZE;
-	cq_size += cq_entries * sizeof(struct io_uring_cqe);
+	cq_size = sizeof(struct io_uring_cqe);
+	if (p->flags & IORING_SETUP_CQE32)
+		cq_size += sizeof(struct io_uring_cqe);
+	cq_size *= cq_entries;
+	cq_size += KRING_SIZE;
 	cq_size = (cq_size + 63) & ~63UL;
 	pages = (size_t) 1 << npages(cq_size, page_size);
 
-	sq_size = sizeof(struct io_uring_sqe) * entries;
+	sq_size = sizeof(struct io_uring_sqe);
+	if (p->flags & IORING_SETUP_SQE128)
+		sq_size += 64;
+	sq_size *= entries;
 	pages += (size_t) 1 << npages(sq_size, page_size);
 	return pages * page_size;
 }
@@ -337,11 +335,8 @@ ssize_t io_uring_mlock_size_params(unsigned entries, struct io_uring_params *p)
 		cq_entries = 2 * entries;
 	}
 
-	page_size = sysconf(_SC_PAGESIZE);
-	if (page_size < 0)
-		page_size = 4096;
-
-	return rings_size(entries, cq_entries, page_size);
+	page_size = get_page_size();
+	return rings_size(p, entries, cq_entries, page_size);
 }
 
 /*

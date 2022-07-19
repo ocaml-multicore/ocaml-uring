@@ -9,15 +9,15 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/types.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
 
 #include "helpers.h"
 #include "liburing.h"
 
-#define FILE_SIZE	(128 * 1024)
-#define BS		4096
+#define FILE_SIZE	(256 * 1024)
+#define BS		8192
 #define BUFFERS		(FILE_SIZE / BS)
 
 static struct iovec *vecs;
@@ -480,7 +480,7 @@ static int test_buf_select(const char *filename, int nonvec)
 		fprintf(stdout, "Buffer select not supported, skipping\n");
 		return 0;
 	}
-	free(p);
+	io_uring_free_probe(p);
 
 	/*
 	 * Write out data with known pattern
@@ -658,8 +658,8 @@ static int test_write_efbig(void)
 		return 1;
 	}
 	rlim = old_rlim;
-	rlim.rlim_cur = 64 * 1024;
-	rlim.rlim_max = 64 * 1024;
+	rlim.rlim_cur = 128 * 1024;
+	rlim.rlim_max = 128 * 1024;
 	if (setrlimit(RLIMIT_FSIZE, &rlim) < 0) {
 		perror("setrlimit");
 		return 1;
