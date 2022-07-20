@@ -32,7 +32,7 @@
 (executable
  (name poll_add)
  (modules poll_add)
- (libraries unix uring alcotest logs logs.fmt))
+ (libraries unix uring logs logs.fmt))
 
 (executable
  (name cptest)
