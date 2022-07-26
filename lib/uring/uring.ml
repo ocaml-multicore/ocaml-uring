@@ -185,7 +185,7 @@ module Uring = struct
   [@@ocaml.warning "-37" (* Avoids "Unused constructor" warning on OCaml <= 4.09. *)]
 
   external wait_cqe : t -> cqe_option = "ocaml_uring_wait_cqe"
-  external wait_cqe_timeout : float -> t -> cqe_option = "ocaml_uring_wait_cqe_timeout"
+  external wait_cqe_timeout : [`Clock_mono |`Clock_sys | `Clock_default] -> int64 -> t -> cqe_option = "ocaml_uring_wait_cqe_timeout"
   external peek_cqe : t -> cqe_option = "ocaml_uring_peek_cqe"
 
   external error_of_errno : int -> Unix.error = "ocaml_uring_error_of_errno"
@@ -370,10 +370,12 @@ let fn_on_ring fn t =
 
 let peek t = fn_on_ring Uring.peek_cqe t
 
-let wait ?timeout t =
+let wait ?(clock = `Clock_default) ?timeout t =
   match timeout with
   | None -> fn_on_ring Uring.wait_cqe t
-  | Some timeout -> fn_on_ring (Uring.wait_cqe_timeout timeout) t
+  | Some timeout ->
+    assert(timeout >= 0L);
+    fn_on_ring (Uring.wait_cqe_timeout clock timeout) t
 
 let queue_depth {queue_depth;_} = queue_depth
 let buf {fixed_iobuf;_} = fixed_iobuf

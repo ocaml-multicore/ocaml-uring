@@ -32,6 +32,7 @@
 #include <string.h>
 #include <poll.h>
 #include <sys/uio.h>
+#include <stdint.h>
 
 #undef URING_DEBUG
 #ifdef URING_DEBUG
@@ -596,28 +597,45 @@ static value Val_cqe_some(value id, value res) {
   CAMLreturn(some);
 }
 
-value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
+value ocaml_uring_wait_cqe_timeout(value v_clock, value v_timeout, value v_uring)
 {
-  CAMLparam2(v_uring, v_timeout);
-  double timeout = Double_val(v_timeout);
+  CAMLparam3(v_uring, v_timeout, v_clock);
+  int64_t timeout = Int64_val(v_timeout);
   struct __kernel_timespec t;
-  t.tv_sec = (time_t) timeout;
-  t.tv_nsec = (timeout - t.tv_sec) * 1e9;
   long id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
-  int res;
-  dprintf("cqe: waiting, timeout %fs\n", timeout);
+  struct io_uring_sqe *sqe;
+  int res, clock;
+
+  dprintf("cqe: waiting, timeout %lldns\n", timeout);
   caml_enter_blocking_section();
+  if(v_clock == hash_variant("Clock_mono"))
+      clock = IORING_TIMEOUT_BOOTTIME;
+  else if (v_clock == hash_variant("Clock_sys"))
+      clock = IORING_TIMEOUT_REALTIME;
+  else
+      clock = 0;
+  dprintf("cqe: clock %d\n", clock);
+
+  /* prepare timeout armed sqe */
+  sqe = io_uring_get_sqe(ring);
+  t.tv_sec = 0;
+  t.tv_nsec = timeout;
+  io_uring_prep_timeout(sqe, &t, 0, clock);
+
   io_uring_submit(ring);
-  res = io_uring_wait_cqe_timeout(ring, &cqe, &t);
+  res = io_uring_wait_cqe(ring, &cqe);
   caml_leave_blocking_section();
-  if (res < 0) {
-    if (res == -EAGAIN || res == -EINTR || res == -ETIME) {
-      CAMLreturn(Val_cqe_none);
-    } else {
-      unix_error(-res, "io_uring_wait_cqe_timeout", Nothing);
-    }
+
+  if (res < 0)
+    unix_error(-res, "io_uring_wait_cqe_timeout", Nothing);
+
+  res = cqe->res;
+  if (res == -EFAULT || res == -EINVAL || res == -ECANCELED) {
+    unix_error(-res, "io_uring_wait_cqe_timeout", Nothing);
+  } else if (res == -ETIME) {
+    CAMLreturn(Val_cqe_none);
   } else {
     id = (long)io_uring_cqe_get_data(cqe);
     io_uring_cqe_seen(ring, cqe);
