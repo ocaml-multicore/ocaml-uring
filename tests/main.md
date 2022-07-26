@@ -7,6 +7,8 @@ let check_int     ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ int) "" expe
 let check_string  ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ string) "" expected
 let check_bool    ~__POS__ ~expected = Alcotest.(check ~pos:__POS__ bool) "" expected
 
+# Heap tests
+
 module Heap = struct
   module Heap = struct
     include Uring.Private.Heap
@@ -27,6 +29,8 @@ module Heap = struct
 
   let check_raises_no_space ~__POS__:pos f =
     Alcotest.check_raises ~pos "" Heap.No_space (fun () -> ignore (f ()))
+
+Test normal usage:
 
   let test_normal_usage () =
     let max_size = 10 in
@@ -53,6 +57,8 @@ module Heap = struct
         decr currently_allocated
     done
 
+Double free in an empty heap:
+
   let test_double_free () =
     let () =
       (* Double free in an empty heap *)
@@ -62,6 +68,9 @@ module Heap = struct
       check_raises ~__POS__ (Invalid_argument "Heap.free: pointer already freed")
         (fun () -> ignore (Heap.free t p))
     in
+
+Double free in a non-empty heap:
+
     let () =
       (* Double free in a non-empty heap *)
       let t = Heap.create 2 in
@@ -72,6 +81,8 @@ module Heap = struct
         (fun () -> ignore (Heap.free t p))
     in
     ()
+
+Out of space:
 
   let test_out_of_space () =
     let () =
@@ -99,6 +110,8 @@ module Heap = struct
     ()
 end
 
+# Uring tests
+
 module Test_data = struct
   let path = "output_file.txt"
 
@@ -119,6 +132,8 @@ let rec consume t =
   | Some { data; result } -> (data, result)
   | None -> consume t
 
+## Invalid queue depth
+
 let test_invalid_queue_depth () =
   check_raises ~__POS__ (Invalid_argument "Non-positive queue depth: 0")
     (fun () -> ignore (Uring.create ~queue_depth:0 ()))
@@ -127,6 +142,8 @@ let with_uring ~queue_depth fn =
   let t = Uring.create ~queue_depth () in
   fn t;
   Uring.exit t  (* Only free if there wasn't an error *)
+
+## Noop
 
 let test_noop () =
   let queue_depth = 5 in
@@ -143,6 +160,8 @@ let test_noop () =
     check_int ~__POS__ ~expected:i tkn;
     check_int ~__POS__ ~expected:0 res
   done
+
+## Open
 
 let test_open () =
   with_uring ~queue_depth:1 @@ fun t ->
@@ -161,6 +180,8 @@ let test_open () =
   let got = Unix.read fd (Bytes.create 5) 0 5 in
   check_int   ~__POS__ got ~expected:0;
   Unix.close fd
+
+## Create
 
 let test_create () =
   with_uring ~queue_depth:1 @@ fun t ->
@@ -181,6 +202,8 @@ let test_create () =
   check_int ~__POS__ ~expected:4 (Unix.write fd (Bytes.of_string "Test") 0 4);
   check_int ~__POS__ ~expected:0o600 (Unix.fstat fd).st_perm;
   Unix.close fd
+
+## Resolve
 
 let test_resolve () =
   with_uring ~queue_depth:1 @@ fun t ->
@@ -210,6 +233,8 @@ let test_resolve () =
   check_bool ~__POS__ ~expected:true @@ get ~resolve:Uring.Resolve.empty "..";
   check_bool ~__POS__ ~expected:false @@ get ~resolve:Uring.Resolve.beneath ".."
 
+## Read with fixed buffer
+
 let set_fixed_buffer t size =
   let fbuf = Bigarray.(Array1.create char c_layout size) in
   match Uring.set_fixed_buffer t fbuf with
@@ -233,6 +258,8 @@ let test_read () =
   let got = Cstruct.of_bigarray fbuf ~off ~len in
   check_string ~__POS__  ~expected:"test " (Cstruct.to_string got)
 
+Reading with readv:
+
 let test_readv () =
   with_uring ~queue_depth:1 @@ fun t ->
   Test_data.with_fd @@ fun fd ->
@@ -251,6 +278,8 @@ let test_readv () =
   check_string ~__POS__ ~expected:"est fil" (Cstruct.to_string b2);
   ()
 
+Test using cstructs with offsets:
+
 (* Test using cstructs with offsets. *)
 let test_readv2 () =
   with_uring ~queue_depth:1 @@ fun t ->
@@ -264,6 +293,8 @@ let test_readv2 () =
   assert_      ~__POS__ (token = `Readv);
   check_int    ~__POS__ ~expected:7 read;
   check_string ~__POS__ ~expected:"Gathered [A te] and [st ]" (Cstruct.to_string b)
+
+## Regions
 
 let test_region () =
   with_uring ~queue_depth:1 @@ fun t ->
@@ -285,6 +316,8 @@ let test_region () =
       (fun () -> Uring.read_chunk ~len:16 t2 fd chunk `Read ~file_offset:Int63.zero |> ignore);
     );
   ()
+
+## Cancellation
 
 (* Ask to read from a pipe (with no data available), then cancel it. *)
 let test_cancel () =
@@ -317,7 +350,8 @@ let test_cancel () =
   Unix.close w
   (* done *)
 
-(* By the time we cancel, the request has already succeeded (we just didn't process the reply yet). *)
+By the time we cancel, the request has already succeeded (we just didn't process the reply yet):
+
 let test_cancel_late () =
   with_uring ~queue_depth:5 @@ fun t ->
   let _fbuf = set_fixed_buffer t 1024 in
@@ -345,7 +379,8 @@ let test_cancel_late () =
   );
   Unix.close r
 
-(* By the time we cancel, we already knew the operation was over. *)
+By the time we cancel, we already knew the operation was over:
+
 let test_cancel_invalid () =
   with_uring ~queue_depth:5 @@ fun t ->
   let _fbuf = set_fixed_buffer t 1024 in
@@ -359,6 +394,8 @@ let test_cancel_invalid () =
   check_raises ~__POS__
     (Invalid_argument "Entry has already been freed!")
     (fun () -> ignore (Uring.cancel t read `Cancel))
+
+## Freeing the ring
 
 let test_free_busy () =
   let t = Uring.create ~queue_depth:1 () in
@@ -375,6 +412,8 @@ let test_free_busy () =
   assert_   ~__POS__ (token = `Read);
   check_int ~__POS__ ~expected:0    r_read;
   Uring.exit t
+
+## Send_msg
 
 let test_send_msg () =
   let r, w = Unix.pipe () in
