@@ -24,5 +24,4 @@
   (cmdliner (and :with-test (>= 1.1.0)))
   (fmt (>= 0.8.10))
   (optint (>= 0.1.0))
-  (mdx (and (>= 2.1.0) :with-test))
-  (alcotest (and (>= 1.4.0) :with-test))))
+  (mdx (and (>= 2.1.0) :with-test))))

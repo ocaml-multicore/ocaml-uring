@@ -23,7 +23,6 @@ depends: [
   "fmt" {>= "0.8.10"}
   "optint" {>= "0.1.0"}
   "mdx" {>= "2.1.0" & with-test}
-  "alcotest" {>= "1.4.0" & with-test}
   "odoc" {with-doc}
 ]
 build: [
