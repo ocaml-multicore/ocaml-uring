@@ -115,7 +115,8 @@ module Test_data = struct
 end
 
 let rec consume t =
-  match Uring.wait ~timeout:1. t with
+  let timeout = Int64.of_float (1. *. 1e9) in
+  match Uring.wait ~timeout t with
   | Some { data; result } -> (data, result)
   | None -> consume t
 
