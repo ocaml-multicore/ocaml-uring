@@ -166,6 +166,8 @@ module Uring = struct
   type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
+  external submit_read : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
+  external submit_write : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_write" [@@noalloc]
   external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool = "ocaml_uring_submit_readv" [@@noalloc]
   external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool = "ocaml_uring_submit_writev" [@@noalloc]
   external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
@@ -296,6 +298,12 @@ let openat2 t ~access ~flags ~perm ~resolve ?(fd=at_fdcwd) path user_data =
   in
   let open_how = Open_how.v ~open_flags ~perm ~resolve path in
   with_id_full t (fun id -> Uring.submit_openat2 t.uring id fd open_how) user_data ~extra_data:open_how
+
+let read t ~file_offset fd (buf : Cstruct.t) user_data =
+  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset) user_data ~extra_data:buf
+
+let write t ~file_offset fd (buf : Cstruct.t) user_data =
+  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset) user_data ~extra_data:buf
 
 let readv t ~file_offset fd buffers user_data =
   let iovec = Iovec.make buffers in

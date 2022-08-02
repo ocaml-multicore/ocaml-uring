@@ -329,11 +329,85 @@ val len : int = 5
 - : unit = ()
 ```
 
+Reading with read:
+
+```ocaml
+# let t = Uring.create ~queue_depth:2 ();;
+val t : '_weak6 Uring.t = <abstr>
+
+# let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
+val fd : Unix.file_descr = <abstr>
+# let b1_len = 3 and b2_len = 7;;
+val b1_len : int = 3
+val b2_len : int = 7
+# let b1 = Cstruct.create b1_len and b2 = Cstruct.create b2_len;;
+val b1 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 3}
+val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
+# Uring.read t fd b1 `Read ~file_offset:Int63.minus_one;;
+- : _[> `Read ] Uring.job option = Some <abstr>
+# Uring.read t fd b2 `Read ~file_offset:Int63.minus_one;;
+- : _[> `Read ] Uring.job option = Some <abstr>
+
+# Uring.submit t;;
+- : int = 2
+
+# let `Read, read = consume t;;
+val read : int = 3
+# Cstruct.to_string b1;;
+- : string = "A t"
+# let `Read, read = consume t;;
+val read : int = 7
+# Cstruct.to_string b2;;
+- : string = "est fil"
+
+# Unix.close fd;;
+- : unit = ()
+```
+
+Writing with write:
+
+```ocaml
+# let t = Uring.create ~queue_depth:2 ();;
+val t : '_weak7 Uring.t = <abstr>
+
+# let rb = Cstruct.create 10 and wb = Cstruct.of_string "Hello";;
+val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 10}
+val wb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
+# let r, w = Unix.pipe ();;
+val r : Unix.file_descr = <abstr>
+val w : Unix.file_descr = <abstr>
+
+# Uring.write t w wb `Write ~file_offset:Int63.minus_one;;
+- : _[> `Write ] Uring.job option = Some <abstr>
+# Uring.read t r rb `Read ~file_offset:Int63.minus_one;;
+- : _[> `Read | `Write ] Uring.job option = Some <abstr>
+
+# Uring.submit t;;
+- : int = 2
+
+# let v, read = consume t;;
+val v : _[> `Read | `Write ] = `Write
+val read : int = 5
+# let v, read = consume t;;
+val v : _[> `Read | `Write ] = `Read
+val read : int = 5
+
+# let rb = Cstruct.sub rb 0 5;;
+val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
+# Cstruct.to_string rb;;
+- : string = "Hello"
+
+# Unix.close w;;
+- : unit = ()
+# Unix.close r;;
+- : unit = ()
+```
+
 Reading with readv:
 
 ```ocaml
 # let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak6 Uring.t = <abstr>
+val t : '_weak8 Uring.t = <abstr>
 
 # let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
 val fd : Unix.file_descr = <abstr>
@@ -387,7 +461,7 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 25}
 
 ```ocaml
 # let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak7 Uring.t = <abstr>
+val t : '_weak9 Uring.t = <abstr>
 
 # let fbuf = set_fixed_buffer t 64;;
 val fbuf :
@@ -432,7 +506,7 @@ Ask to read from a pipe (with no data available), then cancel it.
 exception Multiple of Unix.error list
 
 # let t = Uring.create ~queue_depth:5 ();;
-val t : '_weak8 Uring.t = <abstr>
+val t : '_weak10 Uring.t = <abstr>
 
 # set_fixed_buffer t 1024;;
 - : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
@@ -475,7 +549,7 @@ By the time we cancel, the request has already succeeded (we just didn't process
 
 ```ocaml
 # let t = Uring.create ~queue_depth:5 ();;
-val t : '_weak9 Uring.t = <abstr>
+val t : '_weak11 Uring.t = <abstr>
 # set_fixed_buffer t 102;;
 - : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
 <abstr>
@@ -522,7 +596,7 @@ By the time we cancel, we already knew the operation was over:
 
 ```ocaml
 # let t = Uring.create ~queue_depth:5 ();;
-val t : '_weak10 Uring.t = <abstr>
+val t : '_weak12 Uring.t = <abstr>
 # set_fixed_buffer t 1024;;
 - : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
 <abstr>
@@ -552,7 +626,7 @@ We can't exit the ring while an operation is still pending:
 
 ```ocaml
 # let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak11 Uring.t = <abstr>
+val t : '_weak13 Uring.t = <abstr>
 # set_fixed_buffer t 1024;;
 - : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
 <abstr>
@@ -587,7 +661,7 @@ But we can once it's complete:
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
 # let t = Uring.create ~queue_depth:2 ();;
-val t : '_weak12 Uring.t = <abstr>
+val t : '_weak14 Uring.t = <abstr>
 # let a, b = Unix.(socketpair PF_UNIX SOCK_STREAM 0);;
 val a : Unix.file_descr = <abstr>
 val b : Unix.file_descr = <abstr>
