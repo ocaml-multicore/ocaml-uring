@@ -159,7 +159,7 @@ module Uring = struct
 
   external unregister_buffers : t -> unit = "ocaml_uring_unregister_buffers"
   external register_bigarray : t ->  Cstruct.buffer -> unit = "ocaml_uring_register_ba"
-  external submit : t -> int = "ocaml_uring_submit"
+  external submit : t -> int = "ocaml_uring_submit" [@@noalloc]
 
   type id = Heap.ptr
 
