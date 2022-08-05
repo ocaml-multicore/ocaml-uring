@@ -329,6 +329,83 @@ val len : int = 5
 - : unit = ()
 ```
 
+Reading with read:
+
+```ocaml
+# let t : [`Read] Uring.t = Uring.create ~queue_depth:2 ();;
+val t : [ `Read ] Uring.t = <abstr>
+
+# let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
+val fd : Unix.file_descr = <abstr>
+# let b1_len = 3 and b2_len = 7;;
+val b1_len : int = 3
+val b2_len : int = 7
+# let b1 = Cstruct.create b1_len and b2 = Cstruct.create b2_len;;
+val b1 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 3}
+val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
+
+# Uring.read t fd b1 `Read ~file_offset:Int63.minus_one;;
+- : [ `Read ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let `Read, read = consume t;;
+val read : int = 3
+# Cstruct.to_string b1;;
+- : string = "A t"
+
+# Uring.read t fd b2 `Read ~file_offset:Int63.minus_one;;
+- : [ `Read ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let `Read, read = consume t;;
+val read : int = 7
+# Cstruct.to_string b2;;
+- : string = "est fil"
+
+# Unix.close fd;;
+- : unit = ()
+```
+
+Writing with write:
+
+```ocaml
+# let t : [`Read | `Write] Uring.t =  Uring.create ~queue_depth:2 ();;
+val t : [ `Read | `Write ] Uring.t = <abstr>
+
+# let rb = Cstruct.create 10 and wb = Cstruct.of_string "Hello";;
+val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 10}
+val wb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
+# let r, w = Unix.pipe ();;
+val r : Unix.file_descr = <abstr>
+val w : Unix.file_descr = <abstr>
+
+# Uring.write t w wb `Write ~file_offset:Int63.minus_one;;
+- : [ `Read | `Write ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let v, read = consume t;;
+val v : [ `Read | `Write ] = `Write
+val read : int = 5
+
+# Uring.read t r rb `Read ~file_offset:Int63.minus_one;;
+- : [ `Read | `Write ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let v, read = consume t;;
+val v : [ `Read | `Write ] = `Read
+val read : int = 5
+
+# let rb = Cstruct.sub rb 0 5;;
+val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
+# Cstruct.to_string rb;;
+- : string = "Hello"
+
+# Unix.close w;;
+- : unit = ()
+# Unix.close r;;
+- : unit = ()
+```
+
 Reading with readv:
 
 ```ocaml

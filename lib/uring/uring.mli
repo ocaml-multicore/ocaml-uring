@@ -149,6 +149,18 @@ type offset := Optint.Int63.t
 (** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
     For sockets, use an offset of [Optint.Int63.zero] ([minus_one] is not allowed here). *)
 
+val read : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
+(** [read t ~file_offset fd buf d] will submit a [read(2)] request to uring [t].
+    It reads from absolute [file_offset] on the [fd] file descriptor and writes
+    the results into the memory pointed to by [buf].  The user data [d] will
+    be returned by {!wait} or {!peek} upon completion. *)
+
+val write : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
+(** [write t ~file_offset fd buf d] will submit a [write(2)] request to uring [t].
+    It writes to absolute [file_offset] on the [fd] file descriptor from the
+    the memory pointed to by [buf].  The user data [d] will be returned by
+    {!wait} or {!peek} upon completion. *)
+
 val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
