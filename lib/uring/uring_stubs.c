@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2020-2021 Anil Madhavapeddy
  * Copyright (C) 2020-2021 Sadiq Jaffer
+ * Copyright (C) 2022 Christiano Haesbaert
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -115,50 +116,6 @@ value ocaml_uring_unregister_buffers(value v_uring) {
   CAMLreturn(Val_unit);
 }
 
-#define Iovec_val(v) (*((struct iovec **) Data_custom_val(v)))
-
-static void finalize_iovec(value v) {
-  caml_stat_free(Iovec_val(v));
-  Iovec_val(v) = NULL;
-}
-
-static struct custom_operations iovec_ops = {
-  "uring.iovec_ops",
-  finalize_iovec,
-  custom_compare_default,
-  custom_hash_default,
-  custom_serialize_default,
-  custom_deserialize_default,
-  custom_compare_ext_default,
-  custom_fixed_length_default
-};
-
-// allocate a custom block containing a C array of iovecs[len], initialised from v_cstructs.
-// The result must not be used after v_cstructs is GC'd.
-value
-ocaml_uring_make_iovec(value v_cstructs, value v_len) {
-  CAMLparam1(v_cstructs);
-  CAMLlocal2(v, l);
-  int len = Int_val(v_len);
-  int i;
-  struct iovec *iovs;
-  // Allocate the custom block on the OCaml heap:
-  v = caml_alloc_custom_mem(&iovec_ops, sizeof(struct iovec_ops *), len * sizeof(struct iovec));
-  Iovec_val(v) = NULL;
-  iovs = caml_stat_alloc(len * sizeof(struct iovec));
-  Iovec_val(v) = iovs;
-  for (i = 0, l = v_cstructs; i < len; l = Field(l, 1), i++) {
-    value v_cs = Field(l, 0);
-    value v_ba = Field(v_cs, 0);
-    value v_off = Field(v_cs, 1);
-    value v_len = Field(v_cs, 2);
-    iovs[i].iov_base = Caml_ba_data_val(v_ba) + Long_val(v_off);
-    iovs[i].iov_len = Long_val(v_len);
-    dprintf("adding iov %d: %p (%ld, %ld)\n", i, iovs[i].iov_base, Long_val(v_off), Long_val(v_len));
-  }
-  CAMLreturn(v);
-}
-
 // Note that the ring must be idle when calling this.
 value ocaml_uring_exit(value v_uring) {
   CAMLparam1(v_uring);
@@ -181,6 +138,12 @@ ocaml_uring_submit_nop(value v_uring, value v_id) {
   io_uring_prep_nop(sqe);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
+}
+
+value /* noalloc */
+ocaml_uring_sq_ready(value v_uring) {
+  struct io_uring *ring = Ring_val(v_uring);
+  return (Int_val(io_uring_sq_ready(ring)));
 }
 
 struct open_how_data {
@@ -261,30 +224,56 @@ ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_
   return (Val_true);
 }
 
-// Caller must ensure v_iov is not GC'd until the job is finished.
+#define Sketch_ptr_val(vsp) (Caml_ba_data_val(Field(vsp, 0)) + Long_val(Field(vsp, 1)))
+#define Sketch_ptr_len_val(vsp) Long_val(Field(vsp, 2))
+
+void /* noalloc */
+ocaml_uring_set_iovec(value v_sketch_ptr, value v_csl)
+{
+  int i;
+  value v_aux;
+  struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
+
+  for (i = 0, v_aux = v_csl;
+       v_aux != Val_emptylist;
+       v_aux = Field(v_aux, 1), i++) {
+    value v_cs = Field(v_aux, 0);
+    value v_ba = Field(v_cs, 0);
+    value v_off = Field(v_cs, 1);
+    value v_len = Field(v_cs, 2);
+    iovs[i].iov_base = Caml_ba_data_val(v_ba) + Long_val(v_off);
+    iovs[i].iov_len = Long_val(v_len);
+  }
+}
+
+// Caller must ensure the buffers pointed to by v_sketch_ptr are not GC'd until the job is finished.
 value /* noalloc */
-ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, value v_off) {
+ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
-  struct iovec *iovs = Iovec_val(Field(v_iov, 0));
-  int len = Int_val(Field(v_iov, 1));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
-  dprintf("submit_readv: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_off));
-  io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int63_val(v_off));
+  struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
+  size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
+
+  if (sqe == NULL)
+    return (Val_false);
+  dprintf("submit_readv: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
+  io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
 
-// Caller must ensure v_iov is not GC'd until the job is finished.
+// Caller must ensure the buffers pointed to by v_sketch_ptr are not GC'd until the job is finished.
 value /* noalloc */
-ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, value v_off) {
+ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
-  struct iovec *iovs = Iovec_val(Field(v_iov, 0));
-  int len = Int_val(Field(v_iov, 1));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
-  dprintf("submit_writev: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_off));
-  io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int63_val(v_off));
+  struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
+  size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
+
+  if (sqe == NULL)
+    return (Val_false);
+  dprintf("submit_writev: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
+  io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -454,14 +443,12 @@ struct msghdr_with_cmsg {
   struct cmsghdr cmsg;
 };
 
-// v_sockaddr and v_iov must not be freed before the msghdr as it contains pointers to them
-value
-ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt, value v_iov) {
-  CAMLparam3(v_fds, v_sockaddr_opt, v_iov);
+// v_sockaddr must not be freed before the msghdr as it contains pointers to them
+value /* v_n_fds can go away, count ourselves */
+ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt) {
+  CAMLparam2(v_fds, v_sockaddr_opt);
   CAMLlocal1(v);
   struct msghdr *msg;
-  struct iovec *iovs = Iovec_val(Field(v_iov, 0));
-  int iovs_len = Int_val(Field(v_iov, 1));
   int n_fds = Int_val(v_n_fds);
   int cmsg_offset, controllen, total_size;
   cmsg_offset = sizeof(struct msghdr_with_cmsg) - sizeof(struct cmsghdr);
@@ -477,14 +464,15 @@ ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt, value 
   Msghdr_val(v) = msg;
   if (Is_some(v_sockaddr_opt)) {
     struct sock_addr_data *addr = Sock_addr_val(Some_val(v_sockaddr_opt));
-    // Store the address and iovec data in the message
+    // Store the address data in the message
     msg->msg_name = &(addr->sock_addr_addr);
     msg->msg_namelen = sizeof(addr->sock_addr_addr);
   } else {
     msg->msg_name = NULL;
+    msg->msg_namelen = 0;
   }
-  msg->msg_iov = iovs;
-  msg->msg_iovlen = iovs_len;
+  msg->msg_iov = NULL;          /* will be filled in sendmsg or recvmsg */
+  msg->msg_iovlen = 0;          /* will be filled in sendmsg or recvmsg */
   // Add the FDs to the message
   if (n_fds > 0) {
     int i;
@@ -548,11 +536,13 @@ ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockad
 
 // v_msghdr must not be GC'd while the call is in progress
 value /* noalloc */
-ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghdr) {
+ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghdr, value v_sketch_ptr) {
   struct io_uring *ring = Ring_val(v_uring);
   struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (sqe == NULL) return (Val_false);
+  msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
+  msg->msg_iovlen = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(struct iovec);
   dprintf("submit_sendmsg\n");
   io_uring_prep_sendmsg(sqe, Int_val(v_fd), msg, 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
@@ -561,11 +551,13 @@ ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghd
 
 // v_msghdr must not be GC'd while the call is in progress
 value /* noalloc */
-ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghdr) {
+ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghdr, value v_sketch_ptr) {
   struct io_uring *ring = Ring_val(v_uring);
   struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (sqe == NULL) return (Val_false);
+  msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
+  msg->msg_iovlen = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(struct iovec);
   dprintf("submit_recvmsg:msghdr %p: registering iobuf base %p len %lu\n", msg, msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
   io_uring_prep_recvmsg(sqe, Int_val(v_fd), msg, 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
