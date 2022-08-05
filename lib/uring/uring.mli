@@ -226,14 +226,14 @@ module Msghdr : sig
   type t
 
   val create : ?n_fds:int -> ?addr:Sockaddr.t -> Cstruct.t list -> t
-  (** [create buffs] makes a new [msghdr] using the [buffs] 
+  (** [create buffs] makes a new [msghdr] using the [buffs]
       for the underlying [iovec].
       @param addr The remote address.
                   Use {!Sockaddr.create} to create a dummy address that will be filled when data is received.
       @param n_fds Reserve space to receive this many FDs (default 0) *)
 
   val get_fds : t -> Unix.file_descr list
-end 
+end
 
 val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [send_msg t fd buffs d] will submit a [sendmsg(2)] request. The [Msghdr] will be constructed
@@ -242,7 +242,7 @@ val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.f
     @param fds Extra file descriptors to attach to the message. *)
 
 val recv_msg : 'a t -> Unix.file_descr -> Msghdr.t -> 'a -> 'a job option
-(** [recv_msg t fd msghdr d] will submit a [recvmsg(2)] request. If the request is 
+(** [recv_msg t fd msghdr d] will submit a [recvmsg(2)] request. If the request is
     successful then the [msghdr] will contain the sender address and the data received. *)
 
 (** {2 Submitting operations} *)

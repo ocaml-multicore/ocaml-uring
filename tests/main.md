@@ -709,3 +709,38 @@ val w2 : Unix.file_descr = <abstr>
 # Uring.exit t;;
 - : unit = ()
 ```
+
+## Sketch allocation
+```ocaml
+let ldup n x =
+	let rec loop n' l = if n' = n then l else loop (succ n') (x :: l) in
+	loop 0 []
+```
+```ocaml
+# let t : unit Uring.t = Uring.create ~queue_depth:4 ();;
+val t : unit Uring.t = <abstr>
+# let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
+val fd : Unix.file_descr = <abstr>
+# let b = Cstruct.create 1;;
+val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
+
+# Uring.readv t fd (ldup 1 b) () ~file_offset:Int63.zero;;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+
+# Uring.readv t fd (ldup 1000 b) () ~file_offset:Int63.zero;;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+
+# Uring.readv t fd (ldup 10000 b) () ~file_offset:Int63.zero;;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+
+# Uring.readv t fd (ldup 100000 b) () ~file_offset:Int63.zero;;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+```
