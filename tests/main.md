@@ -343,18 +343,20 @@ val b2_len : int = 7
 # let b1 = Cstruct.create b1_len and b2 = Cstruct.create b2_len;;
 val b1 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 3}
 val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
+
 # Uring.read t fd b1 `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
-# Uring.read t fd b2 `Read ~file_offset:Int63.minus_one;;
-- : [ `Read ] Uring.job option = Some <abstr>
-
 # Uring.submit t;;
-- : int = 2
-
+- : int = 1
 # let `Read, read = consume t;;
 val read : int = 3
 # Cstruct.to_string b1;;
 - : string = "A t"
+
+# Uring.read t fd b2 `Read ~file_offset:Int63.minus_one;;
+- : [ `Read ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
 # let `Read, read = consume t;;
 val read : int = 7
 # Cstruct.to_string b2;;
@@ -379,15 +381,16 @@ val w : Unix.file_descr = <abstr>
 
 # Uring.write t w wb `Write ~file_offset:Int63.minus_one;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
-# Uring.read t r rb `Read ~file_offset:Int63.minus_one;;
-- : [ `Read | `Write ] Uring.job option = Some <abstr>
-
 # Uring.submit t;;
-- : int = 2
-
+- : int = 1
 # let v, read = consume t;;
 val v : [ `Read | `Write ] = `Write
 val read : int = 5
+
+# Uring.read t r rb `Read ~file_offset:Int63.minus_one;;
+- : [ `Read | `Write ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
 # let v, read = consume t;;
 val v : [ `Read | `Write ] = `Read
 val read : int = 5
