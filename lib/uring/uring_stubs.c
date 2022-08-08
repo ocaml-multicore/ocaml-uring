@@ -147,38 +147,27 @@ ocaml_uring_sq_ready(value v_uring) {
   return (Int_val(io_uring_sq_ready(ring)));
 }
 
-value ocaml_uring_submit_timeout(value v_uring, value v_id, value v_clock, value v_timeout)
+value /* noalloc */
+ocaml_uring_submit_timeout(value v_uring, value v_id, value v_clock, value v_timeout)
 {
-  CAMLparam4(v_uring, v_id, v_clock, v_timeout);
   struct __kernel_timespec t;
   struct io_uring* ring = Ring_val(v_uring);
   struct io_uring_sqe* sqe;
   int res, clock;
 
-  if (v_clock == caml_hash_variant("Clock_mono"))
+  if (v_clock == caml_hash_variant("Boottime"))
     clock = IORING_TIMEOUT_BOOTTIME;
-  else if (v_clock == caml_hash_variant("Clock_sys"))
-    clock = IORING_TIMEOUT_REALTIME;
   else
-    clock = 0;
+    clock = IORING_TIMEOUT_REALTIME;
 
   t.tv_sec = 0;
   t.tv_nsec = Int64_val(v_timeout);
 
   sqe = io_uring_get_sqe(ring);
-  if(!sqe) {
-    res = io_uring_submit(ring);
-    if (res < 0)
-      CAMLreturn(Val_false);
-
-    sqe = io_uring_get_sqe(ring);
-    if(!sqe)
-      CAMLreturn(Val_false);
-  }
+  if (!sqe) return Val_false;
   io_uring_prep_timeout(sqe, &t, 0, clock);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  sqe->user_data = LIBURING_UDATA_TIMEOUT;
-  CAMLreturn(Val_true);
+  return Val_true;
 }
 
 struct open_how_data {

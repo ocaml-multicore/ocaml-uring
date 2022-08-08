@@ -67,11 +67,11 @@ val noop : 'a t -> 'a -> 'a job option
 (** [noop t d] submits a no-op operation to uring [t]. The user data [d] will be
     returned by {!wait} or {!peek} upon completion. *)
 
-val timeout: 'a t -> ?clock:[`Clock_mono | `Clock_sys | `Clock_default] -> int64 -> 'a -> 'a job option
-(** [timeout t d clock ns] submits a timeout request to uring [t].
+val timeout: 'a t -> [`Boottime | `Realtime] -> int64 -> 'a -> 'a job option
+(** [timeout t clock ns d] submits a timeout request to uring [t].
 
-    [clock] [`Clock_default] represents the default clock used by uring, [`Clock_mono] represents 
-    CLOCK_BOOTTIME and [`Clock_sys] represents CLOCK_REALTIME.
+    [clock] [`Boottime] and [`Realtime] represents CLOCK_BOOTTIME and
+    CLOCK_REALTIME respectively.
 
     [ns] is the the timeout time in nanoseconds *)
 
