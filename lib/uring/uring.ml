@@ -244,7 +244,6 @@ type 'a t = {
   sketch : Sketch.t;
   queue_depth: int;
   mutable dirty: bool; (* has outstanding requests that need to be submitted *)
-  polling : bool;
 }
 
 module Generic_ring = struct
@@ -289,8 +288,7 @@ let create ?polling_timeout ~queue_depth () =
   let id = object end in
   let fixed_iobuf = Cstruct.empty.buffer in
   let sketch = Sketch.create 0 in
-  let polling = Option.is_some polling_timeout in
-  let t = { id; uring; sketch; fixed_iobuf; data; dirty=false; queue_depth; polling } in
+  let t = { id; uring; sketch; fixed_iobuf; data; dirty=false; queue_depth } in
   register_gc_root t;
   t
 
@@ -422,8 +420,7 @@ let submit t =
     end else
       0
   in
-  (* We really just need to test if SQEs were consumed in polling mode *)
-  if not t.polling || (Uring.sq_ready t.uring = 0) then
+  if Uring.sq_ready t.uring = 0 then
     Sketch.release t.sketch;
   v
 
