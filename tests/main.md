@@ -726,19 +726,25 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
 - : unit Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
+# consume t;;
+- : unit * int = ((), 1)
+
+# Uring.readv t fd (ldup 7 b) () ~file_offset:Int63.zero;;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume t;;
+- : unit * int = ((), 7)
 
 # Uring.readv t fd (ldup 1000 b) () ~file_offset:Int63.zero;;
 - : unit Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
+# consume t;;
+- : unit * int = ((), 11)
 
-# Uring.readv t fd (ldup 10000 b) () ~file_offset:Int63.zero;;
-- : unit Uring.job option = Some <abstr>
-# Uring.submit t;;
-- : int = 1
-
-# Uring.readv t fd (ldup 100000 b) () ~file_offset:Int63.zero;;
-- : unit Uring.job option = Some <abstr>
-# Uring.submit t;;
-- : int = 1
+# Unix.close fd;;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
 ```
