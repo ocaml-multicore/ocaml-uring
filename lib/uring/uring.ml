@@ -128,7 +128,7 @@ module Sketch = struct
     mutable old_buffers : Cstruct.buffer list;
   }
 
-  type ptr = Cstruct.buffer * int * int
+  type ptr = Cstruct.t
 
   let create_buffer len = Bigarray.(Array1.create char c_layout len)
 
