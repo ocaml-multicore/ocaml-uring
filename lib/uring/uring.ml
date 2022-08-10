@@ -105,6 +105,7 @@ module Open_how = struct
   let v ~open_flags ~perm ~resolve path = make open_flags perm resolve path
 end
 
+(* The C stubs rely on the layout of Cstruct.t, so we just check here that it hasn't changed. *)
 module Check_cstruct : sig
   [@@@warning "-34"]
   type t = private {
