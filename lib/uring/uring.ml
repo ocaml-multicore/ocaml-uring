@@ -155,7 +155,7 @@ module Sketch = struct
     (t.buffer, off, alloc_len)
 
   let _cstruct_of_ptr ((buf, off, len) : ptr) =
-    Cstruct.sub (Cstruct.of_bigarray buf) off (len - off)
+    Cstruct.of_bigarray buf ~off ~len
 
   let release t =
     t.off <- 0;
