@@ -712,9 +712,7 @@ val w2 : Unix.file_descr = <abstr>
 
 ## Sketch allocation
 ```ocaml
-let ldup n x =
-	let rec loop n' l = if n' = n then l else loop (succ n') (x :: l) in
-	loop 0 []
+let ldup n x = List.init n (Fun.const x)
 ```
 ```ocaml
 # let t : unit Uring.t = Uring.create ~queue_depth:4 ();;
