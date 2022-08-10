@@ -164,7 +164,7 @@ module Sketch = struct
   module Iovec = struct
     external set : ptr -> Cstruct.t list -> unit = "ocaml_uring_set_iovec" [@@noalloc]
 
-    let sizeof = if Sys.word_size = 64 then 16 else 8
+    let sizeof = Config.sizeof_iovec
 
     let alloc t csl =
       let ptr = alloc t (List.length csl * sizeof) in
