@@ -33,7 +33,6 @@
 #include <string.h>
 #include <poll.h>
 #include <sys/uio.h>
-#include <stdint.h>
 
 #undef URING_DEBUG
 #ifdef URING_DEBUG
