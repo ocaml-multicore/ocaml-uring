@@ -50,6 +50,8 @@
 #endif
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
+#define Sketch_ptr_val(vsp) (Caml_ba_data_val(Field(vsp, 0)) + Long_val(Field(vsp, 1)))
+#define Sketch_ptr_len_val(vsp) Long_val(Field(vsp, 2))
 
 // Note that this does not free the ring data. You must not allow this to be
 // GC'd until the ring has been released by calling ocaml_uring_exit.
@@ -147,25 +149,30 @@ ocaml_uring_sq_ready(value v_uring) {
   return (Int_val(io_uring_sq_ready(ring)));
 }
 
-value /* noalloc */
-ocaml_uring_submit_timeout(value v_uring, value v_id, value v_clock, value v_timeout)
+void /* noalloc */
+ocaml_uring_set_timespec(value v_sketch_ptr, value v_timeout)
 {
-  struct __kernel_timespec t;
+  struct __kernel_timespec *t = Sketch_ptr_val(v_sketch_ptr);
+  t->tv_sec = 0;
+  t->tv_nsec = Int64_val(v_timeout);
+}
+
+value /* noalloc */
+ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value v_clock)
+{
+  struct __kernel_timespec *t = Sketch_ptr_val(v_sketch_ptr);
   struct io_uring* ring = Ring_val(v_uring);
   struct io_uring_sqe* sqe;
-  int res, clock;
+  int clock;
 
   if (v_clock == caml_hash_variant("Boottime"))
     clock = IORING_TIMEOUT_BOOTTIME;
   else
     clock = IORING_TIMEOUT_REALTIME;
 
-  t.tv_sec = 0;
-  t.tv_nsec = Int64_val(v_timeout);
-
   sqe = io_uring_get_sqe(ring);
   if (!sqe) return Val_false;
-  io_uring_prep_timeout(sqe, &t, 0, clock);
+  io_uring_prep_timeout(sqe, t, 0, clock);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return Val_true;
 }
@@ -247,9 +254,6 @@ ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
-
-#define Sketch_ptr_val(vsp) (Caml_ba_data_val(Field(vsp, 0)) + Long_val(Field(vsp, 1)))
-#define Sketch_ptr_len_val(vsp) Long_val(Field(vsp, 2))
 
 void /* noalloc */
 ocaml_uring_set_iovec(value v_sketch_ptr, value v_csl)
