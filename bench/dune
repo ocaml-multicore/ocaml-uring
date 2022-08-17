@@ -1,3 +1,9 @@
 (executable
  (name main)
+ (modules main)
  (libraries uring bechamel bechamel-notty notty.unix))
+
+(executable
+ (name readv)
+ (modules readv)
+ (libraries uring))
