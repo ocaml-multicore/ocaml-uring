@@ -157,21 +157,24 @@ ocaml_uring_set_timespec(value v_sketch_ptr, value v_timeout)
 }
 
 value /* noalloc */
-ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value v_clock)
+ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value v_clock, value v_rel)
 {
   struct __kernel_timespec *t = Sketch_ptr_val(v_sketch_ptr);
   struct io_uring* ring = Ring_val(v_uring);
   struct io_uring_sqe* sqe;
-  int clock;
+  int flags;
 
   if (v_clock == caml_hash_variant("Boottime"))
-    clock = IORING_TIMEOUT_BOOTTIME;
+    flags = IORING_TIMEOUT_BOOTTIME;
   else
-    clock = IORING_TIMEOUT_REALTIME;
+    flags = IORING_TIMEOUT_REALTIME;
+
+  if(v_rel == caml_hash_variant("Absolute"))
+    flags |= IORING_TIMEOUT_ABS;
 
   sqe = io_uring_get_sqe(ring);
   if (!sqe) return Val_false;
-  io_uring_prep_timeout(sqe, t, 0, clock);
+  io_uring_prep_timeout(sqe, t, 0, flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return Val_true;
 }

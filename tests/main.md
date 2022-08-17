@@ -757,12 +757,22 @@ Timeout should return (-ETIME). This is defined in https://github.com/torvalds/l
 # let t = Uring.create ~queue_depth:1 ();;
 val t : '_weak13 Uring.t = <abstr>
 
-# let ns = Int64.(mul 1L 1_000_000_000L) in
+# let ns = Int64.(mul 10L 1_000_000L) in
   Uring.timeout t `Realtime ns `Timeout;;
 - : _[> `Timeout ] Uring.job option = Some <abstr>
 
 # Uring.submit t;;
 - : int = 1
+
+# let `Timeout, timeout = consume t;;
+val timeout : int = -62
+
+# let ns = 
+    ((Unix.gettimeofday () +. 0.01) *. 1e9)
+    |> Int64.of_float
+  in
+  Uring.timeout ~rel:`Absolute t `Realtime ns `Timeout;;
+- : [ `Timeout ] Uring.job option = Some <abstr>
 
 # let `Timeout, timeout = consume t;;
 val timeout : int = -62
