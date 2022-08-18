@@ -133,8 +133,8 @@ module Sketch = struct
 
   let create_buffer len = Bigarray.(Array1.create char c_layout len)
 
-  let create len =
-    { buffer = create_buffer len; off = 0; old_buffers = [] }
+  let create () =
+    { buffer = Cstruct.empty.buffer; off = 0; old_buffers = [] }
 
   let length t = Bigarray.Array1.size_in_bytes t.buffer
 
@@ -146,7 +146,10 @@ module Sketch = struct
   let alloc t alloc_len =
     let alloc_len = round alloc_len in
     if alloc_len > avail t then begin
-      let new_buffer = create_buffer ((length t) + alloc_len) in
+      (* At least 64 bytes, at least twice the previous size, and
+         at least big enough for the new allocation. *)
+      let new_size = max 64 (max (2 * length t) alloc_len) in
+      let new_buffer = create_buffer new_size in
       t.old_buffers <- t.buffer :: t.old_buffers;
       t.off <- 0;
       t.buffer <- new_buffer;
@@ -288,7 +291,7 @@ let create ?polling_timeout ~queue_depth () =
   let data = Heap.create queue_depth in
   let id = object end in
   let fixed_iobuf = Cstruct.empty.buffer in
-  let sketch = Sketch.create 0 in
+  let sketch = Sketch.create () in
   let t = { id; uring; sketch; fixed_iobuf; data; dirty=false; queue_depth } in
   register_gc_root t;
   t
@@ -413,6 +416,13 @@ let cancel t job user_data =
   ignore (Heap.ptr job : Uring.id);  (* Check it's still valid *)
   with_id t (fun id -> Uring.submit_cancel t.uring id (Heap.ptr job)) user_data
 
+(* Free stale entries in the sketch buffer, if possible.
+   This isn't quite right: a busy system might never have 0 unsubmitted entries.
+   We should probably track how many requests need to be submitted before each
+   of [t.sketch.old_buffers] can be released, but this will do for now. *)
+let gc_sketch t =
+  if Uring.sq_ready t.uring = 0 then Sketch.release t.sketch
+
 let submit t =
   let v =
     if t.dirty then begin
@@ -421,8 +431,10 @@ let submit t =
     end else
       0
   in
-  if Uring.sq_ready t.uring = 0 then
-    Sketch.release t.sketch;
+  (* In non-polling mode, we will almost always be able to free the sketch buffer here.
+     However, in polling mode it's unlikely the entries have been consumed by the kernel yet,
+     and we must rely on other GC points. *)
+  gc_sketch t;
   v
 
 type 'a completion_option =
@@ -436,15 +448,50 @@ let fn_on_ring fn t =
     let data = Heap.free t.data user_data_id in
     Some { result = res; data }
 
-let peek t = fn_on_ring Uring.peek_cqe t
+let peek t =
+  gc_sketch t;
+  fn_on_ring Uring.peek_cqe t
 
 let wait ?timeout t =
-  match timeout with
-  | None -> fn_on_ring Uring.wait_cqe t
-  | Some timeout -> fn_on_ring (Uring.wait_cqe_timeout timeout) t
+  let r =
+    match timeout with
+    | None -> fn_on_ring Uring.wait_cqe t
+    | Some timeout -> fn_on_ring (Uring.wait_cqe_timeout timeout) t
+  in
+  (* In polling mode, this is a good time to GC the sketch buffer, because the
+     kernel has probably consumed all the enties while we were blocking. *)
+  gc_sketch t;
+  r
 
 let queue_depth {queue_depth;_} = queue_depth
 let buf {fixed_iobuf;_} = fixed_iobuf
 
 let error_of_errno e =
   Uring.error_of_errno (abs e)
+
+module Stats = struct
+  type t = {
+    sqe_ready : int;
+    active_ops : int;
+    sketch_buffer_size : int;
+    sketch_used : int;
+    sketch_old_buffers : int;
+  }
+
+  let pp f { sqe_ready; active_ops; sketch_used; sketch_buffer_size; sketch_old_buffers } =
+    Fmt.pf f "@[<v>SQEs ready: %d@,\
+              Operations active: %d@,\
+              Sketch buffer: %d/%d (plus %d old buffers)@]"
+      sqe_ready
+      active_ops
+      sketch_used sketch_buffer_size sketch_old_buffers
+end
+
+let get_debug_stats t =
+  { Stats.
+    sqe_ready = Uring.sq_ready t.uring;
+    active_ops = Heap.in_use t.data;
+    sketch_used = t.sketch.off;
+    sketch_buffer_size = Bigarray.Array1.dim t.sketch.buffer;
+    sketch_old_buffers = List.length t.sketch.old_buffers;
+  }

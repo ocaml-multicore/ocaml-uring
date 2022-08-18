@@ -153,13 +153,35 @@ Exception: Invalid_argument "Non-positive queue depth: 0".
 ```ocaml
 # let queue_depth = 5;;
 val queue_depth : int = 5
+
 # let t = Uring.create ~queue_depth ();;
 val t : '_weak1 Uring.t = <abstr>
+
+# Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
+SQEs ready: 0
+Operations active: 0
+Sketch buffer: 0/0 (plus 0 old buffers)
+- : unit = ()
+
 # for i = 1 to queue_depth do
     assert (Option.is_some (Uring.noop t i));
-  done;
-  Uring.submit t;;
+  done;;
+- : unit = ()
+
+# Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
+SQEs ready: 5
+Operations active: 5
+Sketch buffer: 0/0 (plus 0 old buffers)
+- : unit = ()
+
+# Uring.submit t;;
 - : int = 5
+
+# Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
+SQEs ready: 0
+Operations active: 5
+Sketch buffer: 0/0 (plus 0 old buffers)
+- : unit = ()
 
 # for i = 1 to queue_depth do
     let tkn, res = consume t in
@@ -170,6 +192,12 @@ val t : '_weak1 Uring.t = <abstr>
 3 returned 0
 4 returned 0
 5 returned 0
+- : unit = ()
+
+# Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
+SQEs ready: 0
+Operations active: 0
+Sketch buffer: 0/0 (plus 0 old buffers)
 - : unit = ()
 
 # Uring.exit t;;

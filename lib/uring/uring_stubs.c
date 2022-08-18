@@ -143,7 +143,7 @@ ocaml_uring_submit_nop(value v_uring, value v_id) {
 value /* noalloc */
 ocaml_uring_sq_ready(value v_uring) {
   struct io_uring *ring = Ring_val(v_uring);
-  return (Int_val(io_uring_sq_ready(ring)));
+  return (Val_int(io_uring_sq_ready(ring)));
 }
 
 struct open_how_data {

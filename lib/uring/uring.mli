@@ -271,6 +271,21 @@ val peek : 'a t -> 'a completion_option
 val error_of_errno : int -> Unix.error
 (** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)
 
+module Stats : sig
+  type t = {
+    sqe_ready : int;
+    active_ops : int;
+    sketch_buffer_size : int;
+    sketch_used : int;
+    sketch_old_buffers : int;
+  }
+
+  val pp : t Fmt.t
+end
+
+val get_debug_stats : _ t -> Stats.t
+(** [get_debug_stats t] collects some metrics about the internal state of [t]. *)
+
 module Private : sig
   module Heap = Heap
 end
