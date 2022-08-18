@@ -160,7 +160,7 @@ val t : '_weak1 Uring.t = <abstr>
 # Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
 SQEs ready: 0
 Operations active: 0
-Sketch buffer: 0/4096 (plus 0 old buffers)
+Sketch buffer: 0/0 (plus 0 old buffers)
 - : unit = ()
 
 # for i = 1 to queue_depth do
@@ -171,7 +171,7 @@ Sketch buffer: 0/4096 (plus 0 old buffers)
 # Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
 SQEs ready: 5
 Operations active: 5
-Sketch buffer: 0/4096 (plus 0 old buffers)
+Sketch buffer: 0/0 (plus 0 old buffers)
 - : unit = ()
 
 # Uring.submit t;;
@@ -180,7 +180,7 @@ Sketch buffer: 0/4096 (plus 0 old buffers)
 # Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
 SQEs ready: 0
 Operations active: 5
-Sketch buffer: 0/4096 (plus 0 old buffers)
+Sketch buffer: 0/0 (plus 0 old buffers)
 - : unit = ()
 
 # for i = 1 to queue_depth do
@@ -197,7 +197,7 @@ Sketch buffer: 0/4096 (plus 0 old buffers)
 # Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
 SQEs ready: 0
 Operations active: 0
-Sketch buffer: 0/4096 (plus 0 old buffers)
+Sketch buffer: 0/0 (plus 0 old buffers)
 - : unit = ()
 
 # Uring.exit t;;

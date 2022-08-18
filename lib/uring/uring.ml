@@ -133,8 +133,8 @@ module Sketch = struct
 
   let create_buffer len = Bigarray.(Array1.create char c_layout len)
 
-  let create len =
-    { buffer = create_buffer len; off = 0; old_buffers = [] }
+  let create () =
+    { buffer = Cstruct.empty.buffer; off = 0; old_buffers = [] }
 
   let length t = Bigarray.Array1.size_in_bytes t.buffer
 
@@ -146,7 +146,10 @@ module Sketch = struct
   let alloc t alloc_len =
     let alloc_len = round alloc_len in
     if alloc_len > avail t then begin
-      let new_buffer = create_buffer ((length t) + alloc_len) in
+      (* At least 64 bytes, at least twice the previous size, and
+         at least big enough for the new allocation. *)
+      let new_size = max 64 (max (2 * length t) alloc_len) in
+      let new_buffer = create_buffer new_size in
       t.old_buffers <- t.buffer :: t.old_buffers;
       t.off <- 0;
       t.buffer <- new_buffer;
@@ -288,7 +291,7 @@ let create ?polling_timeout ~queue_depth () =
   let data = Heap.create queue_depth in
   let id = object end in
   let fixed_iobuf = Cstruct.empty.buffer in
-  let sketch = Sketch.create 4096 in
+  let sketch = Sketch.create () in
   let t = { id; uring; sketch; fixed_iobuf; data; dirty=false; queue_depth } in
   register_gc_root t;
   t
