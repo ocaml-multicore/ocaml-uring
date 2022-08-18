@@ -148,7 +148,6 @@ module Sketch = struct
     if alloc_len > avail t then begin
       let new_buffer = create_buffer ((length t) + alloc_len) in
       t.old_buffers <- t.buffer :: t.old_buffers;
-      (* Printf.printf "len t.old_buffers = %d\n%!" (List.length t.old_buffers); *)
       t.off <- 0;
       t.buffer <- new_buffer;
     end;
@@ -466,3 +465,30 @@ let buf {fixed_iobuf;_} = fixed_iobuf
 
 let error_of_errno e =
   Uring.error_of_errno (abs e)
+
+module Stats = struct
+  type t = {
+    sqe_ready : int;
+    active_ops : int;
+    sketch_buffer_size : int;
+    sketch_used : int;
+    sketch_old_buffers : int;
+  }
+
+  let pp f { sqe_ready; active_ops; sketch_used; sketch_buffer_size; sketch_old_buffers } =
+    Fmt.pf f "@[<v>SQEs ready: %d@,\
+              Operations active: %d@,\
+              Sketch buffer: %d/%d (plus %d old buffers)@]"
+      sqe_ready
+      active_ops
+      sketch_used sketch_buffer_size sketch_old_buffers
+end
+
+let get_debug_stats t =
+  { Stats.
+    sqe_ready = Uring.sq_ready t.uring;
+    active_ops = Heap.in_use t.data;
+    sketch_used = t.sketch.off;
+    sketch_buffer_size = Bigarray.Array1.dim t.sketch.buffer;
+    sketch_old_buffers = List.length t.sketch.old_buffers;
+  }

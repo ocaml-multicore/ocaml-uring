@@ -5,8 +5,6 @@ let buffer_size = 100   (* Use a small buffer to stress the system more *)
 let n_concurrent = 16   (* How many requests to have active at once *)
 let n_iters = 1_000_000 (* How many times to accept and resubmit *)
 
-let got = ref 0
-
 let rec wait t handle =
   match Uring.peek t with
   | Some { result; data = buf } -> handle result buf
@@ -16,7 +14,7 @@ let rec wait t handle =
     | Some { result; data = buf } -> handle result buf
 
 let run_bechmark ~polling_timeout fd =
-  got := 0;
+  let got = ref 0 in
   (* For polling mode, [queue_depth] needs to be slightly larger than [n_concurrent] or submission
      occasionally fails for some reason. *)
   let t = Uring.create ?polling_timeout ~queue_depth:(n_concurrent * 2) () in
@@ -40,12 +38,15 @@ let run_bechmark ~polling_timeout fd =
         )
       )
   done;
+  (* Get a snapshot of the stats before letting things finish. *)
+  let stats = Uring.get_debug_stats t in
   let t1 = Unix.gettimeofday () in
   let time = t1 -. t0 in
   let got = float !got /. (1024. *. 1024.)  in
   let polling = polling_timeout <> None in
-  Printf.printf "Read %.2f MB in %.2f seconds (%.2f MB/second) # buffer_size=%d, polling=%b\n%!"
-    got time (got /. time) buffer_size polling;
+  Fmt.pr "@[<v2>Read %.2f MB in %.2f seconds (%.2f MB/second) # buffer_size=%d, polling=%b@,%a@]@."
+    got time (got /. time) buffer_size polling
+    Uring.Stats.pp stats;
   (* Finally, drain the remaining reads and shut down the ring. *)
   for _ = 1 to n_concurrent do
     wait t (fun _result _buf -> ())
