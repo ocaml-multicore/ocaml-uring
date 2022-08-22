@@ -156,6 +156,8 @@ ocaml_uring_set_timespec(value v_sketch_ptr, value v_timeout)
   t->tv_nsec = Int64_val(v_timeout);
 }
 
+#define Val_boottime Val_int(0)
+
 value /* noalloc */
 ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value v_clock, value v_absolute)
 {
@@ -164,7 +166,7 @@ ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value 
   struct io_uring_sqe* sqe;
   int flags;
 
-  if (v_clock == caml_hash_variant("Boottime"))
+  if (v_clock == Val_boottime)
     flags = IORING_TIMEOUT_BOOTTIME;
   else
     flags = IORING_TIMEOUT_REALTIME;

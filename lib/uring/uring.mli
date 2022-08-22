@@ -67,11 +67,14 @@ val noop : 'a t -> 'a -> 'a job option
 (** [noop t d] submits a no-op operation to uring [t]. The user data [d] will be
     returned by {!wait} or {!peek} upon completion. *)
 
-val timeout: ?absolute:bool -> 'a t -> [`Boottime | `Realtime] -> int64 -> 'a -> 'a job option
-(** [timeout t clock ns d] submits a timeout request to uring [t].
+(** {2 Timeout} *)
 
-    [clock] [`Boottime] and [`Realtime] represents OS clocks CLOCK_BOOTTIME and CLOCK_REALTIME 
-    respectively.
+type clock = Boottime | Realtime
+(** Represents Linux clocks. [Boottime] and [Realtime] represents OS clocks CLOCK_BOOTTIME
+    and CLOCK_REALTIME respectively. *)
+
+val timeout: ?absolute:bool -> 'a t -> clock -> int64 -> 'a -> 'a job option
+(** [timeout t clock ns d] submits a timeout request to uring [t].
 
     [absolute] denotes how [clock] and [ns] relate to one another. Default value is [false]
 

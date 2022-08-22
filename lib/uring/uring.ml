@@ -194,6 +194,8 @@ end
 
 type 'a job = 'a Heap.entry
 
+type clock = Boottime | Realtime
+
 module Uring = struct
   type t
 
@@ -209,7 +211,7 @@ module Uring = struct
 
   type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
-  external submit_timeout : t -> id -> Sketch.ptr -> [`Boottime | `Realtime] -> bool -> bool = "ocaml_uring_submit_timeout" [@@noalloc]
+  external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> bool = "ocaml_uring_submit_timeout" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
   external submit_read : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
   external submit_write : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_write" [@@noalloc]
