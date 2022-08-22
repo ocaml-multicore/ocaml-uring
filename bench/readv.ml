@@ -6,7 +6,7 @@ let n_concurrent = 16   (* How many requests to have active at once *)
 let n_iters = 1_000_000 (* How many times to accept and resubmit *)
 
 let rec wait t handle =
-  match Uring.peek t with
+  match Uring.get_cqe_nonblocking t with
   | Some { result; data = buf } -> handle result buf
   | None ->
     match Uring.wait t with

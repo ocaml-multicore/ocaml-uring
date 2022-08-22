@@ -474,9 +474,11 @@ let fn_on_ring fn t =
     let data = Heap.free t.data user_data_id in
     Some { result = res; data }
 
-let peek t =
+let get_cqe_nonblocking t =
   gc_sketch t;
   fn_on_ring Uring.peek_cqe t
+
+let peek = get_cqe_nonblocking
 
 let wait ?timeout t =
   let r =

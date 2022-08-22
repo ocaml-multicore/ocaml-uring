@@ -140,7 +140,7 @@ let copy_file uring t =
     let got_completion = ref false in
     let rec handle_completions () =
       if t.write_left > 0 then begin
-        let check_q = if !got_completion then Uring.peek uring else Uring.wait uring  in
+        let check_q = if !got_completion then Uring.get_cqe_nonblocking uring else Uring.wait uring  in
         match check_q with
         |None -> Logs.debug (fun l -> l "completions: retry so finishing loop")
         |Some { data; result } ->

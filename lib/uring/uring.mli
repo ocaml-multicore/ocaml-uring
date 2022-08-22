@@ -282,11 +282,15 @@ type 'a completion_option =
 
 val wait : ?timeout:float -> 'a t -> 'a completion_option
 (** [wait ?timeout t] will block indefinitely (the default) or for [timeout]
-    seconds for any outstanding events to complete on uring [t]. Events should
-    have been queued via {!submit} previously to this call. *)
+    seconds for any outstanding events to complete on uring [t].
+    This calls {!submit} automatically. *)
+
+val get_cqe_nonblocking : 'a t -> 'a completion_option
+(** [get_cqe_nonblocking t] returns the next completion entry from the uring [t].
+    It is like {!wait} except that it returns [None] instead of blocking. *)
 
 val peek : 'a t -> 'a completion_option
-(** [peek t] looks for completed requests on the uring [t] without blocking. *)
+[@@deprecated "Renamed to Uring.get_cqe_nonblocking"]
 
 val error_of_errno : int -> Unix.error
 (** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)
