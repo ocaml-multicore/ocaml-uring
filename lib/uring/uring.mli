@@ -67,13 +67,13 @@ val noop : 'a t -> 'a -> 'a job option
 (** [noop t d] submits a no-op operation to uring [t]. The user data [d] will be
     returned by {!wait} or {!peek} upon completion. *)
 
-val timeout: ?rel:[`Relative | `Absolute] -> 'a t -> [`Boottime | `Realtime] -> int64 -> 'a -> 'a job option
+val timeout: ?absolute:bool -> 'a t -> [`Boottime | `Realtime] -> int64 -> 'a -> 'a job option
 (** [timeout t clock ns d] submits a timeout request to uring [t].
 
     [clock] [`Boottime] and [`Realtime] represents OS clocks CLOCK_BOOTTIME and CLOCK_REALTIME 
     respectively.
 
-    [rel] denotes how [clock] and [ns] relates to one another. Default value is [`Relative]
+    [absolute] denotes how [clock] and [ns] relate to one another. Default value is [false]
 
     [ns] is the timeout time in nanoseconds *)
 

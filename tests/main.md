@@ -771,7 +771,7 @@ val timeout : int = -62
     ((Unix.gettimeofday () +. 0.01) *. 1e9)
     |> Int64.of_float
   in
-  Uring.timeout ~rel:`Absolute t `Realtime ns `Timeout;;
+  Uring.timeout ~absolute:true t `Realtime ns `Timeout;;
 - : [ `Timeout ] Uring.job option = Some <abstr>
 
 # let `Timeout, timeout = consume t;;

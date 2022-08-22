@@ -157,7 +157,7 @@ ocaml_uring_set_timespec(value v_sketch_ptr, value v_timeout)
 }
 
 value /* noalloc */
-ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value v_clock, value v_rel)
+ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value v_clock, value v_absolute)
 {
   struct __kernel_timespec *t = Sketch_ptr_val(v_sketch_ptr);
   struct io_uring* ring = Ring_val(v_uring);
@@ -169,7 +169,7 @@ ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value 
   else
     flags = IORING_TIMEOUT_REALTIME;
 
-  if(v_rel == caml_hash_variant("Absolute"))
+  if(Bool_val(v_absolute))
     flags |= IORING_TIMEOUT_ABS;
 
   sqe = io_uring_get_sqe(ring);
