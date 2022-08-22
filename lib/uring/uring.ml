@@ -197,6 +197,8 @@ end
 
 type 'a job = 'a Heap.entry
 
+type clock = Boottime | Realtime
+
 module Uring = struct
   type t
 
@@ -212,6 +214,7 @@ module Uring = struct
 
   type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
+  external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> bool = "ocaml_uring_submit_timeout" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
   external submit_read : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
   external submit_write : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_write" [@@noalloc]
@@ -336,6 +339,13 @@ let with_id t fn a = with_id_full t fn a ~extra_data:()
 
 let noop t user_data =
   with_id t (fun id -> Uring.submit_nop t.uring id) user_data
+
+external set_timespec: Sketch.ptr -> int64 -> unit = "ocaml_uring_set_timespec" [@@noalloc]
+
+let timeout ?(absolute = false) t clock timeout_ns user_data =
+  let timespec_ptr = Sketch.alloc t.sketch Config.sizeof_kernel_timespec in
+  set_timespec timespec_ptr timeout_ns;
+  with_id t (fun id -> Uring.submit_timeout t.uring id timespec_ptr clock absolute) user_data
 
 let at_fdcwd : Unix.file_descr = Obj.magic Config.at_fdcwd
 

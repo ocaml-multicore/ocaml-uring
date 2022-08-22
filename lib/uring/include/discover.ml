@@ -2,7 +2,9 @@ module C = Configurator.V1
 
 let () =
   C.main ~name:"discover" (fun c ->
-      C.C_define.import c ~c_flags:["-D_GNU_SOURCE"] ~includes:["fcntl.h"; "poll.h"; "sys/uio.h"] C.C_define.Type.[
+    C.C_define.import c ~c_flags:["-D_GNU_SOURCE"]
+      ~includes:["fcntl.h"; "poll.h"; "sys/uio.h"; "linux/time_types.h"]
+      C.C_define.Type.[
           "POLLIN", Int;
           "POLLOUT", Int;
           "POLLERR", Int;
@@ -31,10 +33,16 @@ let () =
           "AT_FDCWD", Int;
 
           "sizeof(struct iovec)", Int;
+          "sizeof(struct __kernel_timespec)", Int;
         ]
       |> List.map (function
           | name, C.C_define.Value.Int v ->
-            let name = if name = "sizeof(struct iovec)" then "sizeof_iovec" else name in
+            let name = 
+              match name with
+              | "sizeof(struct iovec)" -> "sizeof_iovec"
+              | "sizeof(struct __kernel_timespec)" -> "sizeof_kernel_timespec"
+              | nm -> nm 
+            in
             Printf.sprintf "let %s = 0x%x" (String.lowercase_ascii name) v
           | _ -> assert false
         )

@@ -776,3 +776,42 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
 # Uring.exit t;;
 - : unit = ()
 ```
+
+## Timeout
+
+Timeout should return (-ETIME). This is defined in https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno.h#L45
+
+```ocaml
+# let t = Uring.create ~queue_depth:1 ();;
+val t : '_weak13 Uring.t = <abstr>
+
+# let ns1 = Int64.(mul 10L 1_000_000L) in
+  Uring.(timeout t Boottime ns1 `Timeout);;
+- : _[> `Timeout ] Uring.job option = Some <abstr>
+
+# Uring.submit t;;
+- : int = 1
+
+# let `Timeout, timeout = consume t;;
+val timeout : int = -62
+
+# let ns = 
+    ((Unix.gettimeofday () +. 0.01) *. 1e9)
+    |> Int64.of_float
+  in
+  Uring.(timeout ~absolute:true t Realtime ns `Timeout);;
+- : [ `Timeout ] Uring.job option = Some <abstr>
+
+# let `Timeout, timeout = consume t;;
+val timeout : int = -62
+
+# let ns1 = Int64.(mul 10L 1_000_000L) in
+  Uring.(timeout ~absolute:true t Boottime ns1 `Timeout);;
+- : [ `Timeout ] Uring.job option = Some <abstr>
+
+# let `Timeout, timeout = consume t;;
+val timeout : int = -62
+
+# Uring.exit t;;
+- : unit = ()
+```
