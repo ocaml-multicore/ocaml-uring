@@ -175,6 +175,15 @@ module Sketch = struct
       set ptr csl;
       ptr
   end
+
+  module String = struct
+    external set : ptr -> string -> unit = "ocaml_uring_set_string" [@@noalloc]
+
+    let alloc t s =
+      let ptr = alloc t (String.length s + 1) in
+      set ptr s;
+      ptr
+  end
 end
 
 (* Used for the sendmsg/recvmsg calls. Liburing doesn't support sendto/recvfrom at the time of writing. *)
@@ -228,6 +237,7 @@ module Uring = struct
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
   external submit_openat2 : t -> id -> Unix.file_descr -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
+  external submit_unlinkat : t -> id -> Unix.file_descr -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
   external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
 
@@ -357,6 +367,12 @@ let openat2 t ~access ~flags ~perm ~resolve ?(fd=at_fdcwd) path user_data =
   in
   let open_how = Open_how.v ~open_flags ~perm ~resolve path in
   with_id_full t (fun id -> Uring.submit_openat2 t.uring id fd open_how) user_data ~extra_data:open_how
+
+let unlink t ~dir ?(fd=at_fdcwd) path user_data =
+  with_id t (fun id ->
+      let buf = Sketch.String.alloc t.sketch path in
+      Uring.submit_unlinkat t.uring id fd buf dir
+    ) user_data
 
 let read t ~file_offset fd (buf : Cstruct.t) user_data =
   with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset) user_data ~extra_data:buf

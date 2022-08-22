@@ -33,6 +33,8 @@
 #include <string.h>
 #include <poll.h>
 #include <sys/uio.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #undef URING_DEBUG
 #ifdef URING_DEBUG
@@ -606,6 +608,27 @@ ocaml_uring_submit_accept(value v_uring, value v_id, value v_fd, value v_sockadd
   sqe = io_uring_get_sqe(ring);
   if (!sqe) return (Val_false);
   io_uring_prep_accept(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), &addr->sock_addr_len, SOCK_CLOEXEC);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+value /* noalloc */
+ocaml_uring_set_string(value v_sketch_ptr, value v_string)
+{
+  char *dst = Sketch_ptr_val(v_sketch_ptr);
+  strcpy(dst, String_val(v_string));
+  return (Val_unit);
+}
+
+// Caller must ensure the path pointed to by v_sketch_ptr is not GC'd until the job is finished.
+value /* noalloc */
+ocaml_uring_submit_unlinkat(value v_uring, value v_id, value v_fd, value v_sketch_ptr, value v_rmdir) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  int flags = Bool_val(v_rmdir) ? AT_REMOVEDIR : 0;
+  char *path = Sketch_ptr_val(v_sketch_ptr);
+  if (!sqe) return (Val_false);
+  io_uring_prep_unlinkat(sqe, Int_val(v_fd), path, flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }

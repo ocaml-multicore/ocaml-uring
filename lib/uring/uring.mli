@@ -145,6 +145,13 @@ val openat2 : 'a t ->
     @param perm sets the access control bits for newly created files (subject to the process's umask)
     @param resolve controls how the pathname is resolved. *)
 
+val unlink : 'a t -> dir:bool -> ?fd:Unix.file_descr -> string -> 'a -> 'a job option
+(** [unlink t ~dir ~fd path] removes the directory entry [path], which is resolved relative to [fd].
+    If [fd] is not given, then the current working directory is used.
+    If [path] is a symlink, the link is removed, not the target.
+    @param dir If [true], this acts like [rmdir] (only removing empty directories).
+               If [false], it acts like [unlink] (only removing non-directories). *)
+
 module Poll_mask : sig
   include FLAGS
 

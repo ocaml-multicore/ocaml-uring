@@ -738,6 +738,39 @@ val w2 : Unix.file_descr = <abstr>
 - : unit = ()
 ```
 
+## Unlink and rmdir
+
+```ocaml
+# let t : unit Uring.t = Uring.create ~queue_depth:2 ();;
+val t : unit Uring.t = <abstr>
+
+# close_out (open_out "test-file"); Unix.mkdir "test-dir" 0o700;;
+- : unit = ()
+
+# let check () = Sys.file_exists "test-file", Sys.file_exists "test-dir";;
+val check : unit -> bool * bool = <fun>
+# check ();;
+- : bool * bool = (true, true)
+
+# Uring.unlink t ~dir:false "test-file" ();;
+- : unit Uring.job option = Some <abstr>
+
+# Uring.unlink t ~dir:true "test-dir" ();;
+- : unit Uring.job option = Some <abstr>
+
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+
+# check ();;
+- : bool * bool = (false, false)
+
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Sketch allocation
 ```ocaml
 let ldup n x = List.init n (Fun.const x)
