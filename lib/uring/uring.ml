@@ -515,10 +515,12 @@ module Stats = struct
       sketch_used sketch_buffer_size sketch_old_buffers
 end
 
+let active_ops t = Heap.in_use t.data
+
 let get_debug_stats t =
   { Stats.
     sqe_ready = Uring.sq_ready t.uring;
-    active_ops = Heap.in_use t.data;
+    active_ops = active_ops t;
     sketch_used = t.sketch.off;
     sketch_buffer_size = Bigarray.Array1.dim t.sketch.buffer;
     sketch_old_buffers = List.length t.sketch.old_buffers;
