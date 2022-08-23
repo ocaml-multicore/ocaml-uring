@@ -668,16 +668,15 @@ value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
   CAMLparam2(v_uring, v_timeout);
   double timeout = Double_val(v_timeout);
   struct __kernel_timespec t;
-  t.tv_sec = (time_t) timeout;
-  t.tv_nsec = (timeout - t.tv_sec) * 1e9;
   long id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
   int res;
+  t.tv_sec = (time_t) timeout;
+  t.tv_nsec = (timeout - t.tv_sec) * 1e9;
   dprintf("cqe: waiting, timeout %fs\n", timeout);
   caml_enter_blocking_section();
-  io_uring_submit(ring);
-  res = io_uring_wait_cqe_timeout(ring, &cqe, &t);
+  res = io_uring_submit_and_wait_timeout(ring, &cqe, 1, &t, NULL);
   caml_leave_blocking_section();
   if (res < 0) {
     if (res == -EAGAIN || res == -EINTR || res == -ETIME) {
@@ -701,8 +700,7 @@ value ocaml_uring_wait_cqe(value v_uring)
   int res;
   dprintf("cqe: waiting\n");
   caml_enter_blocking_section();
-  io_uring_submit(ring);
-  res = io_uring_wait_cqe(ring, &cqe);
+  res = io_uring_submit_and_wait_timeout(ring, &cqe, 1, NULL, NULL);
   caml_leave_blocking_section();
   if (res < 0) {
     if (res == -EAGAIN || res == -EINTR) {
