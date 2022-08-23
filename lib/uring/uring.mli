@@ -295,13 +295,17 @@ val peek : 'a t -> 'a completion_option
 val error_of_errno : int -> Unix.error
 (** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)
 
+val active_ops : _ t -> int
+(** [active_ops t] returns the number of operations added to the ring (whether submitted or not)
+    for which the completion event has not yet been collected. *)
+
 module Stats : sig
   type t = {
-    sqe_ready : int;
-    active_ops : int;
-    sketch_buffer_size : int;
-    sketch_used : int;
-    sketch_old_buffers : int;
+    sqe_ready : int;            (** SQEs not yet submitted. *)
+    active_ops : int;           (** See {!active_ops}. *)
+    sketch_buffer_size : int;   (** Size of the current sketch buffer. *)
+    sketch_used : int;          (** Bytes used within current sketch buffer. *)
+    sketch_old_buffers : int;   (** Old sketch buffers waiting to be freed. *)
   }
 
   val pp : t Fmt.t
