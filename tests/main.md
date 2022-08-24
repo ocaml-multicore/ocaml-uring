@@ -848,3 +848,17 @@ val timeout : int = -62
 # Uring.exit t;;
 - : unit = ()
 ```
+
+## Probing
+
+```ocaml
+# let t : unit Uring.t = Uring.create ~queue_depth:1 ();;
+val t : unit Uring.t = <abstr>
+
+# let probe = Uring.get_probe t in
+  Uring.op_supported probe Uring.Op.nop;;
+- : bool = true
+
+# Uring.exit t;;
+- : unit = ()
+```
