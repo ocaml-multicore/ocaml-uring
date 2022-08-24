@@ -302,7 +302,7 @@ val active_ops : _ t -> int
 module Stats : sig
   type t = {
     sqe_ready : int;            (** SQEs not yet submitted. *)
-    active_ops : int;           (** See {!active_ops}. *)
+    active_ops : int;           (** See {!Uring.active_ops}. *)
     sketch_buffer_size : int;   (** Size of the current sketch buffer. *)
     sketch_used : int;          (** Bytes used within current sketch buffer. *)
     sketch_old_buffers : int;   (** Old sketch buffers waiting to be freed. *)
