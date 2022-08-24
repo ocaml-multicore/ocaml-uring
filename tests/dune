@@ -34,12 +34,6 @@
  (modules poll_add)
  (libraries unix uring logs logs.fmt))
 
-(executable
- (name cptest)
- (modules cptest)
- (libraries urcp_fixed_lib urcp_lib lwtcp_lib uring bechamel notty.unix
-   bechamel-notty))
-
 (rule
  (alias runtest)
  (package uring)
@@ -50,7 +44,7 @@
  (package uring)
  (deps urcp.exe)
  (action
-  (run ./cptest.exe ./urcp.exe)))
+  (run ./urcp.exe)))
 
 (mdx
   (deps (package uring)))

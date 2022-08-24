@@ -1,9 +1,20 @@
 (executable
  (name main)
  (modules main)
- (libraries uring bechamel bechamel-notty notty.unix))
+ (libraries uring bechamel bechamel_csv))
 
 (executable
  (name readv)
  (modules readv)
  (libraries uring))
+
+(executable
+ (name cptest)
+ (modules cptest)
+ (libraries urcp_fixed_lib urcp_lib lwtcp_lib uring bechamel bechamel_csv))
+
+(rule
+ (alias runbenchmark)
+ (package uring)
+ (action
+  (run ./cptest.exe)))
