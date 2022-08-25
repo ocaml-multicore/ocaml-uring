@@ -7,3 +7,6 @@ x-ci-accept-failures: [
   "centos-7" # default C compiler does not support stdatomic.h
   "oraclelinux-7" # default C compiler does not support stdatomic.h
 ]
+pin-depends: [
+  ["mdx.2.1.0" "git+https://github.com/talex5/mdx.git#799b67761c0a9418c5db53c4870f6597fea4010c"]
+]
