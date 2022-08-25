@@ -5,7 +5,6 @@ description:
   "Bindings to the Linux io_uring kernel IO interfaces. See https://github.com/ocaml-multicore/eio for a higher-level API using this."
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy" "Sadiq Jaffer" "Thomas Leonard"]
-license: "(ISC AND MIT)"
 homepage: "https://github.com/ocaml-multicore/ocaml-uring"
 doc: "https://ocaml-multicore.github.io/ocaml-uring/"
 bug-reports: "https://github.com/ocaml-multicore/ocaml-uring/issues"
@@ -42,3 +41,8 @@ depexts: [
   ["linux-headers"] {os-distribution = "alpine"}
 ]
 available: [os = "linux"]
+license: ["ISC" "MIT"]
+x-ci-accept-failures: [
+  "centos-7" # default C compiler does not support stdatomic.h
+  "oraclelinux-7" # default C compiler does not support stdatomic.h
+]
