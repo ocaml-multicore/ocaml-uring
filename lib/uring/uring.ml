@@ -387,6 +387,8 @@ let read t ~file_offset fd (buf : Cstruct.t) user_data =
 let write t ~file_offset fd (buf : Cstruct.t) user_data =
   with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset) user_data ~extra_data:buf
 
+let iov_max = Config.iov_max
+
 let readv t ~file_offset fd buffers user_data =
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
