@@ -62,6 +62,7 @@ let rec wait_with_retry uring =
   | Some { result; data } -> result, data;;
 ```
 
+<!-- $MDX non-deterministic=output -->
 ```ocaml
 # let result, data = wait_with_retry uring;;
 val result : int = 8
