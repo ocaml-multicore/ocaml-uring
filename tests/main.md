@@ -1,5 +1,7 @@
 ```ocaml
 # #require "uring";;
+# Printexc.record_backtrace true ;;
+- : unit = ()
 ```
 
 # Uring tests
@@ -28,8 +30,9 @@ let traceln fmt =
 ## Invalid queue depth
 
 ```ocaml
-# Uring.create ~queue_depth:0 ();;
-Exception: Invalid_argument "Non-positive queue depth: 0".
+# try Uring.create ~queue_depth:0 () |> ignore with ex -> traceln "%a" Fmt.exn ex;;
+Invalid_argument("Non-positive queue depth: 0")
+- : unit = ()
 ```
 
 ## Noop
@@ -195,9 +198,10 @@ Opened "." OK
 Submitted 1
 Opened ".." OK
 - : unit = ()
-# get ~resolve:Uring.Resolve.beneath "..";;;
+# try get ~resolve:Uring.Resolve.beneath ".." with ex -> traceln "%a" Fmt.exn ex;;
 Submitted 1
-Exception: Unix.Unix_error(Unix.EXDEV, "openat2", "..")
+Unix.Unix_error(Unix.EXDEV, "openat2", "..")
+- : unit = ()
 
 # Uring.exit t;;
 - : unit = ()
@@ -395,9 +399,9 @@ val fd : Unix.file_descr = <abstr>
 val read : int = 11
 # Uring.Region.to_string ~len:read chunk;;
 - : string = "A test file"
-# Uring.read_chunk ~len:17 t fd chunk `Read ~file_offset:Int63.zero;;
-Exception:
-Invalid_argument "to_cstruct: requested length 17 > block size 16".
+# try Uring.read_chunk ~len:17 t fd chunk `Read ~file_offset:Int63.zero |> ignore with ex -> traceln "%a" Fmt.exn ex;;
+Invalid_argument("to_cstruct: requested length 17 > block size 16")
+- : unit = ()
 ```
 
 Attempt to use a chunk from one ring with another:
@@ -405,8 +409,9 @@ Attempt to use a chunk from one ring with another:
 ```ocaml
 # let t2 : [`Read] Uring.t = Uring.create ~queue_depth:1 ();;
 val t2 : [ `Read ] Uring.t = <abstr>
-# Uring.read_chunk ~len:16 t2 fd chunk `Read ~file_offset:Int63.zero;;
-Exception: Invalid_argument "Chunk does not belong to ring!".
+# try Uring.read_chunk ~len:16 t2 fd chunk `Read ~file_offset:Int63.zero |> ignore with ex -> traceln "%a" Fmt.exn ex;;
+Invalid_argument("Chunk does not belong to ring!")
+- : unit = ()
 
 # Unix.close fd; Uring.exit t;;
 - : unit = ()
@@ -528,8 +533,9 @@ val r_read : int = 1
 
 Try to cancel after we may have reused the index:
 ```ocaml
-# Uring.cancel t read `Cancel;;
-Exception: Invalid_argument "Entry has already been freed!".
+# try Uring.cancel t read `Cancel |> ignore with ex -> traceln "%a" Fmt.exn ex;;
+Invalid_argument("Entry has already been freed!")
+- : unit = ()
 
 # Uring.exit t;;
 - : unit = ()
@@ -552,8 +558,9 @@ val w : Unix.file_descr = <abstr>
 - : _[> `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
-# Uring.exit t;;
-Exception: Invalid_argument "exit: 1 request(s) still active!".
+# try Uring.exit t with ex -> traceln "%a" Fmt.exn ex;;
+Invalid_argument("exit: 1 request(s) still active!")
+- : unit = ()
 ```
 
 But we can once it's complete:

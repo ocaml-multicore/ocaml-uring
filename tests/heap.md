@@ -2,6 +2,12 @@
 # #require "uring";;
 ```
 
+```ocaml
+let () = Printexc.record_backtrace true
+
+let catch fn = try fn () |> ignore with ex -> Fmt.pr "Exception: %a@." Fmt.exn ex
+```
+
 # Heap tests
 
 ```ocaml
@@ -62,8 +68,9 @@ val t : int Heap.t = <abstr>
 val p : Heap.ptr = 0
 # Heap.free t p;;
 - : int = 1
-# Heap.free t p;;
-Exception: Invalid_argument "Heap.free: pointer already freed".
+# catch @@ fun () -> Heap.free t p;;
+Exception: Invalid_argument("Heap.free: pointer already freed")
+- : unit = ()
 ```
 
 Double free in a non-empty heap:
@@ -77,8 +84,9 @@ val p : Heap.ptr = 0
 - : Heap.ptr = 1
 # Heap.free t p;;
 - : int = 1
-# Heap.free t p;;
-Exception: Invalid_argument "Heap.free: pointer already freed".
+# catch @@ fun () -> Heap.free t p;;
+Exception: Invalid_argument("Heap.free: pointer already freed")
+- : unit = ()
 ```
 
 Out of space:
@@ -86,8 +94,9 @@ Out of space:
 ```ocaml
 # let t : unit Heap.t = Heap.create 0 (* 1 > 0 *);;
 val t : unit Heap.t = <abstr>
-# Heap.ptr @@ Heap.alloc t ();;
-Exception: Uring__Heap.No_space.
+# catch @@ fun () -> Heap.ptr @@ Heap.alloc t ();;
+Exception: Uring__Heap.No_space
+- : unit = ()
 ```
 
 ```ocaml
@@ -97,8 +106,9 @@ val t : unit Heap.t = <abstr>
 - : Heap.ptr = 0
 # Heap.ptr @@ Heap.alloc t ();;
 - : Heap.ptr = 1
-# Heap.ptr @@ Heap.alloc t () (* 3 > 2 *);;
-Exception: Uring__Heap.No_space.
+# catch @@ fun () -> Heap.ptr @@ Heap.alloc t () (* 3 > 2 *);;
+Exception: Uring__Heap.No_space
+- : unit = ()
 ```
 
 ```ocaml
@@ -114,6 +124,7 @@ val p1 : Heap.ptr = 0
 - : Heap.ptr = 0
 # Heap.ptr @@ Heap.alloc t 4;;
 - : Heap.ptr = 2
-# Heap.ptr @@ Heap.alloc t 5  (* 2 - 1 + 3 > 3 *);;
-Exception: Uring__Heap.No_space.
+# catch @@ fun () -> Heap.ptr @@ Heap.alloc t 5  (* 2 - 1 + 3 > 3 *);;
+Exception: Uring__Heap.No_space
+- : unit = ()
 ```

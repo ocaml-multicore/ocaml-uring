@@ -2,6 +2,10 @@
 # #require "uring";;
 ```
 
+```ocaml
+let () = Printexc.record_backtrace true
+```
+
 ## Sketch allocation
 
 ```ocaml
