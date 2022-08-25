@@ -31,14 +31,6 @@ let benchmark () =
   List.map (fun i -> Analyze.all ols i raw_results) metrics
   |> Analyze.merge ols metrics
 
-let rect =
-  match Notty_unix.winsize Unix.stdout with
-  | Some (w, h) -> { Bechamel_notty.w; h }
-  | None -> { Bechamel_notty.w = 80; h = 1 }
-
 let () =
-  List.iter (fun v -> Bechamel_notty.Unit.add v (Measure.unit v)) metrics;
-  benchmark ()
-  |> Bechamel_notty.Multiple.image_of_ols_results ~rect ~predictor:Measure.run
-  |> Notty_unix.eol
-  |> Notty_unix.output_image
+  let results = benchmark () in
+  Fmt.pr "@[<v>%a@]@." Bechamel_csv.pp results
