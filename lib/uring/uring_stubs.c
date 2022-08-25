@@ -741,3 +741,45 @@ value ocaml_uring_peek_cqe(value v_uring)
 value ocaml_uring_error_of_errno(value v_errno) {
   return unix_error_of_code(Int_val(v_errno));
 }
+
+#define Probe_val(v) (*((struct io_uring_probe **) Data_custom_val(v)))
+
+static void finalize_probe(value v) {
+  struct io_uring_probe *p = Probe_val(v);
+  if (p)
+    io_uring_free_probe(p);
+  Probe_val(v) = NULL;
+}
+
+static struct custom_operations probe_ops = {
+  "uring.probe_ops",
+  finalize_probe,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+// Allocates
+value ocaml_uring_get_probe_ring(value v_uring) {
+  CAMLparam1(v_uring);
+  CAMLlocal1(v_probe);
+  struct io_uring_probe *probe;
+
+  v_probe = caml_alloc_custom_mem(&probe_ops, sizeof(struct io_uring_probe *), sizeof(struct io_uring_probe));
+  Probe_val(v_probe) = io_uring_get_probe_ring(Ring_val(v_uring));
+
+  CAMLreturn(v_probe);
+}
+
+value /* noalloc */
+ocaml_uring_opcode_supported(value v_probe, value v_op)
+{
+  struct io_uring_probe *probe = Probe_val(v_probe);
+  if (probe)
+    return Val_bool(io_uring_opcode_supported(probe, Int_val(v_op)));
+  else
+    return Val_false;
+}

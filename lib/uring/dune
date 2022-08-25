@@ -12,6 +12,11 @@
 
 (rule
  (targets config.ml)
+ (deps
+   include/liburing.h
+   include/liburing/io_uring.h
+   include/liburing/barrier.h
+   include/liburing/compat.h)
  (action (run ./include/discover.exe)))
 
 (rule

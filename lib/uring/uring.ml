@@ -105,6 +105,8 @@ module Open_how = struct
   let v ~open_flags ~perm ~resolve path = make open_flags perm resolve path
 end
 
+module Op = Config.Op
+
 (* The C stubs rely on the layout of Cstruct.t, so we just check here that it hasn't changed. *)
 module Check_cstruct : sig
   [@@@warning "-34"]
@@ -208,6 +210,8 @@ type 'a job = 'a Heap.entry
 
 type clock = Boottime | Realtime
 
+type probe
+
 module Uring = struct
   type t
 
@@ -218,6 +222,9 @@ module Uring = struct
   external register_bigarray : t ->  Cstruct.buffer -> unit = "ocaml_uring_register_ba"
   external submit : t -> int = "ocaml_uring_submit" [@@noalloc]
   external sq_ready : t -> int = "ocaml_uring_sq_ready" [@@noalloc]
+
+  external get_probe_ring : t -> probe = "ocaml_uring_get_probe_ring"
+  external opcode_supported : probe -> Op.t -> bool = "ocaml_uring_opcode_supported" [@@noalloc]
 
   type id = Heap.ptr
 
@@ -496,6 +503,12 @@ let buf {fixed_iobuf;_} = fixed_iobuf
 
 let error_of_errno e =
   Uring.error_of_errno (abs e)
+
+let get_probe t =
+  Uring.get_probe_ring t.uring
+
+let op_supported probe op =
+  Uring.opcode_supported probe op
 
 module Stats = struct
   type t = {

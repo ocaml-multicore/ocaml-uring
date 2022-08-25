@@ -265,6 +265,17 @@ val recv_msg : 'a t -> Unix.file_descr -> Msghdr.t -> 'a -> 'a job option
 (** [recv_msg t fd msghdr d] will submit a [recvmsg(2)] request. If the request is
     successful then the [msghdr] will contain the sender address and the data received. *)
 
+(** {2 Probing}
+
+    You can check which operations are supported by the running kernel. *)
+
+module Op = Config.Op
+
+type probe
+
+val get_probe : _ t -> probe
+val op_supported : probe -> Op.t -> bool
+
 (** {2 Submitting operations} *)
 
 val submit : 'a t -> int
@@ -302,7 +313,7 @@ val active_ops : _ t -> int
 module Stats : sig
   type t = {
     sqe_ready : int;            (** SQEs not yet submitted. *)
-    active_ops : int;           (** See {!active_ops}. *)
+    active_ops : int;           (** See {!Uring.active_ops}. *)
     sketch_buffer_size : int;   (** Size of the current sketch buffer. *)
     sketch_used : int;          (** Bytes used within current sketch buffer. *)
     sketch_old_buffers : int;   (** Old sketch buffers waiting to be freed. *)
