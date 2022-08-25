@@ -44,7 +44,7 @@ type 'a t =
 
      The user is given only pointers [p] such that [free_tail_relation.(p) =
      slot_taken]. *)
-  ; mutable in_use: int
+  ; mutable in_use: int         (* Negative after release *)
   }
 
 let ptr = function
@@ -110,3 +110,11 @@ let free t ptr =
   datum
 
 let in_use t = t.in_use
+
+let release t =
+  if t.in_use > 0 then invalid_arg "Heap still in use!"
+  else if t.in_use < 0 then invalid_arg "Heap already released!";
+  t.in_use <- -100;
+  t.free_head <- free_list_nil
+
+let is_released t = t.in_use < 0

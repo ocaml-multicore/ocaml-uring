@@ -114,8 +114,8 @@ val fd : Unix.file_descr = <abstr>
 # Unix.read fd (Bytes.create 5) 0 5;;
 - : int = 0
 
-# Unix.close fd;;
-- : unit = ()
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
 
 # Uring.exit t;;
 - : unit = ()
@@ -152,8 +152,8 @@ val fd : Unix.file_descr = <abstr>
 # Printf.sprintf "0o%o" (Unix.fstat fd).st_perm;;
 - : string = "0o600"
 
-# Unix.close fd;;
-- : unit = ()
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
 
 # Uring.exit t;;
 - : unit = ()
@@ -226,8 +226,9 @@ val fbuf :
 val off : int = 3
 # let len = 5;;
 val len : int = 5
-# let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0 in
-  let file_offset = Int63.of_int 2 in
+# let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
+val fd : Unix.file_descr = <abstr>
+# let file_offset = Int63.of_int 2 in
   Uring.read_fixed t ~file_offset fd ~off ~len `Read;;
 - : _[> `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
@@ -237,7 +238,9 @@ val len : int = 5
 # Cstruct.of_bigarray fbuf ~off ~len |> Cstruct.to_string;;
 - : string = "test "
 
-# Unix.close fd; Uring.exit t;;
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+# Uring.exit t;;
 - : unit = ()
 ```
 
@@ -274,8 +277,8 @@ val read : int = 7
 # Cstruct.to_string b2;;
 - : string = "est fil"
 
-# Unix.close fd;;
-- : unit = ()
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
 ```
 
 Writing with write:
@@ -312,10 +315,10 @@ val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
 # Cstruct.to_string rb;;
 - : string = "Hello"
 
-# Unix.close w;;
-- : unit = ()
-# Unix.close r;;
-- : unit = ()
+# let w : unit = Unix.close w;;
+val w : unit = ()
+# let r : unit = Unix.close r;;
+val r : unit = ()
 ```
 
 Reading with readv:
@@ -346,8 +349,8 @@ val read : int = 10
 # Cstruct.to_string b2;;
 - : string = "est fil"
 
-# Unix.close fd;;
-- : unit = ()
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
 ```
 
 Test using cstructs with offsets:
@@ -368,7 +371,9 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 25}
 # Cstruct.to_string b;;
 - : string = "Gathered [A te] and [st ]"
 
-# Unix.close fd; Uring.exit t;;
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+# Uring.exit t;;
 - : unit = ()
 ```
 
@@ -408,7 +413,9 @@ val t2 : [ `Read ] Uring.t = <abstr>
 # Uring.read_chunk ~len:16 t2 fd chunk `Read ~file_offset:Int63.zero;;
 Exception: Invalid_argument "Chunk does not belong to ring!".
 
-# Unix.close fd; Uring.exit t;;
+# let fd = Unix.close fd;;
+val fd : unit = ()
+# Uring.exit t;;
 - : unit = ()
 ```
 
@@ -452,11 +459,13 @@ val read : _[> `Read ] Uring.job = <abstr>
       (* This is the common case. The read is blocked and can just be removed. *)
       ()
     | e1, e2 -> raise (Multiple [e1; e2])
-  end;
-  Unix.close r;
-  Unix.close w;
-  (* done *)
-  Uring.exit t;;
+  end;;
+- : unit = ()
+# let r : unit = Unix.close r;;
+val r : unit = ()
+# let w : unit = Unix.close w;;
+val w : unit = ()
+# Uring.exit t;;
 - : unit = ()
 ```
 
@@ -500,8 +509,8 @@ val read : _[> `Read ] Uring.job = <abstr>
     | e1, e2 -> raise (Multiple [e1; e2])
   );;
 - : unit = ()
-# Unix.close r;;
-- : unit = ()
+# let r : unit = Unix.close r;;
+val r : unit = ()
 
 # Uring.exit t;;
 - : unit = ()
@@ -522,8 +531,8 @@ val read : _[> `Read ] Uring.job = <abstr>
 # let token, r_read = consume t;;
 val token : _[> `Read ] = `Read
 val r_read : int = 1
-# Unix.close r;;
-- : unit = ()
+# let r : unit = Unix.close r;;
+val r : unit = ()
 ```
 
 Try to cancel after we may have reused the index:
@@ -559,14 +568,42 @@ Exception: Invalid_argument "exit: 1 request(s) still active!".
 But we can once it's complete:
 
 ```ocaml
-# Unix.close w;;
-- : unit = ()
+# let w : unit = Unix.close w;;
+val w : unit = ()
 # consume t;;
 - : _[> `Read ] * int = (`Read, 0)
 # Uring.exit t;;
 - : unit = ()
-# Unix.close r;;
-- : unit = ()
+# let r : unit = Unix.close r;;
+val r : unit = ()
+```
+
+We can't free the ring a second time, or use it after freeing it:
+
+```ocaml
+# Uring.unlink t ~dir:false "/doesntexist" `Mkdir;;
+Exception:
+Invalid_argument "Can't use ring after Uring.exit has been called".
+
+# Uring.submit t;;
+Exception:
+Invalid_argument "Can't use ring after Uring.exit has been called".
+
+# Uring.wait t;;
+Exception:
+Invalid_argument "Can't use ring after Uring.exit has been called".
+
+# Uring.get_cqe_nonblocking t;;
+Exception:
+Invalid_argument "Can't use ring after Uring.exit has been called".
+
+# Uring.get_probe t;;
+Exception:
+Invalid_argument "Can't use ring after Uring.exit has been called".
+
+# Uring.exit t;;
+Exception:
+Invalid_argument "Can't use ring after Uring.exit has been called".
 ```
 
 ## Send_msg
@@ -616,8 +653,14 @@ val w2 : Unix.file_descr = <abstr>
 - : int = 4
 # really_input_string (Unix.in_channel_of_descr r2) 4;;
 - : string = "to-w"
-# List.iter Unix.close [r; w; r2; w2];;
-- : unit = ()
+# let r : unit = Unix.close r;;
+val r : unit = ()
+# let r2 : unit = Unix.close r2;;
+val r2 : unit = ()
+# let w2 : unit = Unix.close w2;;
+val w2 : unit = ()
+# let w : unit = Unix.close w;;
+val w : unit = ()
 # Uring.exit t;;
 - : unit = ()
 ```

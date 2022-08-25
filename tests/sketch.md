@@ -45,8 +45,8 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
 # consume t;;
 - : unit * int = ((), 1000)
 
-# Unix.close fd;;
-- : unit = ()
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
 # Uring.exit t;;
 - : unit = ()
 ```

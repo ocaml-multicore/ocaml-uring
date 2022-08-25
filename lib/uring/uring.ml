@@ -316,7 +316,12 @@ let create ?polling_timeout ~queue_depth () =
   register_gc_root t;
   t
 
+let check t =
+  if Heap.is_released t.data then
+    invalid_arg "Can't use ring after Uring.exit has been called"
+
 let ensure_idle t op =
+  check t;
   match Heap.in_use t.data with
   | 0 -> ()
   | n -> Fmt.invalid_arg "%s: %d request(s) still active!" op n
@@ -334,13 +339,16 @@ let set_fixed_buffer t iobuf =
 
 let exit t =
   ensure_idle t "exit";
+  Heap.release t.data;
   Uring.exit t.uring;
   unregister_gc_root t
 
 let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a job option =
  fun t fn datum ~extra_data ->
   match Heap.alloc t.data datum ~extra_data with
-  | exception Heap.No_space -> None
+  | exception Heap.No_space ->
+    check t;    (* Check if it's because we exited already. *)
+    None
   | entry ->
     let ptr = Heap.ptr entry in
     let has_space = fn ptr in
@@ -459,6 +467,7 @@ let gc_sketch t =
   if Uring.sq_ready t.uring = 0 then Sketch.release t.sketch
 
 let submit t =
+  check t;
   let v =
     if t.dirty then begin
       t.dirty <- false;
@@ -484,12 +493,14 @@ let fn_on_ring fn t =
     Some { result = res; data }
 
 let get_cqe_nonblocking t =
+  check t;
   gc_sketch t;
   fn_on_ring Uring.peek_cqe t
 
 let peek = get_cqe_nonblocking
 
 let wait ?timeout t =
+  check t;
   let r =
     match timeout with
     | None -> fn_on_ring Uring.wait_cqe t
@@ -507,6 +518,7 @@ let error_of_errno e =
   Uring.error_of_errno (abs e)
 
 let get_probe t =
+  check t;
   Uring.get_probe_ring t.uring
 
 let op_supported probe op =
