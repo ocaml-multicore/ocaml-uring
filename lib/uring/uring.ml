@@ -267,7 +267,6 @@ type 'a t = {
   data : 'a Heap.t;
   sketch : Sketch.t;
   queue_depth: int;
-  mutable dirty: bool; (* has outstanding requests that need to be submitted *)
 }
 
 module Generic_ring = struct
@@ -312,7 +311,7 @@ let create ?polling_timeout ~queue_depth () =
   let id = object end in
   let fixed_iobuf = Cstruct.empty.buffer in
   let sketch = Sketch.create () in
-  let t = { id; uring; sketch; fixed_iobuf; data; dirty=false; queue_depth } in
+  let t = { id; uring; sketch; fixed_iobuf; data; queue_depth } in
   register_gc_root t;
   t
 
@@ -353,7 +352,6 @@ let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a 
     let ptr = Heap.ptr entry in
     let has_space = fn ptr in
     if has_space then (
-      t.dirty <- true;
       Some entry
     ) else (
       ignore (Heap.free t.data ptr : a);
@@ -469,10 +467,9 @@ let gc_sketch t =
 let submit t =
   check t;
   let v =
-    if t.dirty then begin
-      t.dirty <- false;
+    if Uring.sq_ready t.uring > 0 then
       Uring.submit t.uring
-    end else
+    else
       0
   in
   (* In non-polling mode, we will almost always be able to free the sketch buffer here.
