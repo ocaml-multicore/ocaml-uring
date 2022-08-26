@@ -181,17 +181,24 @@ val write : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 
     the memory pointed to by [buf].  The user data [d] will be returned by
     {!wait} or {!peek} upon completion. *)
 
+val iov_max : int
+(** The maximum length of the list that can be passed to [readv] and similar. *)
+
 val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [iov].  The user data [d] will
-    be returned by {!wait} or {!peek} upon completion. *)
+    be returned by {!wait} or {!peek} upon completion.
+
+    Requires [List.length iov <= Uring.iov_max] *)
 
 val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by
-    {!wait} or {!peek} upon completion. *)
+    {!wait} or {!peek} upon completion.
+
+    Requires [List.length iov <= Uring.iov_max] *)
 
 val read_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
 (** [read t ~file_offset fd ~off ~len d] will submit a [read(2)] request to uring [t].
@@ -248,6 +255,9 @@ module Msghdr : sig
   val create : ?n_fds:int -> ?addr:Sockaddr.t -> Cstruct.t list -> t
   (** [create buffs] makes a new [msghdr] using the [buffs]
       for the underlying [iovec].
+
+      Requires [List.length buffs <= Uring.iov_max]
+
       @param addr The remote address.
                   Use {!Sockaddr.create} to create a dummy address that will be filled when data is received.
       @param n_fds Reserve space to receive this many FDs (default 0) *)
@@ -258,6 +268,9 @@ end
 val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [send_msg t fd buffs d] will submit a [sendmsg(2)] request. The [Msghdr] will be constructed
     from the FDs ([fds]), address ([dst]) and buffers ([buffs]).
+
+    Requires [List.length buffs <= Uring.iov_max]
+
     @param dst Destination address.
     @param fds Extra file descriptors to attach to the message. *)
 

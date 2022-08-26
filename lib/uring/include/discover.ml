@@ -4,7 +4,7 @@ let () =
   C.main ~name:"discover" (fun c ->
       let defs =
         C.C_define.import c ~c_flags:["-D_GNU_SOURCE"; "-I"; Filename.concat (Sys.getcwd ()) "include"]
-          ~includes:["fcntl.h"; "poll.h"; "sys/uio.h"; "liburing.h"]
+          ~includes:["fcntl.h"; "poll.h"; "sys/uio.h"; "limits.h"; "liburing.h"]
           C.C_define.Type.[
             "POLLIN", Int;
             "POLLOUT", Int;
@@ -32,6 +32,7 @@ let () =
             "O_TMPFILE", Int;
 
             "AT_FDCWD", Int;
+            "IOV_MAX", Int;
 
             "sizeof(struct iovec)", Int;
             "sizeof(struct __kernel_timespec)", Int;
