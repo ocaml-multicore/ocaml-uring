@@ -43,3 +43,9 @@ val free : 'a t -> ptr -> 'a
 
 val in_use : 'a t -> int
 (** [in_use t] is the number of entries currently allocated. *)
+
+val release : _ t -> unit
+(**[ release t] marks [t] as unusable. Future operations on it will fail. [t] must be idle. *)
+
+val is_released : _ t -> bool
+(** [is_released t] is [true] once {!release} has succeeded. *)
