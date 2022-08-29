@@ -73,12 +73,15 @@ type clock = Boottime | Realtime
 (** Represents Linux clocks. [Boottime] and [Realtime] represents OS clocks CLOCK_BOOTTIME
     and CLOCK_REALTIME respectively. *)
 
-val timeout: ?absolute:bool -> 'a t -> clock -> int64 -> 'a -> 'a job option
+val timeout: ?absolute:bool -> ?completion_count:int -> 'a t -> clock -> int64 -> 'a -> 'a job option
 (** [timeout t clock ns d] submits a timeout request to uring [t].
 
     [absolute] denotes how [clock] and [ns] relate to one another. Default value is [false]
 
-    [ns] is the timeout time in nanoseconds *)
+    [ns] is the timeout time in nanoseconds.
+
+    [completion_count] is the count of completion entries after which the timeout request times out.
+    Default value is '0'. *)
 
 module type FLAGS = sig
   type t = private int

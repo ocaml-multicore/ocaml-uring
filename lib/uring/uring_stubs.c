@@ -151,17 +151,28 @@ ocaml_uring_sq_ready(value v_uring) {
 }
 
 void /* noalloc */
-ocaml_uring_set_timespec(value v_sketch_ptr, value v_timeout)
+ocaml_uring_set_timespec_native(value v_sketch_ptr, int64_t timeout)
 {
   struct __kernel_timespec *t = Sketch_ptr_val(v_sketch_ptr);
   t->tv_sec = 0;
-  t->tv_nsec = Int64_val(v_timeout);
+  t->tv_nsec = timeout;
+}
+
+void
+ocaml_uring_set_timespec(value v_sketch_ptr, value v_timeout)
+{
+  return ocaml_uring_set_timespec_native(v_sketch_ptr, Int64_val(v_timeout));
 }
 
 #define Val_boottime Val_int(0)
 
 value /* noalloc */
-ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value v_clock, value v_absolute)
+ocaml_uring_submit_timeout_native(value v_uring,
+    value v_id,
+    value v_sketch_ptr,
+    value v_clock,
+    value v_absolute,
+    int completion_count)
 {
   struct __kernel_timespec *t = Sketch_ptr_val(v_sketch_ptr);
   struct io_uring* ring = Ring_val(v_uring);
@@ -178,9 +189,15 @@ ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value 
 
   sqe = io_uring_get_sqe(ring);
   if (!sqe) return Val_false;
-  io_uring_prep_timeout(sqe, t, 0, flags);
+  io_uring_prep_timeout(sqe, t, completion_count, flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return Val_true;
+}
+
+value
+ocaml_uring_submit_timeout(value *argv, value argn)
+{
+  return ocaml_uring_submit_timeout_native(argv[0], argv[1], argv[2], argv[3], argv[4], Int_val(argv[5]));
 }
 
 struct open_how_data {

@@ -737,6 +737,32 @@ val timeout : int = -62
 - : unit = ()
 ```
 
+When a timeout and a normal sqe job is sent and the normal sqe job completes before the timeout, then timeout
+shouldn't complete. The timeout rqe should return with '0' - success.
+
+```ocaml
+# type job = Timeout : job | Noop : job | Cancel : job;;
+type job = Timeout : job | Noop : job | Cancel : job
+# let (t: job Uring.t) = Uring.create ~queue_depth:2 ();;
+val t : job Uring.t = <abstr>
+# Uring.noop t Noop;;
+- : job Uring.job option = Some <abstr>
+# let ns1 = Int64.(mul 10L 1_000_000L);;
+val ns1 : int64 = 10000000L
+# let timeout_job = Uring.(timeout ~completion_count:1 t Boottime ns1 Timeout);;
+val timeout_job : job Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 2
+# let completed_job, res = consume t;;
+val completed_job : job = Noop
+val res : int = 0
+# Uring.get_cqe_nonblocking t;;
+- : job Uring.completion_option =
+Uring.Some {Uring.result = 0; data = Timeout}
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Probing
 
 ```ocaml
