@@ -80,8 +80,12 @@ val timeout: ?absolute:bool -> ?completion_count:int -> 'a t -> clock -> int64 -
 
     [ns] is the timeout time in nanoseconds.
 
-    [completion_count] is the count of completion entries after which the timeout request times out.
-    Default value is '0'. *)
+    [completion_count] is the count of completion queue entries which must succeed - i.e. [0 = cqe->res] -
+    for the timeout sqe to also succeed, ie. [0 = timeout_cqe->res]. If the specified number of 
+    [completion_count] cqes are not reached within the given [ns] value, then the timeout request [cqe->res]
+    value is [-62] or [-ETIME]. [-62], [-ETIME] denotes that timeout [ns] was reached before uring could
+    complete [completion_count] cqes. Default value is '0' which always results in timeout request
+    returning [-ETIME]. *)
 
 module type FLAGS = sig
   type t = private int

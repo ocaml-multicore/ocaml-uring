@@ -172,7 +172,7 @@ ocaml_uring_submit_timeout_native(value v_uring,
     value v_sketch_ptr,
     value v_clock,
     value v_absolute,
-    int completion_count)
+    intnat completion_count)
 {
   struct __kernel_timespec *t = Sketch_ptr_val(v_sketch_ptr);
   struct io_uring* ring = Ring_val(v_uring);

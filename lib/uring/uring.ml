@@ -230,7 +230,7 @@ module Uring = struct
 
   type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
-  external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> int -> bool =
+  external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> (int [@untagged]) -> bool =
     "ocaml_uring_submit_timeout" "ocaml_uring_submit_timeout_native" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
   external submit_read : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
