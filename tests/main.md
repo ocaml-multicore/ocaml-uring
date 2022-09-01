@@ -25,11 +25,41 @@ let traceln fmt =
   Format.printf (fmt ^^ "@.")
 ```
 
-## Invalid queue depth
+## Queue depth
 
 ```ocaml
 # Uring.create ~queue_depth:0 ();;
 Exception: Invalid_argument "Non-positive queue depth: 0".
+```
+
+Prove we can wait more entries than queue depth
+
+```ocaml
+# let t : [ `Read ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Read ] Uring.t = <abstr>
+
+# let fd = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0;;
+val fd : Unix.file_descr = <abstr>
+# let b = Cstruct.create 1;;
+val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
+# Uring.read t fd b `Read ~file_offset:Int63.minus_one;;
+- : [ `Read ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.read t fd b `Read ~file_offset:Int63.minus_one;;
+- : [ `Read ] Uring.job option = Some <abstr>
+# Uring.read t fd b `Read ~file_offset:Int63.minus_one;;
+- : [ `Read ] Uring.job option = None
+# Uring.submit t;;
+- : int = 1
+# consume t;;
+- : [ `Read ] * int = (`Read, 1)
+# consume t;;
+- : [ `Read ] * int = (`Read, 1)
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+# Uring.exit t;;
+- : unit = ()
 ```
 
 ## Noop

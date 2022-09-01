@@ -32,10 +32,15 @@ val ptr : 'a entry -> ptr
 
 exception No_space
 
-val alloc : 'a t -> 'a -> extra_data:'b -> 'a entry
-(** [alloc t a ~extra_data] adds the value [a] to [t] and returns a pointer to that value,
+val alloc_no_growth : 'a t -> 'a -> extra_data:'b -> 'a entry
+(** [alloc_no_growth t a ~extra_data] adds the value [a] to [t] and returns a pointer to that value,
     or raises {!No_space} if no space exists in [t].
     @param extra_data Prevent this from being GC'd until [free] is called. *)
+
+val alloc : 'a t -> 'a -> extra_data:'b -> 'a entry
+(** [alloc t a ~extra_data] is [alloc_no_growth] but grows the Heap
+   when it is full. It can still raise {!No_space } if called after
+   the Heap is [release]d. *)
 
 val free : 'a t -> ptr -> 'a
 (** [free t p] returns the element referenced by [p] and removes it from the

@@ -28,11 +28,11 @@ type 'a entry =
 
 (* Free-list allocator *)
 type 'a t =
-  { data: 'a entry array
+  { mutable data: 'a entry array
   (* Pool of potentially-empty data slots. Invariant: an unfreed pointer [p]
      into this array is valid iff [free_tail_relation.(p) = slot_taken]. *)
   ; mutable free_head: ptr
-  ; free_tail_relation: ptr array
+  ; mutable free_tail_relation: ptr array
   (* A linked list of pointers to free slots, with [free_head] being the first
      element and [free_tail_relation] mapping each free slot to the next one.
      Each entry [x] signals a state of the corresponding [data.(x)] slot:
@@ -68,7 +68,52 @@ let create : type a. int -> a t =
 
 exception No_space
 
-let alloc t data ~extra_data =
+let in_use t = t.in_use
+
+let release t =
+  if t.in_use > 0 then invalid_arg "Heap still in use!"
+  else if t.in_use < 0 then invalid_arg "Heap already released!";
+  t.in_use <- -100;
+  t.free_head <- free_list_nil
+
+let is_released t = t.in_use < 0
+
+let grow t =
+  if is_released t then raise No_space;
+  let old_len = Array.length t.free_tail_relation in
+  if old_len = Sys.max_array_length then
+    raise No_space;
+  let new_len = min (max 64 (old_len * 2)) Sys.max_array_length in
+
+  (* Build new t.free_tail_relation, keep in sync with create() *)
+  let new_free_tail_relation =
+    Array.init new_len
+      (fun i ->
+         if i < old_len then
+           t.free_tail_relation.(i)
+         else succ i)
+  in
+  new_free_tail_relation.(new_len - 1) <- free_list_nil;
+
+  (* First element of enlarged array *)
+  let new_free_head = old_len in
+
+  (* Note: Keep in sync with create() *)
+  let new_data =
+    Array.init new_len
+      (fun i ->
+         if i < old_len then
+           t.data.(i)
+         else
+           Empty)
+  in
+
+  (* Commit *)
+  t.free_tail_relation <- new_free_tail_relation;
+  t.free_head <- new_free_head;
+  t.data <- new_data
+
+let alloc_no_growth t data ~extra_data =
   let ptr = t.free_head in
   if ptr = free_list_nil then raise No_space;
   let entry = Entry { data; extra_data; ptr } in
@@ -81,6 +126,12 @@ let alloc t data ~extra_data =
   t.in_use <- t.in_use + 1;
 
   entry
+
+let alloc t data ~extra_data =
+  try
+    alloc_no_growth t data ~extra_data
+  with
+    No_space -> grow t; alloc_no_growth t data ~extra_data
 
 let free t ptr =
   assert (ptr >= 0) (* [alloc] returns only valid pointers. *);
@@ -109,12 +160,3 @@ let free t ptr =
 
   datum
 
-let in_use t = t.in_use
-
-let release t =
-  if t.in_use > 0 then invalid_arg "Heap still in use!"
-  else if t.in_use < 0 then invalid_arg "Heap already released!";
-  t.in_use <- -100;
-  t.free_head <- free_list_nil
-
-let is_released t = t.in_use < 0
