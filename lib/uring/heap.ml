@@ -78,13 +78,14 @@ let release t =
 
 let is_released t = t.in_use < 0
 
+(* Note: t must be full *)
 let grow t =
   if is_released t then raise No_space;
+  if t.free_head <> free_list_nil then invalid_arg "Heap is not full";
   let old_len = Array.length t.free_tail_relation in
   if old_len = Sys.max_array_length then
     raise No_space;
   let new_len = min (max 64 (old_len * 2)) Sys.max_array_length in
-
   (* Build new t.free_tail_relation, keep in sync with create() *)
   let new_free_tail_relation =
     Array.init new_len
@@ -94,10 +95,8 @@ let grow t =
          else succ i)
   in
   new_free_tail_relation.(new_len - 1) <- free_list_nil;
-
   (* First element of enlarged array *)
   let new_free_head = old_len in
-
   (* Note: Keep in sync with create() *)
   let new_data =
     Array.init new_len
@@ -107,7 +106,6 @@ let grow t =
          else
            Empty)
   in
-
   (* Commit *)
   t.free_tail_relation <- new_free_tail_relation;
   t.free_head <- new_free_head;
