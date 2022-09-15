@@ -66,25 +66,27 @@ let create : type a. int -> a t =
   in
   { data; free_head; free_tail_relation; in_use = 0 }
 
-exception No_space
-
 let in_use t = t.in_use
-
-let release t =
-  if t.in_use > 0 then invalid_arg "Heap still in use!"
-  else if t.in_use < 0 then invalid_arg "Heap already released!";
-  t.in_use <- -100;
-  t.free_head <- free_list_nil
 
 let is_released t = t.in_use < 0
 
+let maybe_already_released t =
+  if is_released t then
+    invalid_arg "Heap already released!"
+
+let release t =
+  if t.in_use > 0 then invalid_arg "Heap still in use!";
+  maybe_already_released t;
+  t.in_use <- -100;
+  t.free_head <- free_list_nil
+
 (* Note: t must be full *)
 let grow t =
-  if is_released t then raise No_space;
+  maybe_already_released t;
   if t.free_head <> free_list_nil then invalid_arg "Heap is not full";
   let old_len = Array.length t.free_tail_relation in
   if old_len = Sys.max_array_length then
-    raise No_space;
+    invalid_arg "Heap at Sys.max_array_length already";
   let new_len = min (max 64 (old_len * 2)) Sys.max_array_length in
   (* Build new t.free_tail_relation, keep in sync with create() *)
   let new_free_tail_relation =
@@ -111,25 +113,19 @@ let grow t =
   t.free_head <- new_free_head;
   t.data <- new_data
 
-let alloc_no_growth t data ~extra_data =
+let alloc t data ~extra_data =
+  maybe_already_released t;
+  if t.free_head = free_list_nil then grow t;
   let ptr = t.free_head in
-  if ptr = free_list_nil then raise No_space;
+  assert (ptr <> free_list_nil);
   let entry = Entry { data; extra_data; ptr } in
   t.data.(ptr) <- entry;
-
   (* Drop [ptr] from the free list. *)
   let tail = t.free_tail_relation.(ptr) in
   t.free_tail_relation.(ptr) <- slot_taken;
   t.free_head <- tail;
   t.in_use <- t.in_use + 1;
-
   entry
-
-let alloc t data ~extra_data =
-  try
-    alloc_no_growth t data ~extra_data
-  with
-    No_space -> grow t; alloc_no_growth t data ~extra_data
 
 let free t ptr =
   assert (ptr >= 0) (* [alloc] returns only valid pointers. *);

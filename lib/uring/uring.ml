@@ -344,19 +344,17 @@ let exit t =
 
 let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a job option =
  fun t fn datum ~extra_data ->
-  match Heap.alloc t.data datum ~extra_data with
-  | exception Heap.No_space ->
-    check t;    (* Check if it's because we exited already. *)
-    None
-  | entry ->
-    let ptr = Heap.ptr entry in
-    let has_space = fn ptr in
-    if has_space then (
-      Some entry
-    ) else (
-      ignore (Heap.free t.data ptr : a);
-      None
-    )
+ let entry = try Heap.alloc t.data datum ~extra_data
+   with exc -> check t; raise exc
+ in
+ let ptr = Heap.ptr entry in
+ let has_space = fn ptr in
+ if has_space then
+   Some entry
+ else (
+   ignore (Heap.free t.data ptr : a);
+   None
+ )
 
 let with_id t fn a = with_id_full t fn a ~extra_data:()
 
