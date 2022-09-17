@@ -114,10 +114,8 @@ let grow t =
   t.data <- new_data
 
 let alloc t data ~extra_data =
-  maybe_already_released t;
   if t.free_head = free_list_nil then grow t;
   let ptr = t.free_head in
-  assert (ptr <> free_list_nil);
   let entry = Entry { data; extra_data; ptr } in
   t.data.(ptr) <- entry;
   (* Drop [ptr] from the free list. *)
