@@ -30,11 +30,10 @@ val ptr : 'a entry -> ptr
 (** [ptr e] is the index of [e].
     @raise Invalid_arg if [e] has already been freed. *)
 
-exception No_space
-
 val alloc : 'a t -> 'a -> extra_data:'b -> 'a entry
-(** [alloc t a ~extra_data] adds the value [a] to [t] and returns a pointer to that value,
-    or raises {!No_space} if no space exists in [t].
+(** [alloc t a ~extra_data] adds the value [a] to [t] and returns a
+    pointer to that value, or raises {!Invalid_arg} if no extra space
+    can be created for [t], or [t] has already been [release]d.
     @param extra_data Prevent this from being GC'd until [free] is called. *)
 
 val free : 'a t -> ptr -> 'a
@@ -45,7 +44,7 @@ val in_use : 'a t -> int
 (** [in_use t] is the number of entries currently allocated. *)
 
 val release : _ t -> unit
-(**[ release t] marks [t] as unusable. Future operations on it will fail. [t] must be idle. *)
+(** [release t] marks [t] as unusable. Future operations on it will fail. [t] must be idle. *)
 
 val is_released : _ t -> bool
 (** [is_released t] is [true] once {!release} has succeeded. *)
