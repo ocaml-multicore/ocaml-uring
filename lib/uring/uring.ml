@@ -344,9 +344,9 @@ let exit t =
 
 let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a job option =
  fun t fn datum ~extra_data ->
- let entry = try Heap.alloc t.data datum ~extra_data
-   with exc -> check t; raise exc
- in
+   match Heap.alloc t.data datum ~extra_data with
+  | exception (Invalid_argument _ as ex) -> check t; raise ex
+  | entry ->
  let ptr = Heap.ptr entry in
  let has_space = fn ptr in
  if has_space then
