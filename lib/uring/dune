@@ -35,7 +35,7 @@
        "%{ocaml-config:ocamlc_cflags}"
        (run make -j -C src))))
     (copy %{project_root}/vendor/liburing/src/liburing.a liburing.a)
-    (copy %{project_root}/vendor/liburing/src/liburing.so.2.2 dlluring.so)
+    (copy %{project_root}/vendor/liburing/src/liburing.so.2.3 dlluring.so)
     (copy %{project_root}/vendor/liburing/src/include/liburing.h liburing.h)
     (copy %{project_root}/vendor/liburing/src/include/liburing/io_uring.h
       io_uring.h)

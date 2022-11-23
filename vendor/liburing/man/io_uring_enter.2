@@ -3,27 +3,31 @@
 .\"
 .\" SPDX-License-Identifier: LGPL-2.0-or-later
 .\"
-.TH IO_URING_ENTER 2 2019-01-22 "Linux" "Linux Programmer's Manual"
+.TH io_uring_enter 2 2019-01-22 "Linux" "Linux Programmer's Manual"
 .SH NAME
 io_uring_enter \- initiate and/or complete asynchronous I/O
 .SH SYNOPSIS
 .nf
-.BR "#include <linux/io_uring.h>"
+.BR "#include <liburing.h>"
 .PP
 .BI "int io_uring_enter(unsigned int " fd ", unsigned int " to_submit ,
 .BI "                   unsigned int " min_complete ", unsigned int " flags ,
 .BI "                   sigset_t *" sig );
+.PP
+.BI "int io_uring_enter2(unsigned int " fd ", unsigned int " to_submit ,
+.BI "                    unsigned int " min_complete ", unsigned int " flags ,
+.BI "                    sigset_t *" sig ", size_t " sz );
 .fi
 .PP
 .SH DESCRIPTION
 .PP
-.BR io_uring_enter ()
+.BR io_uring_enter (2)
 is used to initiate and complete I/O using the shared submission and
 completion queues setup by a call to
 .BR io_uring_setup (2).
 A single call can both submit new I/O and wait for completions of I/O
 initiated by this call or previous calls to
-.BR io_uring_enter ().
+.BR io_uring_enter (2).
 
 .I fd
 is the file descriptor returned by
@@ -34,7 +38,7 @@ specifies the number of I/Os to submit from the submission queue.
 is a bitmask of the following values:
 .TP
 .B IORING_ENTER_GETEVENTS
-If this flag is set, then the system call will wait for the specificied
+If this flag is set, then the system call will wait for the specified
 number of events in
 .I min_complete
 before returning. This flag can be set along with
@@ -61,12 +65,12 @@ Since kernel 5.11, the system calls arguments have been modified to look like
 the following:
 
 .nf
-.BI "int io_uring_enter(unsigned int " fd ", unsigned int " to_submit ,
-.BI "                   unsigned int " min_complete ", unsigned int " flags ,
-.BI "                   const void *" arg ", size_t " argsz );
+.BI "int io_uring_enter2(unsigned int " fd ", unsigned int " to_submit ,
+.BI "                    unsigned int " min_complete ", unsigned int " flags ,
+.BI "                    const void *" arg ", size_t " argsz );
 .fi
 
-which is behaves just like the original definition by default. However, if
+which behaves just like the original definition by default. However, if
 .B IORING_ENTER_EXT_ARG
 is set, then instead of a
 .I sigset_t
@@ -137,12 +141,12 @@ is a pointer to a signal mask (see
 if
 .I sig
 is not NULL,
-.BR io_uring_enter ()
+.BR io_uring_enter (2)
 first replaces the current signal mask by the one pointed to by
 .IR sig ,
 then waits for events to become available in the completion queue, and
 then restores the original signal mask.  The following
-.BR io_uring_enter ()
+.BR io_uring_enter (2)
 call:
 .PP
 .in +4n
@@ -249,7 +253,7 @@ and
 .BR pwritev2 (2).
 If the file is not seekable,
 .I off
-must be set to zero.
+must be set to zero or -1.
 
 .TP
 .B IORING_OP_READ_FIXED
@@ -390,11 +394,45 @@ holds the flags associated with the system call. See also
 .BR sendmsg (2)
 for the general description of the related system call. Available since 5.3.
 
+This command also supports the following modifiers in
+.I ioprio:
+
+.PP
+.in +12
+.B IORING_RECVSEND_POLL_FIRST
+If set, io_uring will assume the socket is currently full and attempting to
+send data will be unsuccessful. For this case, io_uring will arm internal
+poll and trigger a send of the data when there is enough space available.
+This initial send attempt can be wasteful for the case where the socket
+is expected to be full, setting this flag will bypass the initial send
+attempt and go straight to arming poll. If poll does indicate that data can
+be sent, the operation will proceed.
+.EE
+.in
+.PP
+
 .TP
 .B IORING_OP_RECVMSG
 Works just like IORING_OP_SENDMSG, except for
 .BR recvmsg(2)
 instead. See the description of IORING_OP_SENDMSG. Available since 5.3.
+
+This command also supports the following modifiers in
+.I ioprio:
+
+.PP
+.in +12
+.B IORING_RECVSEND_POLL_FIRST
+If set, io_uring will assume the socket is currently empty and attempting to
+receive data will be unsuccessful. For this case, io_uring will arm internal
+poll and trigger a receive of the data when the socket has data to be read.
+This initial receive attempt can be wasteful for the case where the socket
+is expected to be empty, setting this flag will bypass the initial receive
+attempt and go straight to arming poll. If poll does indicate that data is
+ready to be received, the operation will proceed.
+.EE
+.in
+.PP
 
 .TP
 .B IORING_OP_SEND
@@ -412,11 +450,45 @@ holds the flags associated with the system call. See also
 .BR send(2)
 for the general description of the related system call. Available since 5.6.
 
+This command also supports the following modifiers in
+.I ioprio:
+
+.PP
+.in +12
+.B IORING_RECVSEND_POLL_FIRST
+If set, io_uring will assume the socket is currently full and attempting to
+send data will be unsuccessful. For this case, io_uring will arm internal
+poll and trigger a send of the data when there is enough space available.
+This initial send attempt can be wasteful for the case where the socket
+is expected to be full, setting this flag will bypass the initial send
+attempt and go straight to arming poll. If poll does indicate that data can
+be sent, the operation will proceed.
+.EE
+.in
+.PP
+
 .TP
 .B IORING_OP_RECV
 Works just like IORING_OP_SEND, except for
 .BR recv(2)
 instead. See the description of IORING_OP_SEND. Available since 5.6.
+
+This command also supports the following modifiers in
+.I ioprio:
+
+.PP
+.in +12
+.B IORING_RECVSEND_POLL_FIRST
+If set, io_uring will assume the socket is currently empty and attempting to
+receive data will be unsuccessful. For this case, io_uring will arm internal
+poll and trigger a receive of the data when the socket has data to be read.
+This initial receive attempt can be wasteful for the case where the socket
+is expected to be empty, setting this flag will bypass the initial receive
+attempt and go straight to arming poll. If poll does indicate that data is
+ready to be received, the operation will proceed.
+.EE
+.in
+.PP
 
 .TP
 .B IORING_OP_TIMEOUT
@@ -460,7 +532,7 @@ suspend while having a timeout request in-flight.
 
 .B IORING_TIMEOUT_REALTIME
 If set, then the clocksource used is
-.I CLOCK_BOOTTIME
+.I CLOCK_REALTIME
 instead of
 .I CLOCK_MONOTONIC.
 .EE
@@ -785,7 +857,7 @@ contains the read or write offset. If
 .I fd
 does not refer to a seekable file,
 .I off
-must be set to zero. If
+must be set to zero or -1. If
 .I offs
 is set to
 .B -1
@@ -1052,8 +1124,123 @@ set, and a
 field matching the
 .I off
 value being passed in. This request type can be used to either just wake or
-interrupt anyone waiting for completions on the target ring, ot it can be used
+interrupt anyone waiting for completions on the target ring, or it can be used
 to pass messages via the two fields. Available since 5.18.
+
+.TP
+.B IORING_OP_SOCKET
+Issue the equivalent of a
+.BR socket(2)
+system call.
+.I fd
+must contain the communication domain,
+.I off
+must contain the communication type,
+.I len
+must contain the protocol, and
+.I rw_flags
+is currently unused and must be set to zero. See also
+.BR socket(2)
+for the general description of the related system call. Available since 5.19.
+
+If the
+.I file_index
+field is set to a positive number, the file won't be installed into the
+normal file table as usual but will be placed into the fixed file table at index
+.I file_index - 1.
+In this case, instead of returning a file descriptor, the result will contain
+either 0 on success or an error. If the index points to a valid empty slot, the
+installation is guaranteed to not fail. If there is already a file in the slot,
+it will be replaced, similar to
+.B IORING_OP_FILES_UPDATE.
+Please note that only io_uring has access to such files and no other syscall
+can use them. See
+.B IOSQE_FIXED_FILE
+and
+.B IORING_REGISTER_FILES.
+
+Available since 5.19.
+
+.TP
+.B IORING_OP_SEND_ZC
+Issue the zerocopy equivalent of a
+.BR send(2)
+system call. Similar to IORING_OP_SEND, but tries to avoid making intermediate
+copies of data. Zerocopy execution is not guaranteed and may fall back to
+copying. The request may also fail with
+.B -EOPNOTSUPP ,
+when a protocol doesn't support zerocopy, in which case users are recommended
+to use copying sends instead.
+
+The
+.I flags
+field of the first
+.I "struct io_uring_cqe"
+may likely contain
+.B IORING_CQE_F_MORE ,
+which means that there will be a second completion event / notification for
+the request, with the
+.I user_data
+field set to the same value. The user must not modify the data buffer until the
+notification is posted. The first cqe follows the usual rules and so its
+.I res
+field will contain the number of bytes sent or a negative error code. The
+notification's
+.I res
+field will be set to zero and the
+.I flags
+field will contain
+.B IORING_CQE_F_NOTIF .
+The two step model is needed because the kernel may hold on to buffers for a
+long time, e.g. waiting for a TCP ACK, and having a separate cqe for request
+completions allows userspace to push more data without extra delays. Note,
+notifications are only responsible for controlling the lifetime of the buffers,
+and as such don't mean anything about whether the data has atually been sent
+out or received by the other end. Even errored requests may generate a
+notification, and the user must check for
+.B IORING_CQE_F_MORE
+rather than relying on the result.
+
+.I fd
+must be set to the socket file descriptor,
+.I addr
+must contain a pointer to the buffer,
+.I len
+denotes the length of the buffer to send, and
+.I msg_flags
+holds the flags associated with the system call. When
+.I addr2
+is non-zero it points to the address of the target with
+.I addr_len
+specifying its size, turning the request into a
+.BR sendto(2)
+system call equivalent.
+
+Available since 6.0.
+
+This command also supports the following modifiers in
+.I ioprio:
+
+.PP
+.in +12
+.B IORING_RECVSEND_POLL_FIRST
+If set, io_uring will assume the socket is currently full and attempting to
+send data will be unsuccessful. For this case, io_uring will arm internal
+poll and trigger a send of the data when there is enough space available.
+This initial send attempt can be wasteful for the case where the socket
+is expected to be full, setting this flag will bypass the initial send
+attempt and go straight to arming poll. If poll does indicate that data can
+be sent, the operation will proceed.
+
+.B IORING_RECVSEND_FIXED_BUF
+If set, instructs io_uring to use a pre-mapped buffer. The
+.I buf_index
+field should contain an index into an array of fixed buffers. See
+.BR io_uring_register (2)
+for details on how to setup a context for fixed buffer I/O.
+.EE
+.in
+.PP
 
 .PP
 The
@@ -1143,7 +1330,7 @@ linked timeout has the flag set, it's guaranteed to not post a CQE.
 
 The semantics are chosen to accommodate several use cases. First, when all but
 the last request of a normal link without linked timeouts are marked with the
-flag, only one CQE per lin is posted. Additionally, it enables supression of
+flag, only one CQE per lin is posted. Additionally, it enables suppression of
 CQEs in cases where the side effects of a successfully executed operation is
 enough for userspace to know the state of the system. One such example would
 be writing to a synchronisation file.
@@ -1282,7 +1469,7 @@ in the matching man page for that type, or in the opcodes section above for
 io_uring-specific opcodes.
 .PP
 .SH RETURN VALUE
-.BR io_uring_enter ()
+.BR io_uring_enter (2)
 returns the number of I/Os successfully consumed.  This can be zero
 if
 .I to_submit
@@ -1299,15 +1486,14 @@ completion queue entry (see section
 rather than through the system call itself.
 
 Errors that occur not on behalf of a submission queue entry are returned via the
-system call directly. On such an error,
-.B -1
-is returned and
+system call directly. On such an error, a negative error code is returned. The
+caller should not rely on
 .I errno
-is set appropriately.
+variable.
 .PP
 .SH ERRORS
 These are the errors returned by
-.BR io_uring_enter ()
+.BR io_uring_enter (2)
 system call.
 .TP
 .B EAGAIN
@@ -1326,8 +1512,30 @@ is a valid file descriptor, but the io_uring ring is not in the right state
 .BR io_uring_register (2)
 for details on how to enable the ring.
 .TP
+.B EBADR
+At least one CQE was dropped even with the
+.B IORING_FEAT_NODROP
+feature, and there are no otherwise available CQEs. This clears the error state
+and so with no other changes the next call to
+.BR io_uring_setup (2)
+will not have this error. This error should be extremely rare and indicates the
+machine is running critically low on memory and. It may be reasonable for the
+application to terminate running unless it is able to safely handle any CQE
+being lost.
+.TP
 .B EBUSY
-The application is attempting to overcommit the number of requests it can have
+If the
+.B IORING_FEAT_NODROP
+feature flag is set, then
+.B EBUSY
+will be returned if there were overflow entries,
+.B IORING_ENTER_GETEVENTS
+flag is set and not all of the overflow entries were able to be flushed to
+the CQ ring.
+
+Without
+.B IORING_FEAT_NODROP
+the application is attempting to overcommit the number of requests it can have
 pending. The application should wait for some completions and try again. May
 occur if the application tries to queue more requests than we have room for in
 the CQ ring, or if the application attempts to wait for more events without

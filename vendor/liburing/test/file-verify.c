@@ -430,6 +430,10 @@ static int test(struct io_uring *ring, const char *fname, int buffered,
 				fprintf(stderr, "bad read %d, read %d\n", cqe->res, i);
 				goto err;
 			}
+			if (cqe->res < CHUNK_SIZE) {
+				fprintf(stderr, "short read %d, read %d\n", cqe->res, i);
+				goto err;
+			}
 			if (cqe->flags & IORING_CQE_F_BUFFER)
 				index = cqe->flags >> 16;
 			else
@@ -621,9 +625,9 @@ int main(int argc, char *argv[])
 
 	if (buf == fname)
 		unlink(fname);
-	return 0;
+	return T_EXIT_PASS;
 err:
 	if (buf == fname)
 		unlink(fname);
-	return 1;
+	return T_EXIT_FAIL;
 }

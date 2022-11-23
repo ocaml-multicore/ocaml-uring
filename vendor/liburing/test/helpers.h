@@ -10,11 +10,25 @@ extern "C" {
 #endif
 
 #include "liburing.h"
+#include <arpa/inet.h>
 
 enum t_setup_ret {
 	T_SETUP_OK	= 0,
 	T_SETUP_SKIP,
 };
+
+enum t_test_result {
+	T_EXIT_PASS   = 0,
+	T_EXIT_FAIL   = 1,
+	T_EXIT_SKIP   = 77,
+};
+
+/*
+ * Helper for binding socket to an ephemeral port.
+ * The port number to be bound is returned in @addr->sin_port.
+ */
+int t_bind_ephemeral_port(int fd, struct sockaddr_in *addr);
+
 
 /*
  * Helper for allocating memory in tests.
@@ -53,6 +67,11 @@ void t_create_file_pattern(const char *file, size_t size, char pattern);
 struct iovec *t_create_buffers(size_t buf_num, size_t buf_size);
 
 /*
+ * Helper for creating connected socket pairs
+ */
+int t_create_socket_pair(int fd[2], bool stream);
+
+/*
  * Helper for setting up a ring and checking for user privs
  */
 enum t_setup_ret t_create_ring_params(int depth, struct io_uring *ring,
@@ -63,6 +82,8 @@ enum t_setup_ret t_create_ring(int depth, struct io_uring *ring,
 enum t_setup_ret t_register_buffers(struct io_uring *ring,
 				    const struct iovec *iovecs,
 				    unsigned nr_iovecs);
+
+bool t_probe_defer_taskrun(void);
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 

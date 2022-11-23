@@ -365,8 +365,13 @@ static int test_cancel_req_across_fork(void)
 		exit(0);
 	} else {
 		int wstatus;
+		pid_t childpid;
 
-		if (waitpid(p, &wstatus, 0) == (pid_t)-1) {
+		do {
+			childpid = waitpid(p, &wstatus, 0);
+		} while (childpid == (pid_t)-1 && errno == EINTR);
+
+		if (childpid == (pid_t)-1) {
 			perror("waitpid()");
 			return 1;
 		}
@@ -503,26 +508,26 @@ int main(int argc, char *argv[])
 	int i, ret;
 
 	if (argc > 1)
-		return 0;
+		return T_EXIT_SKIP;
 
 	if (test_dont_cancel_another_ring()) {
 		fprintf(stderr, "test_dont_cancel_another_ring() failed\n");
-		return 1;
+		return T_EXIT_FAIL;
 	}
 
 	if (test_cancel_req_across_fork()) {
 		fprintf(stderr, "test_cancel_req_across_fork() failed\n");
-		return 1;
+		return T_EXIT_FAIL;
 	}
 
 	if (test_cancel_inflight_exit()) {
 		fprintf(stderr, "test_cancel_inflight_exit() failed\n");
-		return 1;
+		return T_EXIT_FAIL;
 	}
 
 	if (test_sqpoll_cancel_iowq_requests()) {
 		fprintf(stderr, "test_sqpoll_cancel_iowq_requests() failed\n");
-		return 1;
+		return T_EXIT_FAIL;
 	}
 
 	t_create_file(fname, FILE_SIZE);
@@ -543,8 +548,8 @@ int main(int argc, char *argv[])
 	}
 
 	unlink(fname);
-	return 0;
+	return T_EXIT_PASS;
 err:
 	unlink(fname);
-	return 1;
+	return T_EXIT_FAIL;
 }

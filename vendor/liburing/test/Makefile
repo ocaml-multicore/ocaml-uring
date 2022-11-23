@@ -15,7 +15,7 @@ override CPPFLAGS += \
 	-I../src/include/ \
 	-include ../config-host.h
 
-CFLAGS ?= -g -O2 -Wall -Wextra
+CFLAGS ?= -g -O3 -Wall -Wextra
 XCFLAGS = -Wno-unused-parameter -Wno-sign-compare
 
 ifdef CONFIG_HAVE_STRINGOP_OVERFLOW
@@ -62,6 +62,7 @@ test_srcs := \
 	d4ae271dfaae.c \
 	d77a67ed5f27.c \
 	defer.c \
+	defer-taskrun.c \
 	double-poll-crash.c \
 	drop-submit.c \
 	eeed8b54e0df.c \
@@ -75,6 +76,7 @@ test_srcs := \
 	fadvise.c \
 	fallocate.c \
 	fc2a85cb02ef.c \
+	fd-pass.c \
 	file-register.c \
 	files-exit-hang-poll.c \
 	files-exit-hang-timeout.c \
@@ -88,7 +90,9 @@ test_srcs := \
 	hardlink.c \
 	io-cancel.c \
 	iopoll.c \
+	iopoll-leak.c \
 	io_uring_enter.c \
+	io_uring_passthrough.c \
 	io_uring_register.c \
 	io_uring_setup.c \
 	lfs-openat.c \
@@ -100,6 +104,7 @@ test_srcs := \
 	mkdir.c \
 	msg-ring.c \
 	multicqes_drain.c \
+	nolibc.c \
 	nop-all-sizes.c \
 	nop.c \
 	openat2.c \
@@ -116,6 +121,7 @@ test_srcs := \
 	poll-link.c \
 	poll-many.c \
 	poll-mshot-update.c \
+	poll-mshot-overflow.c \
 	poll-ring.c \
 	poll-v-poll.c \
 	pollfree.c \
@@ -124,6 +130,7 @@ test_srcs := \
 	read-write.c \
 	recv-msgall.c \
 	recv-msgall-stream.c \
+	recv-multishot.c \
 	register-restrictions.c \
 	rename.c \
 	ringbuf-read.c \
@@ -156,8 +163,10 @@ test_srcs := \
 	sqpoll-sleep.c \
 	sq-space_left.c \
 	stdout.c \
+	submit-and-wait.c \
 	submit-link-fail.c \
 	submit-reuse.c \
+	sync-cancel.c \
 	symlink.c \
 	teardowns.c \
 	thread-exit.c \
@@ -169,6 +178,8 @@ test_srcs := \
 	wakeup-hang.c \
 	xattr.c \
 	skip-cqe.c \
+	single-issuer.c \
+	send-zerocopy.c \
 	# EOL
 
 all_targets :=
@@ -192,21 +203,9 @@ test_targets := $(patsubst %.cc,%,$(test_targets))
 run_test_targets := $(patsubst %,%.run_test,$(test_targets))
 test_targets := $(patsubst %,%.t,$(test_targets))
 all_targets += $(test_targets)
-
-#
-# Build ../src/syscall.c manually from test's Makefile to support
-# liburing nolibc.
-#
-# Functions in ../src/syscall.c require libc to work with, if we
-# build liburing without libc, we don't have those functions
-# in liburing.a. So build it manually here.
-#
-helpers = helpers.o ../src/syscall.o
+helpers = helpers.o
 
 all: $(test_targets)
-
-../src/syscall.o: ../src/syscall.c
-	$(QUIET_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<
 
 helpers.o: helpers.c
 	$(QUIET_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<

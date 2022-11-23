@@ -52,6 +52,9 @@ static int test_read(struct io_uring *ring, bool async, int blocksize)
 	unsigned char buff[QUEUE_SIZE * blocksize];
 	unsigned char reordered[QUEUE_SIZE * blocksize];
 
+	memset(buff, 0, QUEUE_SIZE * blocksize);
+	memset(reordered, 0, QUEUE_SIZE * blocksize);
+
 	create_file(".test_fpos_read", FILE_SIZE);
 	fd = open(".test_fpos_read", O_RDONLY);
 	unlink(".test_fpos_read");
@@ -225,12 +228,12 @@ int main(int argc, char *argv[])
 	int ret;
 
 	if (argc > 1)
-		return 0;
+		return T_EXIT_SKIP;
 
 	ret = io_uring_queue_init(QUEUE_SIZE, &ring, 0);
 	if (ret) {
 		fprintf(stderr, "ring setup failed\n");
-		return 1;
+		return T_EXIT_FAIL;
 	}
 
 	for (int test = 0; test < 8; test++) {
@@ -248,5 +251,5 @@ int main(int argc, char *argv[])
 			return -1;
 		}
 	}
-	return 0;
+	return T_EXIT_PASS;
 }

@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <sys/sysinfo.h>
 #include "liburing.h"
+#include "helpers.h"
 
 #include "../syscall.h"
 
@@ -97,11 +98,11 @@ dump_resv(struct io_uring_params *p)
 /* bogus: setup returns a valid fd on success... expect can't predict the
    fd we'll get, so this really only takes 1 parameter: error */
 int
-try_io_uring_setup(unsigned entries, struct io_uring_params *p, int expect, int error)
+try_io_uring_setup(unsigned entries, struct io_uring_params *p, int expect)
 {
-	int ret, err;
+	int ret;
 
-	ret = __sys_io_uring_setup(entries, p);
+	ret = io_uring_setup(entries, p);
 	if (ret != expect) {
 		fprintf(stderr, "expected %d, got %d\n", expect, ret);
 		/* if we got a valid uring, close it */
@@ -109,13 +110,13 @@ try_io_uring_setup(unsigned entries, struct io_uring_params *p, int expect, int 
 			close(ret);
 		return 1;
 	}
-	err = errno;
-	if (expect == -1 && error != err) {
-		if (err == EPERM && geteuid() != 0) {
+
+	if (expect < 0 && expect != ret) {
+		if (ret == -EPERM && geteuid() != 0) {
 			printf("Needs root, not flagging as an error\n");
 			return 0;
 		}
-		fprintf(stderr, "expected errno %d, got %d\n", error, err);
+		fprintf(stderr, "expected errno %d, got %d\n", expect, ret);
 		return 1;
 	}
 
@@ -130,32 +131,32 @@ main(int argc, char **argv)
 	struct io_uring_params p;
 
 	if (argc > 1)
-		return 0;
+		return T_EXIT_SKIP;
 
 	memset(&p, 0, sizeof(p));
-	status |= try_io_uring_setup(0, &p, -1, EINVAL);
-	status |= try_io_uring_setup(1, NULL, -1, EFAULT);
+	status |= try_io_uring_setup(0, &p, -EINVAL);
+	status |= try_io_uring_setup(1, NULL, -EFAULT);
 
 	/* resv array is non-zero */
 	memset(&p, 0, sizeof(p));
 	p.resv[0] = p.resv[1] = p.resv[2] = 1;
-	status |= try_io_uring_setup(1, &p, -1, EINVAL);
+	status |= try_io_uring_setup(1, &p, -EINVAL);
 
 	/* invalid flags */
 	memset(&p, 0, sizeof(p));
 	p.flags = ~0U;
-	status |= try_io_uring_setup(1, &p, -1, EINVAL);
+	status |= try_io_uring_setup(1, &p, -EINVAL);
 
 	/* IORING_SETUP_SQ_AFF set but not IORING_SETUP_SQPOLL */
 	memset(&p, 0, sizeof(p));
 	p.flags = IORING_SETUP_SQ_AFF;
-	status |= try_io_uring_setup(1, &p, -1, EINVAL);
+	status |= try_io_uring_setup(1, &p, -EINVAL);
 
 	/* attempt to bind to invalid cpu */
 	memset(&p, 0, sizeof(p));
 	p.flags = IORING_SETUP_SQPOLL | IORING_SETUP_SQ_AFF;
 	p.sq_thread_cpu = get_nprocs_conf();
-	status |= try_io_uring_setup(1, &p, -1, EINVAL);
+	status |= try_io_uring_setup(1, &p, -EINVAL);
 
 	/* I think we can limit a process to a set of cpus.  I assume
 	 * we shouldn't be able to setup a kernel thread outside of that.
@@ -163,10 +164,10 @@ main(int argc, char **argv)
 
 	/* read/write on io_uring_fd */
 	memset(&p, 0, sizeof(p));
-	fd = __sys_io_uring_setup(1, &p);
+	fd = io_uring_setup(1, &p);
 	if (fd < 0) {
 		fprintf(stderr, "io_uring_setup failed with %d, expected success\n",
-		       errno);
+		       -fd);
 		status = 1;
 	} else {
 		char buf[4096];
@@ -179,8 +180,8 @@ main(int argc, char **argv)
 	}
 
 	if (!status)
-		return 0;
+		return T_EXIT_PASS;
 
 	fprintf(stderr, "FAIL\n");
-	return -1;
+	return T_EXIT_FAIL;
 }
