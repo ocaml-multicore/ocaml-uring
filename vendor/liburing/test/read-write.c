@@ -462,6 +462,79 @@ static int provide_buffers_iovec(struct io_uring *ring, int bgid)
 	return 0;
 }
 
+static int test_buf_select_pipe(void)
+{
+	struct io_uring_sqe *sqe;
+	struct io_uring_cqe *cqe;
+	struct io_uring ring;
+	int ret, i;
+	int fds[2];
+
+	if (no_buf_select)
+		return 0;
+
+	ret = io_uring_queue_init(64, &ring, 0);
+	if (ret) {
+		fprintf(stderr, "ring create failed: %d\n", ret);
+		return 1;
+	}
+
+	ret = provide_buffers_iovec(&ring, 0);
+	if (ret) {
+		fprintf(stderr, "provide buffers failed: %d\n", ret);
+		return 1;
+	}
+
+	ret = pipe(fds);
+	if (ret) {
+		fprintf(stderr, "pipe failed: %d\n", ret);
+		return 1;
+	}
+
+	for (i = 0; i < 5; i++) {
+		sqe = io_uring_get_sqe(&ring);
+		io_uring_prep_read(sqe, fds[0], NULL, 1 /* max read 1 per go */, -1);
+		sqe->flags |= IOSQE_BUFFER_SELECT;
+		sqe->buf_group = 0;
+	}
+	io_uring_submit(&ring);
+
+	ret = write(fds[1], "01234", 5);
+	if (ret != 5) {
+		fprintf(stderr, "pipe write failed %d\n", ret);
+		return 1;
+	}
+
+	for (i = 0; i < 5; i++) {
+		const char *buff;
+
+		if (io_uring_wait_cqe(&ring, &cqe)) {
+			fprintf(stderr, "bad wait %d\n", i);
+			return 1;
+		}
+		if (cqe->res != 1) {
+			fprintf(stderr, "expected read %d\n", cqe->res);
+			return 1;
+		}
+		if (!(cqe->flags & IORING_CQE_F_BUFFER)) {
+			fprintf(stderr, "no buffer %d\n", cqe->res);
+			return 1;
+		}
+		buff = vecs[cqe->flags >> 16].iov_base;
+		if (*buff != '0' + i) {
+			fprintf(stderr, "%d: expected %c, got %c\n", i, '0' + i, *buff);
+			return 1;
+		}
+		io_uring_cqe_seen(&ring, cqe);
+	}
+
+
+	close(fds[0]);
+	close(fds[1]);
+	io_uring_queue_exit(&ring);
+	return 0;
+}
+
 static int test_buf_select(const char *filename, int nonvec)
 {
 	struct io_uring_probe *p;
@@ -686,6 +759,7 @@ static int test_write_efbig(void)
 			goto err;
 		}
 		io_uring_prep_writev(sqe, fd, &vecs[i], 1, off);
+		io_uring_sqe_set_data64(sqe, i);
 		off += BS;
 	}
 
@@ -701,7 +775,7 @@ static int test_write_efbig(void)
 			fprintf(stderr, "wait_cqe=%d\n", ret);
 			goto err;
 		}
-		if (i < 16) {
+		if (cqe->user_data < 16) {
 			if (cqe->res != BS) {
 				fprintf(stderr, "bad write: %d\n", cqe->res);
 				goto err;
@@ -746,6 +820,8 @@ int main(int argc, char *argv[])
 		t_create_file(fname, FILE_SIZE);
 	}
 
+	signal(SIGXFSZ, SIG_IGN);
+
 	vecs = t_create_buffers(BUFFERS, BS);
 
 	/* if we don't have nonvec read, skip testing that */
@@ -788,6 +864,12 @@ int main(int argc, char *argv[])
 	ret = test_buf_select_short(fname, 0);
 	if (ret) {
 		fprintf(stderr, "test_buf_select_short vec failed\n");
+		goto err;
+	}
+
+	ret = test_buf_select_pipe();
+	if (ret) {
+		fprintf(stderr, "test_buf_select_pipe failed\n");
 		goto err;
 	}
 

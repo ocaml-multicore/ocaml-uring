@@ -31,33 +31,22 @@ static int pagesize;
 static rlim_t mlock_limit;
 static int devnull;
 
-#if !defined(CONFIG_HAVE_MEMFD_CREATE)
-#include <sys/syscall.h>
-#include <linux/memfd.h>
-
-static int memfd_create(const char *name, unsigned int flags)
-{
-	return (int)syscall(SYS_memfd_create, name, flags);
-}
-#endif
-
-
 static int expect_fail(int fd, unsigned int opcode, void *arg,
 	    unsigned int nr_args, int error)
 {
 	int ret;
 
-	ret = __sys_io_uring_register(fd, opcode, arg, nr_args);
-	if (ret != -1) {
+	ret = io_uring_register(fd, opcode, arg, nr_args);
+	if (ret >= 0) {
 		int ret2 = 0;
 
 		fprintf(stderr, "expected %s, but call succeeded\n", strerror(error));
 		if (opcode == IORING_REGISTER_BUFFERS) {
-			ret2 = __sys_io_uring_register(fd,
-					IORING_UNREGISTER_BUFFERS, 0, 0);
+			ret2 = io_uring_register(fd, IORING_UNREGISTER_BUFFERS,
+						 0, 0);
 		} else if (opcode == IORING_REGISTER_FILES) {
-			ret2 = __sys_io_uring_register(fd,
-					IORING_UNREGISTER_FILES, 0, 0);
+			ret2 = io_uring_register(fd, IORING_UNREGISTER_FILES, 0,
+						 0);
 		}
 		if (ret2) {
 			fprintf(stderr, "internal error: failed to unregister\n");
@@ -66,8 +55,8 @@ static int expect_fail(int fd, unsigned int opcode, void *arg,
 		return 1;
 	}
 
-	if (errno != error) {
-		fprintf(stderr, "expected %d, got %d\n", error, errno);
+	if (ret != error) {
+		fprintf(stderr, "expected %d, got %d\n", error, ret);
 		return 1;
 	}
 	return 0;
@@ -77,7 +66,7 @@ static int new_io_uring(int entries, struct io_uring_params *p)
 {
 	int fd;
 
-	fd = __sys_io_uring_setup(entries, p);
+	fd = io_uring_setup(entries, p);
 	if (fd < 0) {
 		perror("io_uring_setup");
 		exit(1);
@@ -197,15 +186,14 @@ static int test_max_fds(int uring_fd)
 	 */
 	nr_fds = UINT_MAX;
 	while (nr_fds) {
-		ret = __sys_io_uring_register(uring_fd, IORING_REGISTER_FILES,
-						fd_as, nr_fds);
+		ret = io_uring_register(uring_fd, IORING_REGISTER_FILES, fd_as,
+					nr_fds);
 		if (ret != 0) {
 			nr_fds /= 2;
 			continue;
 		}
 		status = 0;
-		ret = __sys_io_uring_register(uring_fd, IORING_UNREGISTER_FILES,
-						0, 0);
+		ret = io_uring_register(uring_fd, IORING_UNREGISTER_FILES, 0, 0);
 		if (ret < 0) {
 			ret = errno;
 			errno = ret;
@@ -241,7 +229,7 @@ static int test_memlock_exceeded(int fd)
 	iov.iov_base = buf;
 
 	while (iov.iov_len) {
-		ret = __sys_io_uring_register(fd, IORING_REGISTER_BUFFERS, &iov, 1);
+		ret = io_uring_register(fd, IORING_REGISTER_BUFFERS, &iov, 1);
 		if (ret < 0) {
 			if (errno == ENOMEM) {
 				iov.iov_len /= 2;
@@ -255,8 +243,7 @@ static int test_memlock_exceeded(int fd)
 			free(buf);
 			return 1;
 		}
-		ret = __sys_io_uring_register(fd, IORING_UNREGISTER_BUFFERS,
-						NULL, 0);
+		ret = io_uring_register(fd, IORING_UNREGISTER_BUFFERS, NULL, 0);
 		if (ret != 0) {
 			fprintf(stderr, "error: unregister failed with %d\n", errno);
 			free(buf);
@@ -290,18 +277,18 @@ static int test_iovec_nr(int fd)
 		iovs[i].iov_len = pagesize;
 	}
 
-	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, iovs, nr, EINVAL);
+	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, iovs, nr, -EINVAL);
 
 	/* reduce to UIO_MAXIOV */
 	nr = UIO_MAXIOV;
-	ret = __sys_io_uring_register(fd, IORING_REGISTER_BUFFERS, iovs, nr);
+	ret = io_uring_register(fd, IORING_REGISTER_BUFFERS, iovs, nr);
 	if (ret && (errno == ENOMEM || errno == EPERM) && geteuid()) {
 		fprintf(stderr, "can't register large iovec for regular users, skip\n");
 	} else if (ret != 0) {
 		fprintf(stderr, "expected success, got %d\n", errno);
 		status = 1;
 	} else {
-		__sys_io_uring_register(fd, IORING_UNREGISTER_BUFFERS, 0, 0);
+		io_uring_register(fd, IORING_UNREGISTER_BUFFERS, 0, 0);
 	}
 	free(buf);
 	free(iovs);
@@ -321,12 +308,12 @@ static int test_iovec_size(int fd)
 	/* NULL pointer for base */
 	iov.iov_base = 0;
 	iov.iov_len = 4096;
-	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, &iov, 1, EFAULT);
+	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, &iov, 1, -EFAULT);
 
 	/* valid base, 0 length */
 	iov.iov_base = &buf;
 	iov.iov_len = 0;
-	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, &iov, 1, EFAULT);
+	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, &iov, 1, -EFAULT);
 
 	/* valid base, length exceeds size */
 	/* this requires an unampped page directly after buf */
@@ -337,7 +324,7 @@ static int test_iovec_size(int fd)
 	assert(ret == 0);
 	iov.iov_base = buf;
 	iov.iov_len = 2 * pagesize;
-	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, &iov, 1, EFAULT);
+	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, &iov, 1, -EFAULT);
 	munmap(buf, pagesize);
 
 	/* huge page */
@@ -355,22 +342,23 @@ static int test_iovec_size(int fd)
 		 */
 		iov.iov_base = buf;
 		iov.iov_len = 2*1024*1024;
-		ret = __sys_io_uring_register(fd, IORING_REGISTER_BUFFERS, &iov, 1);
+		ret = io_uring_register(fd, IORING_REGISTER_BUFFERS, &iov, 1);
 		if (ret < 0) {
-			if (errno == ENOMEM)
+			if (ret == -ENOMEM)
 				printf("Unable to test registering of a huge "
 				       "page.  Try increasing the "
 				       "RLIMIT_MEMLOCK resource limit by at "
 				       "least 2MB.");
 			else {
-				fprintf(stderr, "expected success, got %d\n", errno);
+				fprintf(stderr, "expected success, got %d\n", ret);
 				status = 1;
 			}
 		} else {
-			ret = __sys_io_uring_register(fd,
-					IORING_UNREGISTER_BUFFERS, 0, 0);
+			ret = io_uring_register(fd, IORING_UNREGISTER_BUFFERS,
+						0, 0);
 			if (ret < 0) {
-				perror("io_uring_unregister");
+				fprintf(stderr, "io_uring_unregister: %s\n",
+					strerror(-ret));
 				status = 1;
 			}
 		}
@@ -384,7 +372,7 @@ static int test_iovec_size(int fd)
 		status = 1;
 	iov.iov_base = buf;
 	iov.iov_len = 2*1024*1024;
-	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, &iov, 1, EOPNOTSUPP);
+	status |= expect_fail(fd, IORING_REGISTER_BUFFERS, &iov, 1, -EOPNOTSUPP);
 	munmap(buf, 2*1024*1024);
 
 	/* bump up against the soft limit and make sure we get EFAULT
@@ -412,7 +400,7 @@ static int ioring_poll(struct io_uring *ring, int fd, int fixed)
 
 	ret = io_uring_submit(ring);
 	if (ret != 1) {
-		fprintf(stderr, "failed to submit poll sqe: %d.\n", errno);
+		fprintf(stderr, "failed to submit poll sqe: %d.\n", ret);
 		return 1;
 	}
 
@@ -454,119 +442,12 @@ static int test_poll_ringfd(void)
 	 * fail, because the kernel does not allow registering of the
 	 * ring_fd.
 	 */
-	status |= expect_fail(fd, IORING_REGISTER_FILES, &fd, 1, EBADF);
+	status |= expect_fail(fd, IORING_REGISTER_FILES, &fd, 1, -EBADF);
 
 	/* tear down queue */
 	io_uring_queue_exit(&ring);
 
 	return status;
-}
-
-static int test_shmem(void)
-{
-	const char pattern = 0xEA;
-	const int len = 4096;
-	struct io_uring_sqe *sqe;
-	struct io_uring_cqe *cqe;
-	struct io_uring ring;
-	struct iovec iov;
-	int memfd, ret, i;
-	char *mem;
-	int pipefd[2] = {-1, -1};
-
-	ret = io_uring_queue_init(8, &ring, 0);
-	if (ret)
-		return 1;
-
-	if (pipe(pipefd)) {
-		perror("pipe");
-		return 1;
-	}
-	memfd = memfd_create("uring-shmem-test", 0);
-	if (memfd < 0) {
-		fprintf(stderr, "memfd_create() failed %i\n", -errno);
-		return 1;
-	}
-	if (ftruncate(memfd, len)) {
-		fprintf(stderr, "can't truncate memfd\n");
-		return 1;
-	}
-	mem = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, 0);
-	if (!mem) {
-		fprintf(stderr, "mmap failed\n");
-		return 1;
-	}
-	for (i = 0; i < len; i++)
-		mem[i] = pattern;
-
-	iov.iov_base = mem;
-	iov.iov_len = len;
-	ret = io_uring_register_buffers(&ring, &iov, 1);
-	if (ret) {
-		if (ret == -EOPNOTSUPP) {
-			fprintf(stdout, "memfd registration isn't supported, "
-					"skip\n");
-			goto out;
-		}
-
-		fprintf(stderr, "buffer reg failed: %d\n", ret);
-		return 1;
-	}
-
-	/* check that we can read and write from/to shmem reg buffer */
-	sqe = io_uring_get_sqe(&ring);
-	io_uring_prep_write_fixed(sqe, pipefd[1], mem, 512, 0, 0);
-	sqe->user_data = 1;
-
-	ret = io_uring_submit(&ring);
-	if (ret != 1) {
-		fprintf(stderr, "submit write failed\n");
-		return 1;
-	}
-	ret = io_uring_wait_cqe(&ring, &cqe);
-	if (ret < 0 || cqe->user_data != 1 || cqe->res != 512) {
-		fprintf(stderr, "reading from shmem failed\n");
-		return 1;
-	}
-	io_uring_cqe_seen(&ring, cqe);
-
-	/* clean it, should be populated with the pattern back from the pipe */
-	memset(mem, 0, 512);
-	sqe = io_uring_get_sqe(&ring);
-	io_uring_prep_read_fixed(sqe, pipefd[0], mem, 512, 0, 0);
-	sqe->user_data = 2;
-
-	ret = io_uring_submit(&ring);
-	if (ret != 1) {
-		fprintf(stderr, "submit write failed\n");
-		return 1;
-	}
-	ret = io_uring_wait_cqe(&ring, &cqe);
-	if (ret < 0 || cqe->user_data != 2 || cqe->res != 512) {
-		fprintf(stderr, "reading from shmem failed\n");
-		return 1;
-	}
-	io_uring_cqe_seen(&ring, cqe);
-
-	for (i = 0; i < 512; i++) {
-		if (mem[i] != pattern) {
-			fprintf(stderr, "data integrity fail\n");
-			return 1;
-		}
-	}
-
-	ret = io_uring_unregister_buffers(&ring);
-	if (ret) {
-		fprintf(stderr, "buffer unreg failed: %d\n", ret);
-		return 1;
-	}
-out:
-	io_uring_queue_exit(&ring);
-	close(pipefd[0]);
-	close(pipefd[1]);
-	munmap(mem, len);
-	close(memfd);
-	return 0;
 }
 
 int main(int argc, char **argv)
@@ -577,31 +458,31 @@ int main(int argc, char **argv)
 	struct rlimit rlim;
 
 	if (argc > 1)
-		return 0;
+		return T_EXIT_SKIP;
 
 	/* setup globals */
 	pagesize = getpagesize();
 	ret = getrlimit(RLIMIT_MEMLOCK, &rlim);
 	if (ret < 0) {
 		perror("getrlimit");
-		return 1;
+		return T_EXIT_PASS;
 	}
 	mlock_limit = rlim.rlim_cur;
 	devnull = open("/dev/null", O_RDWR);
 	if (devnull < 0) {
 		perror("open /dev/null");
-		exit(1);
+		exit(T_EXIT_FAIL);
 	}
 
 	/* invalid fd */
-	status |= expect_fail(-1, 0, NULL, 0, EBADF);
+	status |= expect_fail(-1, 0, NULL, 0, -EBADF);
 	/* valid fd that is not an io_uring fd */
-	status |= expect_fail(devnull, 0, NULL, 0, EOPNOTSUPP);
+	status |= expect_fail(devnull, 0, NULL, 0, -EOPNOTSUPP);
 
 	/* invalid opcode */
 	memset(&p, 0, sizeof(p));
 	fd = new_io_uring(1, &p);
-	ret = expect_fail(fd, ~0U, NULL, 0, EINVAL);
+	ret = expect_fail(fd, ~0U, NULL, 0, -EINVAL);
 	if (ret) {
 		/* if this succeeds, tear down the io_uring instance
 		 * and start clean for the next test. */
@@ -620,12 +501,6 @@ int main(int argc, char **argv)
 
 	if (status)
 		fprintf(stderr, "FAIL\n");
-
-	ret = test_shmem();
-	if (ret) {
-		fprintf(stderr, "test_shmem() failed\n");
-		status |= 1;
-	}
 
 	return status;
 }

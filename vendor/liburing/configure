@@ -368,21 +368,21 @@ fi
 print_config "has_ucontext" "$has_ucontext"
 
 ##########################################
-# check for memfd_create(2)
-has_memfd_create="no"
+# Check NVME_URING_CMD support
+nvme_uring_cmd="no"
 cat > $TMPC << EOF
-#include <sys/mman.h>
-int main(int argc, char **argv)
+#include <linux/nvme_ioctl.h>
+int main(void)
 {
-  int memfd = memfd_create("test", 0);
-  return 0;
+  struct nvme_uring_cmd *cmd;
+
+  return sizeof(struct nvme_uring_cmd);
 }
 EOF
-if compile_prog "-Werror=implicit-function-declaration" "" "has_memfd_create"; then
-  has_memfd_create="yes"
+if compile_prog "" "" "nvme uring cmd"; then
+  nvme_uring_cmd="yes"
 fi
-print_config "has_memfd_create" "$has_memfd_create"
-
+print_config "NVMe uring command support" "$nvme_uring_cmd"
 
 #############################################################################
 if test "$liburing_nolibc" = "yes"; then
@@ -419,8 +419,8 @@ fi
 if test "$array_bounds" = "yes"; then
   output_sym "CONFIG_HAVE_ARRAY_BOUNDS"
 fi
-if test "$has_memfd_create" = "yes"; then
-  output_sym "CONFIG_HAVE_MEMFD_CREATE"
+if test "$nvme_uring_cmd" = "yes"; then
+  output_sym "CONFIG_HAVE_NVME_URING"
 fi
 
 echo "CC=$cc" >> $config_host_mak
