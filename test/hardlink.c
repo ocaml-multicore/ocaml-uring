@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "liburing.h"
+#include "helpers.h"
 
 
 static int do_linkat(struct io_uring *ring, const char *oldname, const char *newname)
@@ -74,7 +75,7 @@ int main(int argc, char *argv[])
 	struct io_uring ring;
 
 	if (argc > 1)
-		return 0;
+		return T_EXIT_SKIP;
 
 	ret = io_uring_queue_init(8, &ring, 0);
 	if (ret) {
@@ -97,7 +98,7 @@ int main(int argc, char *argv[])
 	if (ret < 0) {
 		if (ret == -EBADF || ret == -EINVAL) {
 			fprintf(stdout, "linkat not supported, skipping\n");
-			goto out;
+			goto skip;
 		}
 		fprintf(stderr, "linkat: %s\n", strerror(-ret));
 		goto err1;
@@ -120,17 +121,20 @@ int main(int argc, char *argv[])
 		goto err2;
 	}
 
-out:
 	unlinkat(AT_FDCWD, linkname, 0);
 	unlinkat(AT_FDCWD, target, 0);
 	io_uring_queue_exit(&ring);
-	return 0;
+	return T_EXIT_PASS;
+skip:
+	unlinkat(AT_FDCWD, linkname, 0);
+	unlinkat(AT_FDCWD, target, 0);
+	io_uring_queue_exit(&ring);
+	return T_EXIT_SKIP;
 err2:
 	unlinkat(AT_FDCWD, linkname, 0);
 err1:
 	unlinkat(AT_FDCWD, target, 0);
 err:
 	io_uring_queue_exit(&ring);
-	return 1;
+	return T_EXIT_FAIL;
 }
-

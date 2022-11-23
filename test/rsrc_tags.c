@@ -40,7 +40,7 @@ static int register_rsrc(struct io_uring *ring, int type, int nr,
 			  const void *arg, const __u64 *tags)
 {
 	struct io_uring_rsrc_register reg;
-	int ret, reg_type;
+	int reg_type;
 
 	memset(&reg, 0, sizeof(reg));
 	reg.nr = nr;
@@ -51,9 +51,8 @@ static int register_rsrc(struct io_uring *ring, int type, int nr,
 	if (type != TEST_IORING_RSRC_FILE)
 		reg_type = IORING_REGISTER_BUFFERS2;
 
-	ret = __sys_io_uring_register(ring->ring_fd, reg_type,
-					&reg, sizeof(reg));
-	return ret ? -errno : 0;
+	return __sys_io_uring_register(ring->ring_fd, reg_type, &reg,
+				       sizeof(reg));
 }
 
 /*
@@ -64,7 +63,7 @@ static int update_rsrc(struct io_uring *ring, int type, int nr, int off,
 			const void *arg, const __u64 *tags)
 {
 	struct io_uring_rsrc_update2 up;
-	int ret, up_type;
+	int up_type;
 
 	memset(&up, 0, sizeof(up));
 	up.offset = off;
@@ -75,9 +74,7 @@ static int update_rsrc(struct io_uring *ring, int type, int nr, int off,
 	up_type = IORING_REGISTER_FILES_UPDATE2;
 	if (type != TEST_IORING_RSRC_FILE)
 		up_type = IORING_REGISTER_BUFFERS_UPDATE;
-	ret = __sys_io_uring_register(ring->ring_fd, up_type,
-				      &up, sizeof(up));
-	return ret < 0 ? -errno : ret;
+	return __sys_io_uring_register(ring->ring_fd, up_type, &up, sizeof(up));
 }
 
 static bool has_rsrc_update(void)
@@ -185,7 +182,7 @@ static int test_buffers_update(void)
 		return 1;
 	}
 
-	/* test that CQE is not emmited before we're done with a buffer */
+	/* test that CQE is not emitted before we're done with a buffer */
 	sqe = io_uring_get_sqe(&ring);
 	io_uring_prep_read_fixed(sqe, pipes[0], tmp_buf, 10, 0, 0);
 	sqe->user_data = 100;
@@ -350,7 +347,16 @@ static int test_files(int ring_flags)
 	ret = io_uring_register_files_update(&ring, off, &fd, 1);
 	assert(ret == 1);
 	ret = io_uring_wait_cqe(&ring, &cqe);
-	assert(!ret && cqe->user_data == tags[off]);
+	if (ret) {
+		fprintf(stderr, "io_uring wait ret=%d\n", ret);
+		return 1;
+	}
+	if (cqe->user_data != tags[off]) {
+		fprintf(stderr, "data %lx != %lx\n",
+				(unsigned long) cqe->user_data,
+				(unsigned long) tags[off]);
+		return 1;
+	}
 	io_uring_cqe_seen(&ring, cqe);
 
 	/* remove removed file, shouldn't emit old tag */
@@ -404,7 +410,8 @@ static int test_notag(void)
 
 int main(int argc, char *argv[])
 {
-	int ring_flags[] = {0, IORING_SETUP_IOPOLL, IORING_SETUP_SQPOLL};
+	int ring_flags[] = {0, IORING_SETUP_IOPOLL, IORING_SETUP_SQPOLL,
+			    IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN};
 	int i, ret;
 
 	if (argc > 1)
@@ -426,7 +433,12 @@ int main(int argc, char *argv[])
 	}
 
 	for (i = 0; i < sizeof(ring_flags) / sizeof(ring_flags[0]); i++) {
-		ret = test_files(ring_flags[i]);
+		int flag = ring_flags[i];
+
+		if (flag & IORING_SETUP_DEFER_TASKRUN && !t_probe_defer_taskrun())
+			continue;
+
+		ret = test_files(flag);
 		if (ret) {
 			printf("test_tag failed, type %i\n", i);
 			return ret;

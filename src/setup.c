@@ -80,6 +80,11 @@ err:
 	cq->cqes = cq->ring_ptr + p->cq_off.cqes;
 	if (p->cq_off.flags)
 		cq->kflags = cq->ring_ptr + p->cq_off.flags;
+
+	sq->ring_mask = *sq->kring_mask;
+	sq->ring_entries = *sq->kring_entries;
+	cq->ring_mask = *cq->kring_mask;
+	cq->ring_entries = *cq->kring_entries;
 	return 0;
 }
 
@@ -89,7 +94,8 @@ err:
  * Returns -errno on error, or zero on success.  On success, 'ring'
  * contains the necessary information to read/write to the rings.
  */
-int io_uring_queue_mmap(int fd, struct io_uring_params *p, struct io_uring *ring)
+__cold int io_uring_queue_mmap(int fd, struct io_uring_params *p,
+			       struct io_uring *ring)
 {
 	int ret;
 
@@ -107,7 +113,7 @@ int io_uring_queue_mmap(int fd, struct io_uring_params *p, struct io_uring *ring
  * Ensure that the mmap'ed rings aren't available to a child after a fork(2).
  * This uses madvise(..., MADV_DONTFORK) on the mmap'ed ranges.
  */
-int io_uring_ring_dontfork(struct io_uring *ring)
+__cold int io_uring_ring_dontfork(struct io_uring *ring)
 {
 	size_t len;
 	int ret;
@@ -118,7 +124,7 @@ int io_uring_ring_dontfork(struct io_uring *ring)
 	len = sizeof(struct io_uring_sqe);
 	if (ring->flags & IORING_SETUP_SQE128)
 		len += 64;
-	len *= *ring->sq.kring_entries;
+	len *= ring->sq.ring_entries;
 	ret = __sys_madvise(ring->sq.sqes, len, MADV_DONTFORK);
 	if (ret < 0)
 		return ret;
@@ -138,12 +144,14 @@ int io_uring_ring_dontfork(struct io_uring *ring)
 	return 0;
 }
 
-int io_uring_queue_init_params(unsigned entries, struct io_uring *ring,
-			       struct io_uring_params *p)
+__cold int io_uring_queue_init_params(unsigned entries, struct io_uring *ring,
+				      struct io_uring_params *p)
 {
 	int fd, ret;
+	unsigned *sq_array;
+	unsigned sq_entries, index;
 
-	fd = ____sys_io_uring_setup(entries, p);
+	fd = __sys_io_uring_setup(entries, p);
 	if (fd < 0)
 		return fd;
 
@@ -153,6 +161,14 @@ int io_uring_queue_init_params(unsigned entries, struct io_uring *ring,
 		return ret;
 	}
 
+	/*
+	 * Directly map SQ slots to SQEs
+	 */
+	sq_array = ring->sq.array;
+	sq_entries = ring->sq.ring_entries;
+	for (index = 0; index < sq_entries; index++)
+		sq_array[index] = index;
+
 	ring->features = p->features;
 	return 0;
 }
@@ -161,7 +177,8 @@ int io_uring_queue_init_params(unsigned entries, struct io_uring *ring,
  * Returns -errno on error, or zero on success. On success, 'ring'
  * contains the necessary information to read/write to the rings.
  */
-int io_uring_queue_init(unsigned entries, struct io_uring *ring, unsigned flags)
+__cold int io_uring_queue_init(unsigned entries, struct io_uring *ring,
+			       unsigned flags)
 {
 	struct io_uring_params p;
 
@@ -171,7 +188,7 @@ int io_uring_queue_init(unsigned entries, struct io_uring *ring, unsigned flags)
 	return io_uring_queue_init_params(entries, ring, &p);
 }
 
-void io_uring_queue_exit(struct io_uring *ring)
+__cold void io_uring_queue_exit(struct io_uring *ring)
 {
 	struct io_uring_sq *sq = &ring->sq;
 	struct io_uring_cq *cq = &ring->cq;
@@ -180,7 +197,7 @@ void io_uring_queue_exit(struct io_uring *ring)
 	sqe_size = sizeof(struct io_uring_sqe);
 	if (ring->flags & IORING_SETUP_SQE128)
 		sqe_size += 64;
-	__sys_munmap(sq->sqes, sqe_size * *sq->kring_entries);
+	__sys_munmap(sq->sqes, sqe_size * sq->ring_entries);
 	io_uring_unmap_rings(sq, cq);
 	/*
 	 * Not strictly required, but frees up the slot we used now rather
@@ -191,7 +208,7 @@ void io_uring_queue_exit(struct io_uring *ring)
 	__sys_close(ring->ring_fd);
 }
 
-struct io_uring_probe *io_uring_get_probe_ring(struct io_uring *ring)
+__cold struct io_uring_probe *io_uring_get_probe_ring(struct io_uring *ring)
 {
 	struct io_uring_probe *probe;
 	size_t len;
@@ -211,7 +228,7 @@ struct io_uring_probe *io_uring_get_probe_ring(struct io_uring *ring)
 	return NULL;
 }
 
-struct io_uring_probe *io_uring_get_probe(void)
+__cold struct io_uring_probe *io_uring_get_probe(void)
 {
 	struct io_uring ring;
 	struct io_uring_probe *probe;
@@ -226,34 +243,34 @@ struct io_uring_probe *io_uring_get_probe(void)
 	return probe;
 }
 
-void io_uring_free_probe(struct io_uring_probe *probe)
+__cold void io_uring_free_probe(struct io_uring_probe *probe)
 {
 	uring_free(probe);
 }
 
-static inline int __fls(int x)
+static inline int __fls(unsigned long x)
 {
 	if (!x)
 		return 0;
-	return 8 * sizeof(x) - __builtin_clz(x);
+	return 8 * sizeof(x) - __builtin_clzl(x);
 }
 
 static unsigned roundup_pow2(unsigned depth)
 {
-	return 1UL << __fls(depth - 1);
+	return 1U << __fls(depth - 1);
 }
 
-static size_t npages(size_t size, unsigned page_size)
+static size_t npages(size_t size, long page_size)
 {
 	size--;
 	size /= page_size;
-	return __fls(size);
+	return __fls((int) size);
 }
 
 #define KRING_SIZE	320
 
 static size_t rings_size(struct io_uring_params *p, unsigned entries,
-			 unsigned cq_entries, unsigned page_size)
+			 unsigned cq_entries, long page_size)
 {
 	size_t pages, sq_size, cq_size;
 
@@ -284,7 +301,8 @@ static size_t rings_size(struct io_uring_params *p, unsigned entries,
  * return the required memory so that the caller can ensure that enough space
  * is available before setting up a ring with the specified parameters.
  */
-ssize_t io_uring_mlock_size_params(unsigned entries, struct io_uring_params *p)
+__cold ssize_t io_uring_mlock_size_params(unsigned entries,
+					  struct io_uring_params *p)
 {
 	struct io_uring_params lp = { };
 	struct io_uring ring;
@@ -343,7 +361,7 @@ ssize_t io_uring_mlock_size_params(unsigned entries, struct io_uring_params *p)
  * Return required ulimit -l memory space for a given ring setup. See
  * @io_uring_mlock_size_params().
  */
-ssize_t io_uring_mlock_size(unsigned entries, unsigned flags)
+__cold ssize_t io_uring_mlock_size(unsigned entries, unsigned flags)
 {
 	struct io_uring_params p = { .flags = flags, };
 

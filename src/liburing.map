@@ -55,3 +55,15 @@ LIBURING_2.2 {
 		io_uring_register_buf_ring;
 		io_uring_unregister_buf_ring;
 } LIBURING_2.1;
+
+LIBURING_2.3 {
+	global:
+		io_uring_register_sync_cancel;
+		io_uring_register_file_alloc_range;
+		io_uring_enter;
+		io_uring_enter2;
+		io_uring_setup;
+		io_uring_register;
+		io_uring_get_events;
+		io_uring_submit_and_get_events;
+} LIBURING_2.2;

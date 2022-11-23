@@ -5,11 +5,14 @@ includedir ?= $(prefix)/include
 libdir ?= $(prefix)/lib
 libdevdir ?= $(prefix)/lib
 
+LIBURING_CFLAGS ?=
 CPPFLAGS ?=
 override CPPFLAGS += -D_GNU_SOURCE \
 	-Iinclude/ -include ../config-host.h
-CFLAGS ?= -g -O2 -Wall -Wextra -fno-stack-protector
-override CFLAGS += -Wno-unused-parameter -Wno-sign-compare -DLIBURING_INTERNAL
+CFLAGS ?= -g -O3 -Wall -Wextra -fno-stack-protector
+override CFLAGS += -Wno-unused-parameter -Wno-sign-compare \
+	-DLIBURING_INTERNAL \
+	$(LIBURING_CFLAGS)
 SO_CFLAGS=-fPIC $(CFLAGS)
 L_CFLAGS=$(CFLAGS)
 LINK_FLAGS=
@@ -32,15 +35,13 @@ endif
 
 all: $(all_targets)
 
-liburing_srcs := setup.c queue.c register.c
+liburing_srcs := setup.c queue.c register.c syscall.c
 
 ifeq ($(CONFIG_NOLIBC),y)
 	liburing_srcs += nolibc.c
 	override CFLAGS += -nostdlib -nodefaultlibs -ffreestanding
 	override CPPFLAGS += -nostdlib -nodefaultlibs -ffreestanding
 	override LINK_FLAGS += -nostdlib -nodefaultlibs
-else
-	liburing_srcs += syscall.c
 endif
 
 override CPPFLAGS += -MT "$@" -MMD -MP -MF "$@.d"
