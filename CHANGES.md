@@ -1,3 +1,10 @@
+## v0.5
+
+- Decouple Heap entries from ring size (@haesbaert #81).  
+  Before this change, we could only wait for at most `queue_depth` events at a time.
+
+- Update to liburing-2.3 (@avsm #82).
+
 ## v0.4
 
 New features:
