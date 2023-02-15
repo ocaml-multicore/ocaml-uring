@@ -1,3 +1,7 @@
+## dev
+
+- Use `caml_enter_blocking_section` when calling `io_uring_submit`  (@TheLortex #84).
+
 ## v0.5
 
 - Decouple Heap entries from ring size (@haesbaert #81).  
