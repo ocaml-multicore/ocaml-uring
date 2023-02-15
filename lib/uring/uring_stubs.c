@@ -644,14 +644,14 @@ ocaml_uring_submit_cancel(value v_uring, value v_id, value v_target) {
   return (Val_true);
 }
 
-value /* noalloc */
-ocaml_uring_submit(value v_uring)
+value ocaml_uring_submit(value v_uring)
 {
+  CAMLparam1(v_uring);
   struct io_uring *ring = Ring_val(v_uring);
   caml_enter_blocking_section();
   int num = io_uring_submit(ring);
   caml_leave_blocking_section();
-  return (Val_int(num));
+  CAMLreturn (Val_int(num));
 }
 
 #define Val_cqe_none Val_int(0)

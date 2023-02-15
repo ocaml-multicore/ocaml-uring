@@ -1,6 +1,6 @@
 ## dev
 
-- Use `caml_enter_blocking_section` when calling `io_uring_submit`  (@TheLortex #84).
+- Use `caml_enter_blocking_section` when calling `io_uring_submit`  (@TheLortex #86).
 
 ## v0.5
 
