@@ -220,7 +220,7 @@ module Uring = struct
 
   external unregister_buffers : t -> unit = "ocaml_uring_unregister_buffers"
   external register_bigarray : t ->  Cstruct.buffer -> unit = "ocaml_uring_register_ba"
-  external submit : t -> int = "ocaml_uring_submit" [@@noalloc]
+  external submit : t -> int = "ocaml_uring_submit"
   external sq_ready : t -> int = "ocaml_uring_sq_ready" [@@noalloc]
 
   external get_probe_ring : t -> probe = "ocaml_uring_get_probe_ring"
