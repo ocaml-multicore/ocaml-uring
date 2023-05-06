@@ -768,7 +768,6 @@ static struct custom_operations probe_ops = {
 value ocaml_uring_get_probe_ring(value v_uring) {
   CAMLparam1(v_uring);
   CAMLlocal1(v_probe);
-  struct io_uring_probe *probe;
 
   v_probe = caml_alloc_custom_mem(&probe_ops, sizeof(struct io_uring_probe *), sizeof(struct io_uring_probe));
   Probe_val(v_probe) = io_uring_get_probe_ring(Ring_val(v_uring));
