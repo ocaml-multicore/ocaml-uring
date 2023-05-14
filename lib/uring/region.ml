@@ -5,7 +5,6 @@
 type t = {
   buf: Cstruct.buffer;
   block_size: int;
-  slots: int;
   freelist: int Queue.t;
 }
 
@@ -18,7 +17,7 @@ let init ~block_size buf slots =
   for i = 0 to slots - 1 do
     Queue.push (i*block_size) freelist
   done;
-  { freelist; slots; block_size; buf }
+  { freelist; block_size; buf }
 
 let alloc t =
   match Queue.pop t.freelist with
