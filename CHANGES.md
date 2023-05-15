@@ -1,6 +1,11 @@
-## dev
+## v0.6
 
-- Use `caml_enter_blocking_section` when calling `io_uring_submit`  (@TheLortex #86).
+- Fix SIGSEGV on `Uring.wait` (@edwintorok #89).  
+  `io_uring_submit_and_wait_timeout` can return a success status but with a NULL `cqe`.
+
+- Remove unused variable in C stub (@talex5 #87).
+
+- Use `caml_enter_blocking_section` when calling `io_uring_submit` (@TheLortex #86).
 
 ## v0.5
 
