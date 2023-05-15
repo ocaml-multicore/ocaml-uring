@@ -733,12 +733,12 @@ val check : unit -> bool * bool = <fun>
 Timeout should return (-ETIME). This is defined in https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno.h#L45
 
 ```ocaml
-# let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak13 Uring.t = <abstr>
+# let t : [`Timeout] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Timeout ] Uring.t = <abstr>
 
 # let ns1 = Int64.(mul 10L 1_000_000L) in
   Uring.(timeout t Boottime ns1 `Timeout);;
-- : _[> `Timeout ] Uring.job option = Some <abstr>
+- : [ `Timeout ] Uring.job option = Some <abstr>
 
 # Uring.submit t;;
 - : int = 1
@@ -766,6 +766,31 @@ val timeout : int = -62
 # Uring.exit t;;
 - : unit = ()
 ```
+
+If there is a timeout but we did submit something, `io_uring_submit_and_wait_timeout` returns success instead:
+
+```ocaml
+# let t : [`Timeout | `Cancel] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Cancel | `Timeout ] Uring.t = <abstr>
+
+# let job =
+    let ns = Int64.(mul 10L 1_000_000_000L) in
+    Uring.(timeout t Boottime ns `Timeout);;
+val job : [ `Cancel | `Timeout ] Uring.job option = Some <abstr>
+
+# Uring.wait ~timeout:0.01 t;;Uring.wait ~timeout:0.01 t;;
+- : [ `Cancel | `Timeout ] Uring.completion_option = Uring.None
+
+# Uring.cancel t (Option.get job) `Cancel;;
+- : [ `Cancel | `Timeout ] Uring.job option = Some <abstr>
+
+# ignore (Uring.wait ~timeout:10.0 t, Uring.wait ~timeout:10.0 t);;
+- : unit = ()
+
+# Uring.exit t;;
+- : unit = ()
+```
+
 
 ## Probing
 
