@@ -545,7 +545,7 @@ ocaml_uring_get_msghdr_fds(value v_msghdr) {
       int i;
       for (i = n_fds - 1; i >= 0; i--) {
 	int fd = Val_int(fds[i]);
-	value v_cons = caml_alloc_tuple(2);
+	v_cons = caml_alloc_tuple(2);
 	Store_field(v_cons, 0, fd);
 	Store_field(v_cons, 1, v_list);
 	v_list = v_cons;
