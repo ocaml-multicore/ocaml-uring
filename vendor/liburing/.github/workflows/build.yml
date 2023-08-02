@@ -26,7 +26,8 @@ jobs:
             cxx_pkg: clang
             cc: clang
             cxx: clang++
-            extra_flags: -Wshorten-64-to-32
+            liburing_extra_flags: -Wshorten-64-to-32
+            extra_flags: -Wmissing-prototypes -Wstrict-prototypes -Wunreachable-code-loop-increment -Wunreachable-code -Wmissing-variable-declarations -Wextra-semi-stmt
 
           # x86 (32-bit) gcc
           - arch: i686
@@ -84,11 +85,18 @@ jobs:
             cc: mips-linux-gnu-gcc
             cxx: mips-linux-gnu-g++
 
+          # hppa
+          - arch: hppa
+            cc_pkg: gcc-hppa-linux-gnu
+            cxx_pkg: g++-hppa-linux-gnu
+            cc: hppa-linux-gnu-gcc
+            cxx: hppa-linux-gnu-g++
+
     env:
-      FLAGS: -g -O3 -Wall -Wextra -Werror
+      FLAGS: -g -O3 -Wall -Wextra -Werror -Wno-sign-compare ${{matrix.extra_flags}}
 
       # Flags for building sources in src/ dir only.
-      LIBURING_CFLAGS: ${{matrix.extra_flags}}
+      LIBURING_CFLAGS: ${{matrix.liburing_extra_flags}}
 
     steps:
     - name: Checkout source
@@ -98,9 +106,9 @@ jobs:
       run: |
         if [[ "${{matrix.cc_pkg}}" == "clang" ]]; then \
             wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh; \
-            sudo bash /tmp/llvm.sh 16; \
-            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-16 400; \
-            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 400; \
+            sudo bash /tmp/llvm.sh 17; \
+            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 400; \
+            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 400; \
         else \
             sudo apt-get update -y; \
             sudo apt-get install -y ${{matrix.cc_pkg}} ${{matrix.cxx_pkg}}; \
@@ -115,16 +123,6 @@ jobs:
       run: |
         ./configure --cc=${{matrix.cc}} --cxx=${{matrix.cxx}};
         make -j$(nproc) V=1 CPPFLAGS="-Werror" CFLAGS="$FLAGS" CXXFLAGS="$FLAGS";
-
-    - name: Build nolibc
-      run: |
-        if [[ "${{matrix.arch}}" == "x86_64" || "${{matrix.arch}}" == "i686" || "${{matrix.arch}}" == "aarch64" ]]; then \
-            make clean; \
-            ./configure --cc=${{matrix.cc}} --cxx=${{matrix.cxx}} --nolibc; \
-            make -j$(nproc) V=1 CPPFLAGS="-Werror" CFLAGS="$FLAGS" CXXFLAGS="$FLAGS"; \
-        else \
-            echo "Skipping nolibc build, this arch doesn't support building liburing without libc"; \
-        fi;
 
     - name: Test install command
       run: |
