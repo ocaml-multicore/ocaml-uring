@@ -1,5 +1,7 @@
 (copy_files %{project_root}/vendor/liburing/src/include/liburing.h)
 
+(copy_files %{project_root}/vendor/liburing/src/include/liburing/*.h)
+
 (executable
  (name discover)
  (modules discover)

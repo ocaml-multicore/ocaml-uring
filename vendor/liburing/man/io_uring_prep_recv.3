@@ -30,10 +30,10 @@ queue entry
 .I sqe
 is setup to use the file descriptor
 .I sockfd
-to start receiving the data into the buffer destination
+to start receiving the data into the destination buffer
 .I buf
 of size
-.I size
+.I len
 and with modifier flags
 .IR flags .
 
@@ -43,14 +43,14 @@ request. See that man page for details on the arguments specified to this
 prep helper.
 
 The multishot version allows the application to issue a single receive request,
-which repeatedly posts a CQE when data is available. It requires length to be 0
-, the
+which repeatedly posts a CQE when data is available. It requires length to
+be 0, the
 .B IOSQE_BUFFER_SELECT
 flag to be set and no
 .B MSG_WAITALL
 flag to be set.
 Therefore each CQE will take a buffer out of a provided buffer pool for receiving.
-The application should check the flags of each CQE, regardless of it's result.
+The application should check the flags of each CQE, regardless of its result.
 If a posted CQE does not have the
 .B IORING_CQE_F_MORE
 flag set then the multishot receive will be done and the application should issue a

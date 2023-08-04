@@ -59,9 +59,9 @@ is the desired size of the ring, and must be a power-of-2 in size. The maximum
 size allowed is 2^15 (32768).
 .I bgid
 is the buffer group ID associated with this ring. SQEs that select a buffer
-has a buffer group associated with them in their
+have a buffer group associated with them in their
 .I buf_group
-field, and the associated CQE will have
+field, and the associated CQEs will have
 .B IORING_CQE_F_BUFFER
 set in their
 .I flags
@@ -118,12 +118,12 @@ is the buffer ID that will be returned in the CQE once consumed.
 
 Reserved fields must not be touched. Applications must use
 .BR io_uring_buf_ring_init (3)
-to initialise the buffer ring. Applications may use
+to initialise the buffer ring before use. Applications may use
 .BR io_uring_buf_ring_add (3)
 and
 .BR io_uring_buf_ring_advance (3)
 or
-.BR io_uring_buf_ring_advance (3)
+.BR io_uring_buf_ring_cq_advance (3)
 to provide buffers, which will set these fields and update the tail.
 
 Available since 5.19.

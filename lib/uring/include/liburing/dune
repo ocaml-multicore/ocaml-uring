@@ -1,1 +1,1 @@
-(copy_files ../../{io_uring,barrier,compat}.h)
+(copy_files ../../{io_uring,io_uring_version,barrier,compat}.h)

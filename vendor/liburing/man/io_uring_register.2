@@ -31,6 +31,14 @@ application memory, greatly reducing per-I/O overhead.
 .I fd
 is the file descriptor returned by a call to
 .BR io_uring_setup (2).
+If
+.I opcode
+has the flag
+.B IORING_REGISTER_USE_REGISTERED_RING
+ored into it,
+.I fd
+is instead the index of a registered ring fd.
+
 .I opcode
 can be one of:
 
@@ -93,7 +101,9 @@ If the application currently has requests in-flight, the registration will
 wait for those to finish before proceeding.
 
 An application need not unregister buffers explicitly before shutting
-down the io_uring instance. Available since 5.1.
+down the io_uring instance. Note, however, that shutdown processing may run
+asynchronously within the kernel. As a result, it is not guaranteed that
+pages are immediately unpinned in this case. Available since 5.1.
 
 .TP
 .B IORING_REGISTER_BUFFERS2
@@ -193,7 +203,7 @@ Available since 5.13.
 This operation takes no argument, and
 .I arg
 must be passed as NULL.  All previously registered buffers associated
-with the io_uring instance will be released. Available since 5.1.
+with the io_uring instance will be released synchronously. Available since 5.1.
 
 .TP
 .B IORING_REGISTER_FILES
@@ -620,20 +630,16 @@ is the desired size of the ring, and must be a power-of-2 in size. The maximum
 size allowed is 2^15 (32768).
 .I bgid
 is the buffer group ID associated with this ring. SQEs that select a buffer
-has a buffer group associated with them in their
+have a buffer group associated with them in their
 .I buf_group
-field, and the associated CQE will have
+field, and the associated CQEs will have
 .B IORING_CQE_F_BUFFER
 set in their
 .I flags
 member, which will also contain the specific ID of the buffer selected. The rest
 of the fields are reserved and must be cleared to zero.
 
-The
-.I flags
-argument is currently unused and must be set to zero.
-
-.i nr_args
+.I nr_args
 must be set to 1.
 
 Also see
@@ -828,3 +834,6 @@ undergoing file or buffer registration, or is being torn down.
 .TP
 .B EOPNOTSUPP
 User buffers point to file-backed memory.
+.TP
+.B EFAULT
+User buffers point to file-backed memory (newer kernels).
