@@ -35,6 +35,14 @@
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+// Check for something related to statx
+// this is needed for Alpine.
+#ifndef STATX_TYPE
+#include <linux/stat.h>
+#endif
+
 
 #undef URING_DEBUG
 #ifdef URING_DEBUG
@@ -46,8 +54,10 @@
 // TODO: this belongs in Optint
 #ifdef ARCH_SIXTYFOUR
 #define Int63_val(v) Long_val(v)
+#define caml_copy_int63(v) Val_long(v)
 #else
-#define Int63_val(v) (Int64_val(v)) >> 1
+#define Int63_val(v) (Int64_val(v) >> 1)
+#define caml_copy_int63(v) caml_copy_int64(v << 1)
 #endif
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
@@ -406,6 +416,112 @@ ocaml_uring_submit_splice(value v_uring, value v_id, value v_fd_in, value v_fd_o
 		       Int_val(v_nbytes), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
+}
+
+#define Statx_val(v) (*((struct statx **) Data_custom_val(v)))
+
+static void finalize_statx(value v) {
+  caml_stat_free(Statx_val(v));
+  Statx_val(v) = NULL;
+}
+
+static struct custom_operations statx_ops = {
+  "uring.statx",
+  finalize_statx,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+value
+ocaml_uring_make_statx(value v_unit) {
+  CAMLparam0();
+  CAMLlocal1(v);
+  struct statx *data;
+  v = caml_alloc_custom_mem(&statx_ops, sizeof(struct statx *), sizeof(struct statx));
+  Statx_val(v) = NULL;
+  data = (struct statx *) caml_stat_alloc(sizeof(struct statx));
+  Statx_val(v) = data;
+  CAMLreturn(v);
+}
+
+static double double_of_timespec(struct statx_timestamp *t) {
+  return ((double) t->tv_sec) + (((double) t->tv_nsec) / 1e9);
+}
+
+static value get_file_type_variant(struct statx *sb) {
+  int filetype = sb->stx_mode & S_IFMT;
+  if (filetype == S_IFREG) {
+    return caml_hash_variant("Regular_file");
+  } else if (filetype == S_IFSOCK) {
+    return caml_hash_variant("Socket");
+  } else if (filetype == S_IFLNK) {
+    return caml_hash_variant("Symbolic_link");
+  } else if (filetype == S_IFBLK) {
+    return caml_hash_variant("Block_device");
+  } else if (filetype == S_IFDIR) {
+    return caml_hash_variant("Directory");
+  } else if (filetype == S_IFCHR) {
+    return caml_hash_variant("Character_special");
+  } else if (filetype == S_IFIFO) {
+    return caml_hash_variant("Fifo");
+  } else {
+    return caml_hash_variant("Unknown");
+  }
+}
+
+value
+ocaml_uring_statx_internal_to_t(value v_statx) {
+  CAMLparam1(v_statx);
+  CAMLlocal1(v);
+  v = caml_alloc(19, 0);
+  struct statx *s = Statx_val(v_statx);
+  Store_field(v, 0, caml_copy_int64(s->stx_blksize));
+  Store_field(v, 1, caml_copy_int64(s->stx_attributes));
+  Store_field(v, 2, caml_copy_int64(s->stx_nlink));
+  Store_field(v, 3, caml_copy_int64(s->stx_uid));
+  Store_field(v, 4, caml_copy_int64(s->stx_gid));
+  Store_field(v, 5, Val_int(s->stx_mode));
+  Store_field(v, 6, caml_copy_int64(s->stx_ino));
+  Store_field(v, 7, caml_copy_int63(s->stx_size));
+  Store_field(v, 8, caml_copy_int64(s->stx_blocks));
+  Store_field(v, 9, caml_copy_int64(s->stx_attributes_mask));
+  Store_field(v, 10, caml_copy_double(double_of_timespec(&s->stx_atime)));
+  Store_field(v, 11, caml_copy_double(double_of_timespec(&s->stx_btime)));
+  Store_field(v, 12, caml_copy_double(double_of_timespec(&s->stx_ctime)));
+  Store_field(v, 13, caml_copy_double(double_of_timespec(&s->stx_mtime)));
+  Store_field(v, 14, caml_copy_int64(makedev(s->stx_rdev_major,s->stx_rdev_minor)));
+  Store_field(v, 15, caml_copy_int64(makedev(s->stx_dev_major,s->stx_dev_minor)));
+  Store_field(v, 16, Val_int(s->stx_mode & ~S_IFMT));
+  Store_field(v, 17, get_file_type_variant(s));
+  Store_field(v, 18, caml_copy_int64(s->stx_mask));
+  CAMLreturn(v);
+}
+
+value
+ocaml_uring_submit_statx_native(value v_uring, value v_id, value v_fd, value v_statx, value v_sketch_ptr, value v_flags, value v_mask) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) return (Val_false);
+  char *path = Sketch_ptr_val(v_sketch_ptr);
+  io_uring_prep_statx(sqe, Int_val(v_fd), path, Int_val(v_flags), Int_val(v_mask), Statx_val(v_statx));
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+value
+ocaml_uring_submit_statx_byte(value* values, int argc) {
+  return ocaml_uring_submit_statx_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5],
+			  values[6]);
 }
 
 struct sock_addr_data {

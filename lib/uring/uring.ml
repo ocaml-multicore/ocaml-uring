@@ -86,6 +86,60 @@ module Poll_mask = struct
   let pollhup = Config.pollhup
 end
 
+module Statx = struct
+  type internal
+
+  type kind = [
+    | `Unknown
+    | `Fifo
+    | `Character_special
+    | `Directory
+    | `Block_device
+    | `Regular_file
+    | `Symbolic_link
+    | `Socket
+  ]
+
+  type t = {
+    blksize : Int64.t;
+    attributes : Int64.t;
+    nlink : Int64.t;
+    uid : Int64.t;
+    gid : Int64.t;
+    mode : int;
+    ino : Int64.t;
+    size : Optint.Int63.t;
+    blocks : Int64.t;
+    attributes_mask : Int64.t;
+    atime : float;
+    btime : float;
+    ctime : float;
+    mtime : float;
+    rdev : Int64.t;
+    dev : Int64.t;
+    perm : int;
+    kind : kind;
+    mask : Int64.t;
+  }
+
+  external create : unit -> internal = "ocaml_uring_make_statx"
+  external internal_to_t : internal -> t = "ocaml_uring_statx_internal_to_t"
+
+  module Flags = struct
+    include Flags
+    include Config.Statx.Flags
+  end
+
+  module Mask = struct
+    include Flags
+    include Config.Statx.Mask
+
+    let check mask t =
+      let i = Int64.of_int t in
+      Int64.equal (Int64.logand mask i) i 
+  end
+end
+
 module Sockaddr = struct
   type t
 
@@ -239,6 +293,7 @@ module Uring = struct
   external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
+  external submit_statx : t -> id -> Unix.file_descr -> Statx.internal -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
@@ -424,6 +479,10 @@ let poll_add t fd poll_mask user_data =
 
 let close t fd user_data =
   with_id t (fun id -> Uring.submit_close t.uring fd id) user_data
+
+let statx t ?(fd=at_fdcwd) ~mask path statx flags user_data =
+  let spath = Sketch.String.alloc t.sketch path in
+  with_id_full t (fun id -> Uring.submit_statx t.uring id fd statx spath flags mask) user_data ~extra_data:statx
 
 let splice t ~src ~dst ~len user_data =
   with_id t (fun id -> Uring.submit_splice t.uring id src dst len) user_data
