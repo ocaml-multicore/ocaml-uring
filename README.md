@@ -39,7 +39,7 @@ To start, we'll open a file using `Uring.openat2`, which works much like the reg
       ~resolve:Uring.Resolve.beneath
       "test.log"
       `Open_log;;
-val open_file : _[> `Open_log ] Uring.job option = Some <abstr>
+val open_file : ([> `Open_log ] as '_weak2) Uring.job option = Some <abstr>
 ```
 
 `submit` returns `None` if the submission queue is full.
@@ -117,13 +117,15 @@ Finally, we close the file:
 
 ```ocaml
 # Uring.close uring fd `Close_log;;
-- : _[> `Close_log | `Open_log | `Write_all ] Uring.job option = Some <abstr>
+- : ([> `Close_log | `Open_log | `Write_all ] as '_weak3) Uring.job option =
+Some <abstr>
 
 # Uring.submit uring;;
 - : int = 1
 
 # wait_with_retry uring;;
-- : int * _[> `Close_log | `Open_log | `Write_all ] = (0, `Close_log)
+- : int * ([> `Close_log | `Open_log | `Write_all ] as '_weak3) =
+(0, `Close_log)
 ```
 
 The file has now been written:
