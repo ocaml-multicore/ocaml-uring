@@ -68,8 +68,8 @@ val fd : unit = ()
 # let queue_depth = 5;;
 val queue_depth : int = 5
 
-# let t = Uring.create ~queue_depth ();;
-val t : '_weak1 Uring.t = <abstr>
+# let t : int Uring.t = Uring.create ~queue_depth ();;
+val t : int Uring.t = <abstr>
 
 # Fmt.pr "%a@." Uring.Stats.pp (Uring.get_debug_stats t);;
 SQEs ready: 0
@@ -121,8 +121,8 @@ Sketch buffer: 0/0 (plus 0 old buffers)
 ## Open
 
 ```ocaml
-# let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak2 Uring.t = <abstr>
+# let t : [ `Open ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Open ] Uring.t = <abstr>
 # Uring.openat2 t
                 ~access:`R
                 ~flags:Uring.Open_flags.empty
@@ -130,7 +130,7 @@ val t : '_weak2 Uring.t = <abstr>
                 ~resolve:Uring.Resolve.empty
                 "/dev/null"
                 `Open;;
-- : _[> `Open ] Uring.job option = Some <abstr>
+- : [ `Open ] Uring.job option = Some <abstr>
 # Uring.submit t;;;
 - : int = 1
 
@@ -138,7 +138,7 @@ val t : '_weak2 Uring.t = <abstr>
     let token, fd = consume t in
     assert (fd >= 0);
     token, (Obj.magic fd : Unix.file_descr);;
-val token : _[> `Open ] = `Open
+val token : [ `Open ] = `Open
 val fd : Unix.file_descr = <abstr>
 
 # Unix.read fd (Bytes.create 5) 0 5;;
@@ -154,8 +154,8 @@ val fd : unit = ()
 ## Create
 
 ```ocaml
-# let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak3 Uring.t = <abstr>
+# let t : [ `Create ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Create ] Uring.t = <abstr>
 # ignore @@ Unix.umask 0o077;;
 - : unit = ()
 # Uring.openat2 t
@@ -165,7 +165,7 @@ val t : '_weak3 Uring.t = <abstr>
     ~resolve:Uring.Resolve.empty
     "test-openat"
     `Create;;
-- : _[> `Create ] Uring.job option = Some <abstr>
+- : [ `Create ] Uring.job option = Some <abstr>
 
 # Uring.submit t;;
 - : int = 1
@@ -174,7 +174,7 @@ val t : '_weak3 Uring.t = <abstr>
     let token, fd = consume t in
     assert (fd >= 0);
     token, (Obj.magic fd : Unix.file_descr);;
-val token : _[> `Create ] = `Create
+val token : [ `Create ] = `Create
 val fd : Unix.file_descr = <abstr>
 
 # Unix.write fd (Bytes.of_string "Test") 0 4;;
@@ -192,8 +192,8 @@ val fd : unit = ()
 ## Resolve
 
 ```ocaml
-# let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak4 Uring.t = <abstr>
+# let t : [ `Get_path ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Get_path ] Uring.t = <abstr>
 # let get ~resolve path =
     assert (Option.is_some (Uring.openat2 t
                             ~access:`R
@@ -246,8 +246,8 @@ let () = Test_data.setup ()
 ```
 
 ```ocaml
-# let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak5 Uring.t = <abstr>
+# let t : [ `Read ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Read ] Uring.t = <abstr>
 # let fbuf = set_fixed_buffer t 1024;;
 val fbuf :
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
@@ -260,11 +260,11 @@ val len : int = 5
 val fd : Unix.file_descr = <abstr>
 # let file_offset = Int63.of_int 2 in
   Uring.read_fixed t ~file_offset fd ~off ~len `Read;;
-- : _[> `Read ] Uring.job option = Some <abstr>
+- : [ `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : _[> `Read ] * int = (`Read, 5)
+- : [ `Read ] * int = (`Read, 5)
 # Cstruct.of_bigarray fbuf ~off ~len |> Cstruct.to_string;;
 - : string = "test "
 
@@ -354,8 +354,8 @@ val r : unit = ()
 Reading with readv:
 
 ```ocaml
-# let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak6 Uring.t = <abstr>
+# let t : [ `Readv ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Readv ] Uring.t = <abstr>
 
 # let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
 val fd : Unix.file_descr = <abstr>
@@ -367,7 +367,7 @@ val b1 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 3}
 val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
 # let iov = [b1; b2] in
   Uring.readv t fd iov `Readv ~file_offset:Int63.zero;;
-- : _[> `Readv ] Uring.job option = Some <abstr>
+- : [ `Readv ] Uring.job option = Some <abstr>
 
 # Uring.submit t;;
 - : int = 1
@@ -410,8 +410,8 @@ val fd : unit = ()
 ## Regions
 
 ```ocaml
-# let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak7 Uring.t = <abstr>
+# let t : [ `Read ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Read ] Uring.t = <abstr>
 
 # let fbuf = set_fixed_buffer t 64;;
 val fbuf :
@@ -425,7 +425,7 @@ val chunk : Uring.Region.chunk = <abstr>
 # let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
 val fd : Unix.file_descr = <abstr>
 # Uring.read_chunk t fd chunk `Read ~file_offset:Int63.zero;;
-- : _[> `Read ] Uring.job option = Some <abstr>
+- : [ `Read ] Uring.job option = Some <abstr>
 # let `Read, read = consume t;;
 val read : int = 11
 # Uring.Region.to_string ~len:read chunk;;
@@ -457,8 +457,8 @@ Ask to read from a pipe (with no data available), then cancel it.
 # exception Multiple of Unix.error list;;
 exception Multiple of Unix.error list
 
-# let t = Uring.create ~queue_depth:5 ();;
-val t : '_weak8 Uring.t = <abstr>
+# let t : [ `Cancel | `Read ] Uring.t = Uring.create ~queue_depth:5 ();;
+val t : [ `Cancel | `Read ] Uring.t = <abstr>
 
 # set_fixed_buffer t 1024;;
 - : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
@@ -467,10 +467,10 @@ val t : '_weak8 Uring.t = <abstr>
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
 # let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get;;
-val read : _[> `Read ] Uring.job = <abstr>
+val read : [ `Cancel | `Read ] Uring.job = <abstr>
 
 # Uring.cancel t read `Cancel;;
-- : _[> `Cancel | `Read ] Uring.job option = Some <abstr>
+- : [ `Cancel | `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 2
 # let t1, r1 = consume t in
@@ -502,21 +502,21 @@ val w : unit = ()
 By the time we cancel, the request has already succeeded (we just didn't process the reply yet):
 
 ```ocaml
-# let t = Uring.create ~queue_depth:5 ();;
-val t : '_weak9 Uring.t = <abstr>
+# let t : [ `Read | `Cancel ] Uring.t = Uring.create ~queue_depth:5 ();;
+val t : [ `Cancel | `Read ] Uring.t = <abstr>
 # set_fixed_buffer t 102;;
 - : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
 <abstr>
 # let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0;;
 val r : Unix.file_descr = <abstr>
 # let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get;;
-val read : _[> `Read ] Uring.job = <abstr>
+val read : [ `Cancel | `Read ] Uring.job = <abstr>
 # Uring.submit t;;
 - : int = 1
 # Unix.sleepf 0.001;;
 - : unit = ()
 # Uring.cancel t read `Cancel;;
-- : _[> `Cancel | `Read ] Uring.job option = Some <abstr>
+- : [ `Cancel | `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # let t1, r1 = consume t in
@@ -549,17 +549,17 @@ val r : unit = ()
 By the time we cancel, we already knew the operation was over:
 
 ```ocaml
-# let t = Uring.create ~queue_depth:5 ();;
-val t : '_weak10 Uring.t = <abstr>
+# let t : [ `Read | `Cancel ] Uring.t = Uring.create ~queue_depth:5 ();;
+val t : [ `Cancel | `Read ] Uring.t = <abstr>
 # set_fixed_buffer t 1024;;
 - : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
 <abstr>
 # let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0;;
 val r : Unix.file_descr = <abstr>
 # let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get;;
-val read : _[> `Read ] Uring.job = <abstr>
+val read : [ `Cancel | `Read ] Uring.job = <abstr>
 # let token, r_read = consume t;;
-val token : _[> `Read ] = `Read
+val token : [ `Cancel | `Read ] = `Read
 val r_read : int = 1
 # let r : unit = Unix.close r;;
 val r : unit = ()
@@ -579,8 +579,8 @@ Exception: Invalid_argument "Entry has already been freed!".
 We can't exit the ring while an operation is still pending:
 
 ```ocaml
-# let t = Uring.create ~queue_depth:1 ();;
-val t : '_weak11 Uring.t = <abstr>
+# let t : [ `Read | `Mkdir ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Mkdir | `Read ] Uring.t = <abstr>
 # set_fixed_buffer t 1024;;
 - : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
 <abstr>
@@ -588,7 +588,7 @@ val t : '_weak11 Uring.t = <abstr>
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
 # Uring.read_fixed t ~file_offset:Int63.minus_one r ~off:0 ~len:1 `Read;;
-- : _[> `Read ] Uring.job option = Some <abstr>
+- : [ `Mkdir | `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # Uring.exit t;;
@@ -601,7 +601,7 @@ But we can once it's complete:
 # let w : unit = Unix.close w;;
 val w : unit = ()
 # consume t;;
-- : _[> `Read ] * int = (`Read, 0)
+- : [ `Mkdir | `Read ] * int = (`Read, 0)
 # Uring.exit t;;
 - : unit = ()
 # let r : unit = Unix.close r;;
@@ -642,19 +642,19 @@ Invalid_argument "Can't use ring after Uring.exit has been called".
 # let r, w = Unix.pipe ();;
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
-# let t = Uring.create ~queue_depth:2 ();;
-val t : '_weak12 Uring.t = <abstr>
+# let t : [ `Recv | `Send ] Uring.t= Uring.create ~queue_depth:2 ();;
+val t : [ `Recv | `Send ] Uring.t = <abstr>
 # let a, b = Unix.(socketpair PF_UNIX SOCK_STREAM 0);;
 val a : Unix.file_descr = <abstr>
 val b : Unix.file_descr = <abstr>
 # let bufs = [Cstruct.of_string "hi"];;
 val bufs : Cstruct.t list = [{Cstruct.buffer = <abstr>; off = 0; len = 2}]
 # Uring.send_msg t a ~fds:[r; w] bufs `Send;;
-- : _[> `Send ] Uring.job option = Some <abstr>
+- : [ `Recv | `Send ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : _[> `Send ] * int = (`Send, 2)
+- : [ `Recv | `Send ] * int = (`Send, 2)
 # let recv_buf = Cstruct.of_string "XX";;
 val recv_buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 2}
 # let recv = Uring.Msghdr.create ~n_fds:2 [recv_buf];;
@@ -662,11 +662,11 @@ val recv : Uring.Msghdr.t = <abstr>
 # List.length (Uring.Msghdr.get_fds recv);;
 - : int = 0
 # Uring.recv_msg t b recv `Recv;;
-- : _[> `Recv | `Send ] Uring.job option = Some <abstr>
+- : [ `Recv | `Send ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : _[> `Recv | `Send ] * int = (`Recv, 2)
+- : [ `Recv | `Send ] * int = (`Recv, 2)
 # Cstruct.to_string recv_buf;;
 - : string = "hi"
 # let r2, w2 =
