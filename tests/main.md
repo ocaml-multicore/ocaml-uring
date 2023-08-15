@@ -177,10 +177,91 @@ val t : [ `Create ] Uring.t = <abstr>
 val token : [ `Create ] = `Create
 val fd : Unix.file_descr = <abstr>
 
-# Unix.write fd (Bytes.of_string "Test") 0 4;;
-- : int = 4
-# Printf.sprintf "0o%o" (Unix.fstat fd).st_perm;;
-- : string = "0o600"
+# Unix.write fd (Bytes.of_string "Test data") 0 9;;
+- : int = 9
+
+# let x = Unix.fstat fd in
+  x.st_kind, Printf.sprintf "0o%o" x.st_perm, x.st_size;;
+- : Unix.file_kind * string * int = (Unix.S_REG, "0o600", 9)
+
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+
+# Uring.exit t;;
+- : unit = ()
+```
+
+## Statx
+
+```ocaml
+# let t : [ `Open_path | `Statx ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Open_path | `Statx ] Uring.t = <abstr>
+
+# let statx = Uring.Statx.create ();;
+val statx : Uring.Statx.internal = <abstr>
+# Uring.statx t
+    ~mask:Uring.Statx.Mask.basic_stats
+    "test-openat"
+    statx
+    Uring.Statx.Flags.empty
+    `Statx;;
+- : [ `Open_path | `Statx ] Uring.job option = Some <abstr>
+
+# Uring.submit t;;
+- : int = 1
+
+# let token, retval = consume t;;
+val token : [ `Open_path | `Statx ] = `Statx
+val retval : int = 0
+
+# let x = Uring.Statx.internal_to_t statx in
+  x.kind, Printf.sprintf "0o%o" x.perm, Int63.to_int x.size;;
+- : Uring.Statx.kind * string * int = (`Regular_file, "0o600", 9)
+```
+
+Now using `~fd`:
+
+```ocaml
+# Uring.openat2 t
+    ~access:`R
+    ~flags:Uring.Open_flags.path
+    ~perm:0
+    ~resolve:Uring.Resolve.empty
+    "test-openat"
+    `Open_path;;
+- : [ `Open_path | `Statx ] Uring.job option = Some <abstr>
+
+# Uring.submit t;;
+- : int = 1
+
+# let token, fd =
+    let token, fd = consume t in
+    assert (fd >= 0);
+    token, (Obj.magic fd : Unix.file_descr);;
+val token : [ `Open_path | `Statx ] = `Open_path
+val fd : Unix.file_descr = <abstr>
+
+# let statx = Uring.Statx.create ();;
+val statx : Uring.Statx.internal = <abstr>
+# Uring.statx t
+    ~fd
+    ~mask:Uring.Statx.Mask.(type' + mode + size)
+    ""
+    statx
+    Uring.Statx.Flags.empty_path
+    `Statx;;
+- : [ `Open_path | `Statx ] Uring.job option = Some <abstr>
+
+# Uring.submit t;;
+- : int = 1
+
+# let token, retval = consume t;;
+val token : [ `Open_path | `Statx ] = `Statx
+val retval : int = 0
+
+# let x = Uring.Statx.internal_to_t statx in
+  x.kind, Printf.sprintf "0o%o" x.perm, Int63.to_int x.size;;
+- : Uring.Statx.kind * string * int = (`Regular_file, "0o600", 9)
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()

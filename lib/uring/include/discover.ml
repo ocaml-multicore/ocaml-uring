@@ -109,8 +109,53 @@ let () =
             | _ -> assert false
           )
       in
+      let at_flags, mask_flags =
+        C.C_define.import c ~c_flags:["-D_GNU_SOURCE"; "-I"; Filename.concat (Sys.getcwd ()) "include"]
+          ~prelude:{|#include <sys/stat.h>
+#ifndef STATX_TYPE
+#include <linux/stat.h>
+#endif|}
+          ~includes:["fcntl.h" ]
+          C.C_define.Type.[
+            "AT_EMPTY_PATH", Int;
+            "AT_NO_AUTOMOUNT", Int;
+            "AT_SYMLINK_NOFOLLOW", Int;
+            "AT_STATX_SYNC_AS_STAT", Int;
+            "AT_STATX_FORCE_SYNC", Int;
+            "AT_STATX_DONT_SYNC", Int;
+
+            "STATX_TYPE", Int;
+            "STATX_MODE", Int;
+            "STATX_NLINK", Int;
+            "STATX_UID", Int;
+            "STATX_GID", Int;
+            "STATX_ATIME", Int;
+            "STATX_MTIME", Int;
+            "STATX_CTIME", Int;
+            "STATX_INO", Int;
+            "STATX_SIZE", Int;
+            "STATX_BLOCKS", Int;
+            "STATX_BASIC_STATS", Int;
+            "STATX_BTIME", Int;
+          ]
+        |> List.fold_left (fun (ats, stats) (v, k) -> match String.split_on_char '_' v, k with
+            | "AT" :: name, C.C_define.Value.Int v ->
+              let ocaml_name =  String.lowercase_ascii (String.concat "_" name) in
+              ((ocaml_name, v) :: ats, stats)
+            | "STATX" :: name, C.C_define.Value.Int v ->
+              let name = String.concat "_" name |> String.lowercase_ascii in
+              let ocaml_name = match name with
+                | "type" -> "type'"
+                | v -> v
+              in
+              (ats, (ocaml_name, v) :: stats)
+            | _ -> assert false
+          ) ([], [])
+      in
       let op_sig = List.map (fun (name, _) -> Printf.sprintf "  val %s : t" name) ops in
       let op_struct = List.map (fun (name, v) -> Printf.sprintf "  let %s = 0x%x" name v) ops in
+      let at_struct = List.map (fun (name, v) -> Printf.sprintf "  let %s = 0x%x" name v) at_flags in
+      let mask_struct = List.map (fun (name, v) -> Printf.sprintf "    let %s = 0x%x" name v) mask_flags in
       C.Flags.write_lines "config.ml"
         (defs @
          ["module Op : sig";
@@ -120,5 +165,14 @@ let () =
            "  type t = int"
          ] @ op_struct @ [
            "end"
+         ] @ [
+          "module Statx = struct";
+          "  module Flags = struct";
+         ] @ at_struct @ [
+          "  end";
+          "  module Mask = struct";
+         ] @ mask_struct @ [
+          "  end";
+          "end"
          ])
     )

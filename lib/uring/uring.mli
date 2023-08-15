@@ -225,6 +225,92 @@ val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a
     The operation returns the number of bytes transferred, or 0 for end-of-input.
     The result is [EINVAL] if the file descriptors don't support splicing. *)
 
+module Statx : sig
+  type internal
+  (** An internal type used to pass into {! statx}. *)
+
+  type kind = [
+    | `Unknown
+    | `Fifo
+    | `Character_special
+    | `Directory
+    | `Block_device
+    | `Regular_file
+    | `Symbolic_link
+    | `Socket
+  ]
+
+  type t = {
+    blksize : Int64.t;
+    attributes : Int64.t;
+    nlink : Int64.t;
+    uid : Int64.t;
+    gid : Int64.t;
+    mode : int;
+    ino : Int64.t;
+    size : Optint.Int63.t;
+    blocks : Int64.t;
+    attributes_mask : Int64.t;
+    atime : float;
+    btime : float;
+    ctime : float;
+    mtime : float;
+    rdev : Int64.t;
+    dev : Int64.t;
+    perm : int;
+    kind : kind;
+    mask : Int64.t;
+  } (** See statx(2). *)
+
+  val create : unit -> internal
+  (** Use [create] to make an {! internal} statx struct to pass to {! statx}. *)
+
+  val internal_to_t : internal -> t
+  (** Convert an internal statx struct to an OCaml value. This should only be called
+      after a successful completition of a {! statx} call. *)
+
+  module Flags : sig
+    include FLAGS
+    
+    val empty : t
+    val empty_path : t
+    val no_automount : t
+    val symlink_nofollow : t
+    val statx_sync_as_stat : t
+    val statx_force_sync : t
+    val statx_dont_sync : t
+  end
+
+  module Mask : sig
+    include FLAGS
+
+    val type' : t
+    val mode : t
+    val nlink : t
+    val uid : t
+    val gid : t
+    val atime : t
+    val mtime : t
+    val ctime : t
+    val ino : t
+    val size : t
+    val blocks : t
+    val basic_stats : t (** All of the above flags. *)
+
+    val btime : t
+
+    val check : Int64.t -> t -> bool
+    (** [check mask t] checks if [t] is set in [mask]. *)
+  end
+end
+
+val statx : 'a t -> ?fd:Unix.file_descr -> mask:Statx.Mask.t -> string -> Statx.internal -> Statx.Flags.t -> 'a -> 'a job option
+(** [statx t ?fd ~mask path stat flags] stats [path], which is resolved relative to [fd]
+    (or the current directory if [fd] is not given).
+        
+    Create a {! Statx.internal} using {! Statx.create} and after successful completion
+    of the job, convert it to {! Statx.t} using {! Statx.internal_to_t}. *)
+
 val connect : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> 'a job option
 (** [connect t fd addr d] will submit a request to connect [fd] to [addr]. *)
 
