@@ -109,14 +109,33 @@ let () =
             | _ -> assert false
           )
       in
-      let at_flags, mask_flags =
+      let at_flags, mask_flags, attr_flags =
+        let new_flags = 
+          C.C_define.Type.[
+            (* Masks *)
+            "STATX_MNT_ID", Int;
+            "STATX_DIOALIGN", Int;
+            (* File Attributes *)
+            "STATX_ATTR_VERITY", Int;
+            "STATX_ATTR_DAX", Int;
+          ]
+        in
+        let new_flag_prelude =
+          let def_flag = function
+            | name, C.C_define.Type.Int -> 
+              Printf.sprintf "#ifndef %s\n#define %s 0\n#endif\n" name name;
+            | _ -> assert false
+          in
+          String.concat "" (List.map def_flag new_flags)
+        in
         C.C_define.import c ~c_flags:["-D_GNU_SOURCE"; "-I"; Filename.concat (Sys.getcwd ()) "include"]
-          ~prelude:{|#include <sys/stat.h>
+          ~prelude:({|#include <sys/stat.h>
 #ifndef STATX_TYPE
 #include <linux/stat.h>
-#endif|}
+#endif
+|} ^ new_flag_prelude)
           ~includes:["fcntl.h" ]
-          C.C_define.Type.[
+          (C.C_define.Type.[
             "AT_EMPTY_PATH", Int;
             "AT_NO_AUTOMOUNT", Int;
             "AT_SYMLINK_NOFOLLOW", Int;
@@ -137,25 +156,39 @@ let () =
             "STATX_BLOCKS", Int;
             "STATX_BASIC_STATS", Int;
             "STATX_BTIME", Int;
-          ]
-        |> List.fold_left (fun (ats, stats) (v, k) -> match String.split_on_char '_' v, k with
+
+            "STATX_ATTR_COMPRESSED", Int;
+            "STATX_ATTR_IMMUTABLE", Int;
+            "STATX_ATTR_APPEND", Int;
+            "STATX_ATTR_NODUMP", Int ;
+            "STATX_ATTR_ENCRYPTED", Int;
+          ] @ new_flags)
+        |> List.fold_left (fun (ats, stats, attrs) (v, k) -> match String.split_on_char '_' v, k with
             | "AT" :: name, C.C_define.Value.Int v ->
               let ocaml_name =  String.lowercase_ascii (String.concat "_" name) in
-              ((ocaml_name, v) :: ats, stats)
+              ((ocaml_name, v) :: ats, stats, attrs)
+            | "STATX" :: "ATTR" :: name, C.C_define.Value.Int v ->
+              let name = String.concat "_" name |> String.lowercase_ascii in
+              let ocaml_name = match name with
+                | "type" -> "type'"
+                | v -> v
+              in
+              (ats, stats, (ocaml_name, v) :: attrs)
             | "STATX" :: name, C.C_define.Value.Int v ->
               let name = String.concat "_" name |> String.lowercase_ascii in
               let ocaml_name = match name with
                 | "type" -> "type'"
                 | v -> v
               in
-              (ats, (ocaml_name, v) :: stats)
+              (ats, (ocaml_name, v) :: stats, attrs)
             | _ -> assert false
-          ) ([], [])
+          ) ([], [], [])
       in
       let op_sig = List.map (fun (name, _) -> Printf.sprintf "  val %s : t" name) ops in
       let op_struct = List.map (fun (name, v) -> Printf.sprintf "  let %s = 0x%x" name v) ops in
       let at_struct = List.map (fun (name, v) -> Printf.sprintf "  let %s = 0x%x" name v) at_flags in
       let mask_struct = List.map (fun (name, v) -> Printf.sprintf "    let %s = 0x%x" name v) mask_flags in
+      let attr_struct = List.map (fun (name, v) -> Printf.sprintf "    let %s = 0x%x" name v) attr_flags in
       C.Flags.write_lines "config.ml"
         (defs @
          ["module Op : sig";
@@ -172,6 +205,9 @@ let () =
           "  end";
           "  module Mask = struct";
          ] @ mask_struct @ [
+          "  end";
+          "  module Attr = struct";
+         ] @ attr_struct @ [
           "  end";
           "end"
          ])

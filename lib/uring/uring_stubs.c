@@ -454,51 +454,24 @@ static double double_of_timespec(struct statx_timestamp *t) {
 
 static value get_file_type_variant(struct statx *sb) {
   int filetype = sb->stx_mode & S_IFMT;
-  if (filetype == S_IFREG) {
-    return caml_hash_variant("Regular_file");
-  } else if (filetype == S_IFSOCK) {
-    return caml_hash_variant("Socket");
-  } else if (filetype == S_IFLNK) {
-    return caml_hash_variant("Symbolic_link");
-  } else if (filetype == S_IFBLK) {
-    return caml_hash_variant("Block_device");
-  } else if (filetype == S_IFDIR) {
-    return caml_hash_variant("Directory");
-  } else if (filetype == S_IFCHR) {
-    return caml_hash_variant("Character_special");
-  } else if (filetype == S_IFIFO) {
-    return caml_hash_variant("Fifo");
-  } else {
-    return caml_hash_variant("Unknown");
+  switch (filetype) {
+    case S_IFREG:
+      return caml_hash_variant("Regular_file");
+    case S_IFSOCK:
+      return caml_hash_variant("Socket");
+    case S_IFLNK:
+      return caml_hash_variant("Symbolic_link");
+    case S_IFBLK:
+      return caml_hash_variant("Block_device");
+    case S_IFDIR:
+      return caml_hash_variant("Directory");
+    case S_IFCHR:
+      return caml_hash_variant("Character_special");
+    case S_IFIFO:
+      return caml_hash_variant("Fifo");
+    default:
+      return caml_hash_variant("Unknown");
   }
-}
-
-value
-ocaml_uring_statx_internal_to_t(value v_statx) {
-  CAMLparam1(v_statx);
-  CAMLlocal1(v);
-  v = caml_alloc(19, 0);
-  struct statx *s = Statx_val(v_statx);
-  Store_field(v, 0, caml_copy_int64(s->stx_blksize));
-  Store_field(v, 1, caml_copy_int64(s->stx_attributes));
-  Store_field(v, 2, caml_copy_int64(s->stx_nlink));
-  Store_field(v, 3, caml_copy_int64(s->stx_uid));
-  Store_field(v, 4, caml_copy_int64(s->stx_gid));
-  Store_field(v, 5, Val_int(s->stx_mode));
-  Store_field(v, 6, caml_copy_int64(s->stx_ino));
-  Store_field(v, 7, caml_copy_int63(s->stx_size));
-  Store_field(v, 8, caml_copy_int64(s->stx_blocks));
-  Store_field(v, 9, caml_copy_int64(s->stx_attributes_mask));
-  Store_field(v, 10, caml_copy_double(double_of_timespec(&s->stx_atime)));
-  Store_field(v, 11, caml_copy_double(double_of_timespec(&s->stx_btime)));
-  Store_field(v, 12, caml_copy_double(double_of_timespec(&s->stx_ctime)));
-  Store_field(v, 13, caml_copy_double(double_of_timespec(&s->stx_mtime)));
-  Store_field(v, 14, caml_copy_int64(makedev(s->stx_rdev_major,s->stx_rdev_minor)));
-  Store_field(v, 15, caml_copy_int64(makedev(s->stx_dev_major,s->stx_dev_minor)));
-  Store_field(v, 16, Val_int(s->stx_mode & ~S_IFMT));
-  Store_field(v, 17, get_file_type_variant(s));
-  Store_field(v, 18, caml_copy_int64(s->stx_mask));
-  CAMLreturn(v);
 }
 
 value
@@ -522,6 +495,136 @@ ocaml_uring_submit_statx_byte(value* values, int argc) {
 			  values[4],
 			  values[5],
 			  values[6]);
+}
+
+// Non-allocating (for native mode) accessors for statx
+#define STATX_GETTER(field, return_type, ocaml_value_maker) \
+return_type ocaml_uring_statx_##field##_native(value v_statx) { \
+  struct statx *s = Statx_val(v_statx); \
+  return s->stx_##field; \
+} \
+value ocaml_uring_statx_ ## field ## _bytes(value v_statx) { \
+  return ocaml_value_maker(ocaml_uring_statx_##field##_native(v_statx)); \
+}
+
+// Int64
+STATX_GETTER(blksize, int64_t, caml_copy_int64);
+STATX_GETTER(attributes, int64_t, caml_copy_int64);
+STATX_GETTER(nlink, int64_t, caml_copy_int64);
+STATX_GETTER(uid, int64_t, caml_copy_int64);
+STATX_GETTER(gid, int64_t, caml_copy_int64);
+STATX_GETTER(ino, int64_t, caml_copy_int64);
+STATX_GETTER(blocks, int64_t, caml_copy_int64);
+STATX_GETTER(attributes_mask, int64_t, caml_copy_int64);
+STATX_GETTER(mask, int64_t, caml_copy_int64);
+
+int64_t
+ocaml_uring_statx_rdev_native(value v_statx) {
+  struct statx *s = Statx_val(v_statx);
+  return makedev(s->stx_rdev_major,s->stx_rdev_minor);
+}
+
+value
+ocaml_uring_statx_rdev_bytes(value v_statx) {
+  return caml_copy_int64(ocaml_uring_statx_rdev_native(v_statx));
+}
+
+int64_t
+ocaml_uring_statx_dev_native(value v_statx) {
+  struct statx *s = Statx_val(v_statx);
+  return makedev(s->stx_dev_major,s->stx_dev_minor);
+}
+
+value
+ocaml_uring_statx_dev_bytes(value v_statx) {
+  return caml_copy_int64(ocaml_uring_statx_dev_native(v_statx));
+}
+
+int64_t
+ocaml_uring_statx_mnt_id_native(value v_statx) {
+  #ifdef STATX_MNT_ID // Linux 5.8 and above
+  struct statx *s = Statx_val(v_statx);
+  return s->stx_mnt_id;
+  #else
+  return 0;
+  #endif
+}
+
+value
+ocaml_uring_statx_mnt_id_bytes(value v_statx) {
+  return caml_copy_int64(ocaml_uring_statx_mnt_id_native(v_statx));
+}
+
+int64_t
+ocaml_uring_statx_dio_mem_align_native(value v_statx) {
+  #ifdef STATX_DIOALIGN // Linux 6.1 and above
+  struct statx *s = Statx_val(v_statx);
+  return s->stx_dio_mem_align;
+  #else
+  return 0;
+  #endif
+}
+
+value
+ocaml_uring_statx_dio_mem_align_bytes(value v_statx) {
+  return caml_copy_int64(ocaml_uring_statx_dio_mem_align_native(v_statx));
+}
+
+int64_t
+ocaml_uring_statx_dio_offset_align_native(value v_statx) {
+  #ifdef STATX_DIOALIGN // Linux 6.1 and above
+  struct statx *s = Statx_val(v_statx);
+  return s->stx_dio_mem_align;
+  #else
+  return 0;
+  #endif
+}
+
+value
+ocaml_uring_statx_dio_offset_align_bytes(value v_statx) {
+  return caml_copy_int64(ocaml_uring_statx_dio_offset_align_native(v_statx));
+}
+
+#define STATX_TIME_GETTER(field, return_type, ocaml_value_maker) \
+return_type ocaml_uring_statx_##field##_native(value v_statx) { \
+  struct statx *s = Statx_val(v_statx); \
+  return double_of_timespec(&s->stx_##field); \
+} \
+value ocaml_uring_statx_ ## field ## _bytes(value v_statx) { \
+  return ocaml_value_maker(ocaml_uring_statx_##field##_native(v_statx)); \
+}
+
+// Float
+STATX_TIME_GETTER(atime, double, caml_copy_double);
+STATX_TIME_GETTER(btime, double, caml_copy_double);
+STATX_TIME_GETTER(ctime, double, caml_copy_double);
+STATX_TIME_GETTER(mtime, double, caml_copy_double);
+
+// Int
+STATX_GETTER(mode, intnat, Val_int);
+
+intnat
+ocaml_uring_statx_perm_native(value v_statx) {
+  struct statx *s = Statx_val(v_statx);
+  return (s->stx_mode & ~S_IFMT);
+}
+
+value
+ocaml_uring_statx_perm_bytes(value v_statx) {
+  return Val_int(ocaml_uring_statx_perm_native(v_statx));
+}
+
+// Allocating
+value
+ocaml_uring_statx_kind(value v_statx) {
+  struct statx *s = Statx_val(v_statx);
+  return get_file_type_variant(s);
+}
+
+value
+ocaml_uring_statx_size(value v_statx) {
+  struct statx *s = Statx_val(v_statx);
+  return caml_copy_int63(s->stx_size);
 }
 
 struct sock_addr_data {
