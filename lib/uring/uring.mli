@@ -240,6 +240,8 @@ module Statx : sig
     | `Socket
   ]
 
+  val pp_kind : kind Fmt.t
+
   val create : unit -> t
   (** Use [create] to make a statx result buffer to pass to {! statx}. *)
 

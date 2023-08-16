@@ -100,6 +100,18 @@ module Statx = struct
     | `Socket
   ]
 
+  let pp_kind f k =
+    Fmt.pf f "%s"
+      (match k with
+       |`Unknown -> "unknown"
+       |`Fifo -> "fifo"
+       |`Character_special -> "character special file"
+       |`Directory -> "directory"
+       |`Block_device -> "block device"
+       |`Regular_file -> "regular file"
+       |`Symbolic_link -> "symbolic link"
+       |`Socket -> "socket")
+
   external create : unit -> t = "ocaml_uring_make_statx"
 
   module Flags = struct
