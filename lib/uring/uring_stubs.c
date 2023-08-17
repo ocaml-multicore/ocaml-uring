@@ -448,10 +448,6 @@ ocaml_uring_make_statx(value v_unit) {
   CAMLreturn(v);
 }
 
-static double double_of_timespec(struct statx_timestamp *t) {
-  return ((double) t->tv_sec) + (((double) t->tv_nsec) / 1e9);
-}
-
 static value get_file_type_variant(struct statx *sb) {
   int filetype = sb->stx_mode & S_IFMT;
   switch (filetype) {
@@ -585,20 +581,24 @@ ocaml_uring_statx_dio_offset_align_bytes(value v_statx) {
   return caml_copy_int64(ocaml_uring_statx_dio_offset_align_native(v_statx));
 }
 
-#define STATX_TIME_GETTER(field, return_type, ocaml_value_maker) \
-return_type ocaml_uring_statx_##field##_native(value v_statx) { \
+#define STATX_TIME_GETTER(field) \
+int64_t ocaml_uring_statx_##field##_sec_native(value v_statx) { \
   struct statx *s = Statx_val(v_statx); \
-  return double_of_timespec(&s->stx_##field); \
+  return s->stx_##field.tv_sec; \
 } \
-value ocaml_uring_statx_ ## field ## _bytes(value v_statx) { \
-  return ocaml_value_maker(ocaml_uring_statx_##field##_native(v_statx)); \
+value ocaml_uring_statx_##field##_sec_bytes(value v_statx) { \
+  return caml_copy_int64(ocaml_uring_statx_##field##_sec_native(v_statx)); \
+} \
+value ocaml_uring_statx_##field##_nsec(value v_statx) { \
+  struct statx *s = Statx_val(v_statx); \
+  return Val_int(s->stx_##field.tv_nsec); \
 }
 
-// Float
-STATX_TIME_GETTER(atime, double, caml_copy_double);
-STATX_TIME_GETTER(btime, double, caml_copy_double);
-STATX_TIME_GETTER(ctime, double, caml_copy_double);
-STATX_TIME_GETTER(mtime, double, caml_copy_double);
+// Seconds and ns
+STATX_TIME_GETTER(atime);
+STATX_TIME_GETTER(btime);
+STATX_TIME_GETTER(ctime);
+STATX_TIME_GETTER(mtime);
 
 // Int
 STATX_GETTER(mode, intnat, Val_int);

@@ -153,10 +153,15 @@ module Statx = struct
   external dio_mem_align : t -> (int64 [@unboxed]) = "ocaml_uring_statx_dio_mem_align_bytes" "ocaml_uring_statx_dio_mem_align_native" [@@noalloc]
   external dio_offset_align : t -> (int64 [@unboxed]) = "ocaml_uring_statx_dio_offset_align_bytes" "ocaml_uring_statx_dio_offset_align_native" [@@noalloc]
 
-  external atime : t -> (float [@unboxed]) = "ocaml_uring_statx_atime_bytes" "ocaml_uring_statx_atime_native" [@@noalloc]
-  external btime : t -> (float [@unboxed]) = "ocaml_uring_statx_btime_bytes" "ocaml_uring_statx_btime_native" [@@noalloc]
-  external ctime : t -> (float [@unboxed]) = "ocaml_uring_statx_ctime_bytes" "ocaml_uring_statx_ctime_native" [@@noalloc]
-  external mtime : t -> (float [@unboxed]) = "ocaml_uring_statx_mtime_bytes" "ocaml_uring_statx_mtime_native" [@@noalloc]
+  external atime_sec : t -> (int64 [@unboxed]) = "ocaml_uring_statx_atime_sec_bytes" "ocaml_uring_statx_atime_sec_native" [@@noalloc]
+  external btime_sec : t -> (int64 [@unboxed]) = "ocaml_uring_statx_btime_sec_bytes" "ocaml_uring_statx_btime_sec_native" [@@noalloc]
+  external ctime_sec : t -> (int64 [@unboxed]) = "ocaml_uring_statx_ctime_sec_bytes" "ocaml_uring_statx_ctime_sec_native" [@@noalloc]
+  external mtime_sec : t -> (int64 [@unboxed]) = "ocaml_uring_statx_mtime_sec_bytes" "ocaml_uring_statx_mtime_sec_native" [@@noalloc]
+
+  external atime_nsec : t -> int = "ocaml_uring_statx_atime_nsec" [@@noalloc]
+  external btime_nsec : t -> int = "ocaml_uring_statx_btime_nsec" [@@noalloc]
+  external ctime_nsec : t -> int = "ocaml_uring_statx_ctime_nsec" [@@noalloc]
+  external mtime_nsec : t -> int = "ocaml_uring_statx_mtime_nsec" [@@noalloc]
 
   external mode : t -> (int [@untagged]) = "ocaml_uring_statx_mode_bytes" "ocaml_uring_statx_mode_native" [@@noalloc]
   external perm : t -> (int [@untagged]) = "ocaml_uring_statx_perm_bytes" "ocaml_uring_statx_perm_native" [@@noalloc]

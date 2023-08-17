@@ -329,10 +329,15 @@ module Statx : sig
   val dio_offset_align : t -> Int64.t
   (** See {! Mask.dioalign}. *)
 
-  val atime : t -> float
-  val btime : t -> float
-  val ctime : t -> float
-  val mtime : t -> float
+  val atime_sec : t -> int64
+  val btime_sec : t -> int64
+  val ctime_sec : t -> int64
+  val mtime_sec : t -> int64
+  
+  val atime_nsec : t -> int
+  val btime_nsec : t -> int
+  val ctime_nsec : t -> int
+  val mtime_nsec : t -> int
   
   val mode : t -> int
   val perm : t -> int
