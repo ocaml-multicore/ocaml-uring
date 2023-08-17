@@ -214,8 +214,8 @@ val statx : Uring.Statx.t = <abstr>
 val token : [ `Open_path | `Statx ] = `Statx
 val retval : int = 0
 
-#  Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), Int63.to_int (Uring.Statx.size statx);;
-- : Uring.Statx.kind * string * int = (`Regular_file, "0o600", 9)
+#  Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), (Uring.Statx.size statx);;
+- : Uring.Statx.kind * string * int64 = (`Regular_file, "0o600", 9L)
 
 # if not (Uring.Statx.(Mask.check (mask statx) Mask.dioalign)) then assert (Uring.Statx.dio_mem_align statx = 0L);;
 - : unit = ()
@@ -261,8 +261,8 @@ val statx : Uring.Statx.t = <abstr>
 val token : [ `Open_path | `Statx ] = `Statx
 val retval : int = 0
 
-# Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), Int63.to_int (Uring.Statx.size statx);;
-- : Uring.Statx.kind * string * int = (`Regular_file, "0o600", 9)
+# Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), (Uring.Statx.size statx);;
+- : Uring.Statx.kind * string * int64 = (`Regular_file, "0o600", 9L)
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()

@@ -314,6 +314,7 @@ module Statx : sig
   val uid : t -> Int64.t
   val gid : t -> Int64.t
   val ino : t -> Int64.t
+  val size : t -> Int64.t
   val blocks : t -> Int64.t
   val attributes_mask : t -> Int64.t
   val rdev : t -> Int64.t
@@ -342,7 +343,6 @@ module Statx : sig
   val mode : t -> int
   val perm : t -> int
 
-  val size : t -> Optint.Int63.t
   val kind : t -> kind
 end
 

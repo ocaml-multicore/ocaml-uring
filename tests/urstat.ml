@@ -22,7 +22,7 @@ let get_completion_and_print uring =
     | _ -> "" in
   Format.printf "  File: %s%s\n  Size: %Lu\t\tBlocks: %Lu\tIO Block: %Lu\t %a\nDevice: %Lu\tInode: %Lu\tLinks: %Lu\nAccess: (%04o/TODO)\tUid: (%Lu/TODO)\tGid: (%Lu/TODO)\nAccess: %a\nModify: %a\nChange: %a\n Birth: %a\n%!"
     fname opt_symlink
-    (Optint.Int63.to_int64 (S.size buf))
+    (S.size buf)
     (S.blocks buf)
     (S.blksize buf)
     S.pp_kind (S.kind buf)

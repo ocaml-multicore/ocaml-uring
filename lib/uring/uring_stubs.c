@@ -54,10 +54,8 @@
 // TODO: this belongs in Optint
 #ifdef ARCH_SIXTYFOUR
 #define Int63_val(v) Long_val(v)
-#define caml_copy_int63(v) Val_long(v)
 #else
 #define Int63_val(v) (Int64_val(v) >> 1)
-#define caml_copy_int63(v) caml_copy_int64(v << 1)
 #endif
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
@@ -510,6 +508,7 @@ STATX_GETTER(nlink, int64_t, caml_copy_int64);
 STATX_GETTER(uid, int64_t, caml_copy_int64);
 STATX_GETTER(gid, int64_t, caml_copy_int64);
 STATX_GETTER(ino, int64_t, caml_copy_int64);
+STATX_GETTER(size, int64_t, caml_copy_int64);
 STATX_GETTER(blocks, int64_t, caml_copy_int64);
 STATX_GETTER(attributes_mask, int64_t, caml_copy_int64);
 STATX_GETTER(mask, int64_t, caml_copy_int64);
@@ -619,12 +618,6 @@ value
 ocaml_uring_statx_kind(value v_statx) {
   struct statx *s = Statx_val(v_statx);
   return get_file_type_variant(s);
-}
-
-value
-ocaml_uring_statx_size(value v_statx) {
-  struct statx *s = Statx_val(v_statx);
-  return caml_copy_int63(s->stx_size);
 }
 
 struct sock_addr_data {

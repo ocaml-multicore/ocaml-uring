@@ -144,6 +144,7 @@ module Statx = struct
   external uid : t -> (int64 [@unboxed]) = "ocaml_uring_statx_uid_bytes" "ocaml_uring_statx_uid_native" [@@noalloc]
   external gid : t -> (int64 [@unboxed]) = "ocaml_uring_statx_gid_bytes" "ocaml_uring_statx_gid_native" [@@noalloc]
   external ino : t -> (int64 [@unboxed]) = "ocaml_uring_statx_ino_bytes" "ocaml_uring_statx_ino_native" [@@noalloc]
+  external size : t -> (int64 [@unboxed]) = "ocaml_uring_statx_size_bytes" "ocaml_uring_statx_size_native" [@@noalloc]
   external blocks : t -> (int64 [@unboxed]) = "ocaml_uring_statx_blocks_bytes" "ocaml_uring_statx_blocks_native" [@@noalloc]
   external attributes_mask : t -> (int64 [@unboxed]) = "ocaml_uring_statx_attributes_mask_bytes" "ocaml_uring_statx_attributes_mask_native" [@@noalloc]
   external rdev : t -> (int64 [@unboxed]) = "ocaml_uring_statx_rdev_bytes" "ocaml_uring_statx_rdev_native" [@@noalloc]
@@ -167,7 +168,6 @@ module Statx = struct
   external perm : t -> (int [@untagged]) = "ocaml_uring_statx_perm_bytes" "ocaml_uring_statx_perm_native" [@@noalloc]
 
   external kind : t -> kind = "ocaml_uring_statx_kind"
-  external size : t -> Optint.Int63.t = "ocaml_uring_statx_size"
 end
 
 module Sockaddr = struct
