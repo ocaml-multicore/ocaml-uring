@@ -1,3 +1,14 @@
+## v0.7
+
+- Add `statx` support (@patricoferris, @talex5, @avsm #95 #97).
+
+- Add type annotations to tests (@patricoferris #96, reviewed by @talex5).  
+  Fixes MDX tests on OCaml 5.1.
+
+- Update liburing to 2.4 (@anmonteiro #93, reviewed by @talex5).
+
+- Fix accidental shadowing in `ocaml_uring_get_msghdr_fds` (@talex5 #91, reviewed by @avsm).
+
 ## v0.6
 
 - Fix SIGSEGV on `Uring.wait` (@edwintorok #89).  
