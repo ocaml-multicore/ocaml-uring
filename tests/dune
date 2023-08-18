@@ -30,6 +30,11 @@
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli lwtcp_lib))
 
 (executable
+ (name urstat)
+ (modules urstat)
+ (libraries uring fmt))
+
+(executable
  (name poll_add)
  (modules poll_add)
  (libraries unix uring logs logs.fmt))

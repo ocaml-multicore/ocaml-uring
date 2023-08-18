@@ -226,8 +226,8 @@ val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a
     The result is [EINVAL] if the file descriptors don't support splicing. *)
 
 module Statx : sig
-  type internal
-  (** An internal type used to pass into {! statx}. *)
+  type t
+  (** A statx struct. *)
 
   type kind = [
     | `Unknown
@@ -240,34 +240,10 @@ module Statx : sig
     | `Socket
   ]
 
-  type t = {
-    blksize : Int64.t;
-    attributes : Int64.t;
-    nlink : Int64.t;
-    uid : Int64.t;
-    gid : Int64.t;
-    mode : int;
-    ino : Int64.t;
-    size : Optint.Int63.t;
-    blocks : Int64.t;
-    attributes_mask : Int64.t;
-    atime : float;
-    btime : float;
-    ctime : float;
-    mtime : float;
-    rdev : Int64.t;
-    dev : Int64.t;
-    perm : int;
-    kind : kind;
-    mask : Int64.t;
-  } (** See statx(2). *)
+  val pp_kind : kind Fmt.t
 
-  val create : unit -> internal
-  (** Use [create] to make an {! internal} statx struct to pass to {! statx}. *)
-
-  val internal_to_t : internal -> t
-  (** Convert an internal statx struct to an OCaml value. This should only be called
-      after a successful completition of a {! statx} call. *)
+  val create : unit -> t
+  (** Use [create] to make a statx result buffer to pass to {! statx}. *)
 
   module Flags : sig
     include FLAGS
@@ -279,6 +255,26 @@ module Statx : sig
     val statx_sync_as_stat : t
     val statx_force_sync : t
     val statx_dont_sync : t
+  end
+
+  module Attr : sig
+    include FLAGS
+
+    val compressed : t
+    val immutable : t
+    val append : t
+    val nodump : t
+    val encrypted : t
+    val verity : t
+
+    val dax : t
+    (** Since Linux 5.8 *)
+
+    val check : ?mask:Int64.t -> Int64.t -> t -> bool
+    (** [check ?mask attr t] will check if [t] is set in [attr].
+
+        If [mask] is not [None] then it will first check the mask to see
+        if the file attribute is supported and if not raise [Invalid_argument]. *)
   end
 
   module Mask : sig
@@ -299,17 +295,60 @@ module Statx : sig
 
     val btime : t
 
+    val mnt_id : t
+    (** As of Linux 5.8 *)
+
+    val dioalign : t
+    (** As of Linux 6.1 *)
+
     val check : Int64.t -> t -> bool
     (** [check mask t] checks if [t] is set in [mask]. *)
   end
+
+  (** You may wish to use {! Mask.check} to verify the field has actually
+      been returned with a sensible value first. *)
+
+  val blksize : t -> Int64.t
+  val attributes : t -> Int64.t
+  val nlink : t -> Int64.t
+  val uid : t -> Int64.t
+  val gid : t -> Int64.t
+  val ino : t -> Int64.t
+  val size : t -> Int64.t
+  val blocks : t -> Int64.t
+  val attributes_mask : t -> Int64.t
+  val rdev : t -> Int64.t
+  val dev : t -> Int64.t
+  val mask : t -> Int64.t
+  
+  val mnt_id : t -> Int64.t
+  (** See {! Mask.mnt_id}. *)
+
+  val dio_mem_align : t -> Int64.t
+  (** See {! Mask.dioalign}. *)
+
+  val dio_offset_align : t -> Int64.t
+  (** See {! Mask.dioalign}. *)
+
+  val atime_sec : t -> int64
+  val btime_sec : t -> int64
+  val ctime_sec : t -> int64
+  val mtime_sec : t -> int64
+  
+  val atime_nsec : t -> int
+  val btime_nsec : t -> int
+  val ctime_nsec : t -> int
+  val mtime_nsec : t -> int
+  
+  val mode : t -> int
+  val perm : t -> int
+
+  val kind : t -> kind
 end
 
-val statx : 'a t -> ?fd:Unix.file_descr -> mask:Statx.Mask.t -> string -> Statx.internal -> Statx.Flags.t -> 'a -> 'a job option
+val statx : 'a t -> ?fd:Unix.file_descr -> mask:Statx.Mask.t -> string -> Statx.t -> Statx.Flags.t -> 'a -> 'a job option
 (** [statx t ?fd ~mask path stat flags] stats [path], which is resolved relative to [fd]
-    (or the current directory if [fd] is not given).
-        
-    Create a {! Statx.internal} using {! Statx.create} and after successful completion
-    of the job, convert it to {! Statx.t} using {! Statx.internal_to_t}. *)
+    (or the current directory if [fd] is not given). *)
 
 val connect : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> 'a job option
 (** [connect t fd addr d] will submit a request to connect [fd] to [addr]. *)

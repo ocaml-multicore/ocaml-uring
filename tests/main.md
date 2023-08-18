@@ -198,7 +198,7 @@ val fd : unit = ()
 val t : [ `Open_path | `Statx ] Uring.t = <abstr>
 
 # let statx = Uring.Statx.create ();;
-val statx : Uring.Statx.internal = <abstr>
+val statx : Uring.Statx.t = <abstr>
 # Uring.statx t
     ~mask:Uring.Statx.Mask.basic_stats
     "test-openat"
@@ -214,9 +214,11 @@ val statx : Uring.Statx.internal = <abstr>
 val token : [ `Open_path | `Statx ] = `Statx
 val retval : int = 0
 
-# let x = Uring.Statx.internal_to_t statx in
-  x.kind, Printf.sprintf "0o%o" x.perm, Int63.to_int x.size;;
-- : Uring.Statx.kind * string * int = (`Regular_file, "0o600", 9)
+#  Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), (Uring.Statx.size statx);;
+- : Uring.Statx.kind * string * int64 = (`Regular_file, "0o600", 9L)
+
+# if not (Uring.Statx.(Mask.check (mask statx) Mask.dioalign)) then assert (Uring.Statx.dio_mem_align statx = 0L);;
+- : unit = ()
 ```
 
 Now using `~fd`:
@@ -242,7 +244,7 @@ val token : [ `Open_path | `Statx ] = `Open_path
 val fd : Unix.file_descr = <abstr>
 
 # let statx = Uring.Statx.create ();;
-val statx : Uring.Statx.internal = <abstr>
+val statx : Uring.Statx.t = <abstr>
 # Uring.statx t
     ~fd
     ~mask:Uring.Statx.Mask.(type' + mode + size)
@@ -259,9 +261,8 @@ val statx : Uring.Statx.internal = <abstr>
 val token : [ `Open_path | `Statx ] = `Statx
 val retval : int = 0
 
-# let x = Uring.Statx.internal_to_t statx in
-  x.kind, Printf.sprintf "0o%o" x.perm, Int63.to_int x.size;;
-- : Uring.Statx.kind * string * int = (`Regular_file, "0o600", 9)
+# Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), (Uring.Statx.size statx);;
+- : Uring.Statx.kind * string * int64 = (`Regular_file, "0o600", 9L)
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()

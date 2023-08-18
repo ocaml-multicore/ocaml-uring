@@ -87,7 +87,7 @@ module Poll_mask = struct
 end
 
 module Statx = struct
-  type internal
+  type t
 
   type kind = [
     | `Unknown
@@ -100,34 +100,33 @@ module Statx = struct
     | `Socket
   ]
 
-  type t = {
-    blksize : Int64.t;
-    attributes : Int64.t;
-    nlink : Int64.t;
-    uid : Int64.t;
-    gid : Int64.t;
-    mode : int;
-    ino : Int64.t;
-    size : Optint.Int63.t;
-    blocks : Int64.t;
-    attributes_mask : Int64.t;
-    atime : float;
-    btime : float;
-    ctime : float;
-    mtime : float;
-    rdev : Int64.t;
-    dev : Int64.t;
-    perm : int;
-    kind : kind;
-    mask : Int64.t;
-  }
+  let pp_kind f k =
+    Fmt.pf f "%s"
+      (match k with
+       |`Unknown -> "unknown"
+       |`Fifo -> "fifo"
+       |`Character_special -> "character special file"
+       |`Directory -> "directory"
+       |`Block_device -> "block device"
+       |`Regular_file -> "regular file"
+       |`Symbolic_link -> "symbolic link"
+       |`Socket -> "socket")
 
-  external create : unit -> internal = "ocaml_uring_make_statx"
-  external internal_to_t : internal -> t = "ocaml_uring_statx_internal_to_t"
+  external create : unit -> t = "ocaml_uring_make_statx"
 
   module Flags = struct
     include Flags
     include Config.Statx.Flags
+  end
+
+  module Attr = struct
+    include Flags
+    include Config.Statx.Attr
+
+    let check ?mask attr t =
+      let i = Int64.of_int t in
+      (match mask with Some m -> if Int64.equal (Int64.logand m i) i then invalid_arg "Attribute not supported" | _ -> ());
+      Int64.equal (Int64.logand attr i) i 
   end
 
   module Mask = struct
@@ -138,6 +137,37 @@ module Statx = struct
       let i = Int64.of_int t in
       Int64.equal (Int64.logand mask i) i 
   end
+
+  external blksize : t -> (int64 [@unboxed]) = "ocaml_uring_statx_blksize_bytes" "ocaml_uring_statx_blksize_native" [@@noalloc]
+  external attributes : t -> (int64 [@unboxed]) = "ocaml_uring_statx_attributes_bytes" "ocaml_uring_statx_attributes_native" [@@noalloc]
+  external nlink : t -> (int64 [@unboxed]) = "ocaml_uring_statx_nlink_bytes" "ocaml_uring_statx_nlink_native" [@@noalloc]
+  external uid : t -> (int64 [@unboxed]) = "ocaml_uring_statx_uid_bytes" "ocaml_uring_statx_uid_native" [@@noalloc]
+  external gid : t -> (int64 [@unboxed]) = "ocaml_uring_statx_gid_bytes" "ocaml_uring_statx_gid_native" [@@noalloc]
+  external ino : t -> (int64 [@unboxed]) = "ocaml_uring_statx_ino_bytes" "ocaml_uring_statx_ino_native" [@@noalloc]
+  external size : t -> (int64 [@unboxed]) = "ocaml_uring_statx_size_bytes" "ocaml_uring_statx_size_native" [@@noalloc]
+  external blocks : t -> (int64 [@unboxed]) = "ocaml_uring_statx_blocks_bytes" "ocaml_uring_statx_blocks_native" [@@noalloc]
+  external attributes_mask : t -> (int64 [@unboxed]) = "ocaml_uring_statx_attributes_mask_bytes" "ocaml_uring_statx_attributes_mask_native" [@@noalloc]
+  external rdev : t -> (int64 [@unboxed]) = "ocaml_uring_statx_rdev_bytes" "ocaml_uring_statx_rdev_native" [@@noalloc]
+  external dev : t -> (int64 [@unboxed]) = "ocaml_uring_statx_dev_bytes" "ocaml_uring_statx_dev_native" [@@noalloc]
+  external mask : t -> (int64 [@unboxed]) = "ocaml_uring_statx_mask_bytes" "ocaml_uring_statx_mask_native" [@@noalloc]
+  external mnt_id : t -> (int64 [@unboxed]) = "ocaml_uring_statx_mnt_id_bytes" "ocaml_uring_statx_mnt_id_native" [@@noalloc]
+  external dio_mem_align : t -> (int64 [@unboxed]) = "ocaml_uring_statx_dio_mem_align_bytes" "ocaml_uring_statx_dio_mem_align_native" [@@noalloc]
+  external dio_offset_align : t -> (int64 [@unboxed]) = "ocaml_uring_statx_dio_offset_align_bytes" "ocaml_uring_statx_dio_offset_align_native" [@@noalloc]
+
+  external atime_sec : t -> (int64 [@unboxed]) = "ocaml_uring_statx_atime_sec_bytes" "ocaml_uring_statx_atime_sec_native" [@@noalloc]
+  external btime_sec : t -> (int64 [@unboxed]) = "ocaml_uring_statx_btime_sec_bytes" "ocaml_uring_statx_btime_sec_native" [@@noalloc]
+  external ctime_sec : t -> (int64 [@unboxed]) = "ocaml_uring_statx_ctime_sec_bytes" "ocaml_uring_statx_ctime_sec_native" [@@noalloc]
+  external mtime_sec : t -> (int64 [@unboxed]) = "ocaml_uring_statx_mtime_sec_bytes" "ocaml_uring_statx_mtime_sec_native" [@@noalloc]
+
+  external atime_nsec : t -> int = "ocaml_uring_statx_atime_nsec" [@@noalloc]
+  external btime_nsec : t -> int = "ocaml_uring_statx_btime_nsec" [@@noalloc]
+  external ctime_nsec : t -> int = "ocaml_uring_statx_ctime_nsec" [@@noalloc]
+  external mtime_nsec : t -> int = "ocaml_uring_statx_mtime_nsec" [@@noalloc]
+
+  external mode : t -> (int [@untagged]) = "ocaml_uring_statx_mode_bytes" "ocaml_uring_statx_mode_native" [@@noalloc]
+  external perm : t -> (int [@untagged]) = "ocaml_uring_statx_perm_bytes" "ocaml_uring_statx_perm_native" [@@noalloc]
+
+  external kind : t -> kind = "ocaml_uring_statx_kind"
 end
 
 module Sockaddr = struct
@@ -293,7 +323,7 @@ module Uring = struct
   external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
-  external submit_statx : t -> id -> Unix.file_descr -> Statx.internal -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
+  external submit_statx : t -> id -> Unix.file_descr -> Statx.t -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
