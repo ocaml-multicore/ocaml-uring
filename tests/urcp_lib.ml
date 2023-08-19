@@ -26,8 +26,8 @@ let pp ppf {insize;offset;reads;writes;write_left; read_left;_} =
     insize Int63.pp offset reads writes read_left write_left
 
 type iovec = {
-  all : Cstruct.t list;
-  mutable next : Cstruct.t list;
+  all : bytes list;
+  mutable next : bytes list;
 }
 
 type req = {
@@ -44,7 +44,7 @@ let pp_req ppf {op; len; off; fileoff; t; _ } =
 
 (* Perform a complete read into bufs. *)
 let queue_read uring t len =
-  let all = [Cstruct.create len] in
+  let all = [Bytes.create len] in
   let iov = { all; next = all } in
   let req = { op=`R; iov; fileoff=t.offset; len; off=0; t } in
   Logs.debug (fun l -> l "queue_read: %a" pp_req req);
@@ -75,7 +75,7 @@ let handle_read_completion uring req res =
     raise (Failure ("unix errorno " ^ (string_of_int n)))
   | n when n < bytes_to_read ->
     (* handle short read so new iovec and resubmit *)
-    req.iov.next <- Cstruct.shiftv req.iov.next n;
+    req.iov.next <- Uring.Bytes.shiftv req.iov.next n;
     req.off <- req.off + n;
     let r = Uring.readv ~file_offset:(Int63.of_int req.off) uring req.t.infd req.iov.next req in
     assert(r <> None);
@@ -104,7 +104,7 @@ let handle_write_completion uring req res =
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < bytes_to_write ->
     (* handle short write so new iovec and resubmit *)
-    req.iov.next <- Cstruct.shiftv req.iov.next n;
+    req.iov.next <- Uring.Bytes.shiftv req.iov.next n;
     req.off <- req.off + n;
     let r = Uring.writev ~file_offset:req.fileoff uring req.t.infd req.iov.next req in
     assert(r <> None);
