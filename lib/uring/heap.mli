@@ -32,7 +32,7 @@ val ptr : 'a entry -> ptr
 
 val alloc : 'a t -> 'a -> extra_data:'b -> 'a entry
 (** [alloc t a ~extra_data] adds the value [a] to [t] and returns a
-    pointer to that value, or raises {!Invalid_arg} if no extra space
+    pointer to that value, or raises [Invalid_argument] if no extra space
     can be created for [t], or [t] has already been [release]d.
     @param extra_data Prevent this from being GC'd until [free] is called. *)
 

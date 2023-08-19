@@ -14,7 +14,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(** Io_uring interface. *)
+(** Io_uring is an asynchronous I/O API for Linux that uses ring buffers
+    shared between the Linux kernel and userspace to provide an efficient
+    mechanism to batch requests that can be handled asynchronously and in
+    parallel.  This module provides an OCaml interface to io_uring that
+    aims to provide a thin type-safe layer for use in higher-level interfaces.
+    @see <https://unixism.net/loti/what_is_io_uring.html#what-is-io-uring> What is Io_uring? *)
 
 module Region = Region
 
@@ -69,9 +74,10 @@ val noop : 'a t -> 'a -> 'a job option
 
 (** {2 Timeout} *)
 
-type clock = Boottime | Realtime
-(** Represents Linux clocks. [Boottime] and [Realtime] represents OS clocks CLOCK_BOOTTIME
-    and CLOCK_REALTIME respectively. *)
+(** Represents different Linux clocks. *)
+type clock =
+   Boottime (** [CLOCK_BOOTTIME] is a suspend-aware monotonic clock *)
+ | Realtime (** [CLOCK_REALTIME] is a wallclock time clock that may be affected by discontinuous jumps *)
 
 val timeout: ?absolute:bool -> 'a t -> clock -> int64 -> 'a -> 'a job option
 (** [timeout t clock ns d] submits a timeout request to uring [t].
@@ -93,40 +99,138 @@ module type FLAGS = sig
   (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
 end
 
-(** Flags that can be passed to openat2. *)
+(** Flags that can be passed to {!openat2}. *)
 module Open_flags : sig
   include FLAGS
 
-  val empty : t
   val append : t
+  (** [append] repositions the file offset to the end of the file before
+      every write. This should be used with caution with io_uring.
+      @see <https://github.com/axboe/liburing/issues/32#issuecomment-1313220682> GitHub axboe/liburing#32 *)
+
   val cloexec : t
+  (** [cloexec] enables the close-on-exec flag for the new fd. *)
+
   val creat : t
+  (** [creat] implies that if the pathname does not exist, it is
+      created as a regular file. *)
+
   val direct : t
+  (** [direct] disables the kernel buffer cache and performs IO
+      directly to and from the userspace buffers. *)
+
   val directory : t
+  (** [directory] causes the open operation to fail if the target
+      is not a directory. *)
+
   val dsync : t
+  (** [dsync] ensures that write operations on the file complete
+      according to the requirements of synchronised IO data integrity
+      completion. *)
+
   val excl : t
-  val largefile : t
+  (** [excl] is used alongside {!creat} to ensure that the file
+      is created as a result of the {!openat2} call, and otherwise
+      fails with a {!Unix.EEXIST} exception. The only exception where
+      [excl] can be used without {!creat} is when attempting to open
+      block devices. If the block device is otherwise mounted, then
+      the open will fail with {!Unix.EBUSY}. *)
+
   val noatime : t
+  (** [noatime] signals that the file access time should not be updated
+      when the file is read from. See {!Statx.atime_nsec}. *)
+
   val noctty : t
+  (** [noctty] ensures that if the path refers to a tty, it will not
+      be assigned as the controlling terminal even if one is not present. *)
+
   val nofollow : t
+  (** [nofollow] will cause the open to fail with {!Unix.ELOOP} if the
+      basename of the path is a symbolic link. *)
+
   val nonblock : t
+  (** [nonblock] will open the file in non-blocking mode. *)
+
   val path : t
+  (** [path] will obtain a fd that can only be used to either indicate
+      a location in a filesystem tree, or perform operations at the fd
+      level. The file is not opened, and so any IO operations on the file
+      will fail. [path] is only used with {!cloexec}, {!directory} and
+      {!nofollow}, and any other flags will be ignored. *)
+
   val sync : t
+  (** [sync] ensures that write operations on the file complete
+      according to the requirements of synchronised IO file integrity
+      completion. *)
+
   val tmpfile : t
+  (** [tmpfile] creates an anonymous temporary regular file. The pathname
+      must be a directory, within which an unnamed inode will be created.
+      If [tmpfile] is specified without {!excl}, then a subsequent
+      linkat call can move it permanently into the filesystem. *)
+
   val trunc : t
+  (** [trunc] will set the file size to 0 if the file already exists
+      and is a regular file and is opened for writing. If the file
+      is a FIFO or terminal, then the flag is ignored. Use of [trunc]
+      on other file types is unspecified. *)
 end
 
-(** Flags that can be passed to openat2 to control path resolution. *)
+(** Flags that can be passed to {!openat2} to control path resolution. *)
 module Resolve : sig
   include FLAGS
 
-  val empty : t
   val beneath : t
+  (** [beneath] does not permit path resolution to succeed if any
+      component of the resolution is not a descendant of the directory
+      indicated by the [dirfd] passed to the open call.  Absolute symbolic
+      links and absolute pathnames will be rejected.
+
+      For maximum compatiblity with future Linux kernels, the {!no_magiclinks}
+      flag should be specified along with this one. *)
+
   val in_root : t
+  (** [in_root] treats the [dirfd] directory as the root directory while
+      resolving the pathname.  Absolute symbolic links are interpreted
+      relative to the [dirfd].  If a prefix component of the pathname
+      equates to the [dirfd], then an immediately following [..] component
+      likewise equates to the [dirfd] (just as [/..] is traditionally
+      equivalent to [/]). An absolute pathname is interpreted relative to
+      the [dirfd].
+
+      For maximum compatiblity with future Linux kernels, the {!no_magiclinks}
+      flag should be specified along with this one. *)
+
   val no_magiclinks : t
+  (** [no_magiclinks] disallows all magic-link resolution during path
+      resolution.  Magic-links are symbolic link-like objects that are
+      usually found in the [/proc] filesystem.  Unknowingly opening magic
+      links can be risky for some applications, notably those without a
+      controlling terminal or those within a containerised environment that
+      may provide an escape vector. *)
+
   val no_symlinks : t
+  (** [no_symlinks] disallows the resolution of symbolic links during path
+      resolution, and implies the use of {!no_magiclinks}.  If the basename
+      component of the pathname is a symlink, and [no_symlinks] is specified
+      along with {!Open_flags.path} and {!Open_flags.nofollow}, then a fd
+      referencing the symbolic link will be returned.
+
+      Note that the [no_symlinks] flag affects the treatment of symbolic links
+      in all of the components of pathname. This differs from the effect
+      of the {!Open_flags.nofollow} file creation flag, which affects the
+      handling of symbolic links only in the final component of the pathname. *)
+
   val no_xdev : t
+  (** [no_xdev] disallows the traversal of mount points during path resolution,
+      including bind mounts The pathname must either be on the same mount as
+      the directory referred to by the [dirfd], or on the same mount as the
+      current working directory if [dirfd] is not specified. *)
+
   val cached : t
+  (** [cached] makes the open operation fail unless all path components are
+      already present in the kernel lookup cache. Any revalidation or IO
+      needed to satisfy the lookup will result in a {!Unix.EAGAIN} error. *)
 end
 
 val openat2 : 'a t ->
@@ -241,6 +345,7 @@ module Statx : sig
   ]
 
   val pp_kind : kind Fmt.t
+  (** [pp_kind kind] formats a human readable [kind] *)
 
   val create : unit -> t
   (** Use [create] to make a statx result buffer to pass to {! statx}. *)
@@ -248,27 +353,68 @@ module Statx : sig
   module Flags : sig
     include FLAGS
     
-    val empty : t
     val empty_path : t
+    (** [empty_path] signals that if the pathname is an empty string
+        then operate on the file referred to by the [fd] (which can
+        refer to any type of file).
+        If [fd] is not specified then the call operates on the current
+        working directory. *)
+
     val no_automount : t
+    (** [no_automount] signals that statx should not automount the basename
+        component of the path if it is an automount point.
+        This can be used in tools that scan directories to prevent
+        mass-automounting of a directory of automount points. *)
+
     val symlink_nofollow : t
+    (** [symlink_nofollow] signals that if the path is a symbolic link,
+        then return information about the link itself. *)
+
     val statx_sync_as_stat : t
+    (** [statx_sync_as_stat] is the filesystem-specific behaviour in
+        response to stat calls. *)
+
     val statx_force_sync : t
+    (** [statx_force_sync] forces synchronisation with the server, if
+        the filesystem is a network-backed one. *)
+
     val statx_dont_sync : t
+    (** [statx_dont_sync] signals that locally cached timestamps are
+        sufficient, if run on a network-backed filesystem. *)
   end
 
   module Attr : sig
     include FLAGS
 
     val compressed : t
+    (** The file is compressed by the filesystem. *)
+
     val immutable : t
+    (** The file cannot be modified, as defined by chattr(1). *)
+
     val append : t
+    (** The file can only be opened in append mode for writing.
+        See chattr(1). *)
+
     val nodump : t
+    (** The file is not a candidate for backup when a backup
+        program scans the filesystem. *)
+
     val encrypted : t
+    (** A key is required for the file to be encrypted by the
+        filesystem. *)
+
     val verity : t
+    (** The file has fs-verity enabled.  It cannot be written to,
+        and all reads from it will be verified against a
+        cryptographic hash that covers the entire file. *)
 
     val dax : t
-    (** Since Linux 5.8 *)
+    (** The file is in the DAX (cpu direct access) state, which
+        minimises page-cache effects for both I/O and memory mappings
+        of this file.
+        @see <https://www.kernel.org/doc/Documentation/filesystems/dax.txt> Direct Access for Files
+        @since Linux 5.8 *)
 
     val check : ?mask:Int64.t -> Int64.t -> t -> bool
     (** [check ?mask attr t] will check if [t] is set in [attr].
@@ -278,35 +424,65 @@ module Statx : sig
   end
 
   module Mask : sig
+    (** The mask flags are used to tell the kernel which fields the {!statx} invocation
+        is interested in. You may wish to use {! Mask.check} on the returned {!Statx.t} to
+        verify the field has actually been filled in with a sensible value first.
+        In general, the kernel never refused values specified in the mask, but may choose
+        to not set the mask in the returned buffer from {!statx}. *)
+
     include FLAGS
 
     val type' : t
+    (** Retrieve the kind of file field, accessible afterwards via {!val:Statx.kind}. *)
+
     val mode : t
+    (** Retrieve the permissions field, accessible afterwards via {!Statx.perm}. *)
+
     val nlink : t
+    (** Retrieve the number of links field, accessible afterwards via {!Statx.nlink}. *)
+
     val uid : t
+    (** Retrieve the user ID field, accessible afterwards via {!Statx.uid}. *)
+
     val gid : t
+    (** Retrieve the group ID field, accessible afterwards via {!Statx.gid}. *)
+
     val atime : t
+    (** Retrieve the last access field, accessible afterwards
+        via {!atime_nsec} and {!atime_sec}. *)
+
     val mtime : t
+    (** Retrieve the last modification field, accessible afterwards
+        via {!mtime_nsec} and {!mtime_sec}. *)
+
     val ctime : t
+    (** Retrieve the last status change field, accessible afterwards
+        via {!ctime_nsec} and {!ctime_sec}. *)
+
     val ino : t
+    (** Retrieve the inode number, accessible afterwards via {!Statx.ino}. *)
+
     val size : t
+    (** Retrieve the total size in bytes, accessible afterwards via {!Statx.size}. *)
+
     val blocks : t
-    val basic_stats : t (** All of the above flags. *)
+    (** Retrieve the number of 512B blocks allocate, accessible afterwards via {!Statx.blocks}. *)
+
+    val basic_stats : t
+    (** Retrieve all of the above flags. *)
 
     val btime : t
+    (** Retrieve the birthtime field, accessible afterwards via {!btime_nsec} and {!btime_sec}. *)
 
     val mnt_id : t
-    (** As of Linux 5.8 *)
+    (** @since Linux 5.8 *)
 
     val dioalign : t
-    (** As of Linux 6.1 *)
+    (** @since Linux 6.1 *)
 
     val check : Int64.t -> t -> bool
     (** [check mask t] checks if [t] is set in [mask]. *)
   end
-
-  (** You may wish to use {! Mask.check} to verify the field has actually
-      been returned with a sensible value first. *)
 
   val blksize : t -> Int64.t
   val attributes : t -> Int64.t
