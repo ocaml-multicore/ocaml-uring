@@ -16,6 +16,32 @@
 
 module Config = Uring_config
 
+module Bstruct : sig
+  type t
+
+  val length : t -> int
+
+  val to_string : ?off:int -> ?len:int -> t -> string
+
+  val shiftv : t list -> int -> t list
+end
+
+module Slab : sig
+  type t
+
+  val create : int -> t
+  (** [create size] is a new slab. *)
+
+  val slice : t -> int -> Bstruct.t
+  (** [slice slab len] returns a new bstruct from the bigger slab if there
+      is space. *)
+
+  val slice_string : t -> string -> Bstruct.t
+
+  val slice_strings : t -> string list -> Bstruct.t list
+  (** [slice_strings t s] will copy the strings into the slab and return bstructs for them. *)
+end
+
 (** Io_uring interface. *)
 
 module Region = Region
@@ -173,13 +199,13 @@ type offset := Optint.Int63.t
 (** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
     For sockets, use an offset of [Optint.Int63.zero] ([minus_one] is not allowed here). *)
 
-val read : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> bytes -> 'a -> 'a job option
+val read : 'a t -> file_offset:offset -> Unix.file_descr -> Bstruct.t -> 'a -> 'a job option
 (** [read t ~file_offset fd buf d] will submit a [read(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [buf].  The user data [d] will
     be returned by {!wait} or {!peek} upon completion. *)
 
-val write : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> bytes -> 'a -> 'a job option
+val write : 'a t -> file_offset:offset -> Unix.file_descr -> Bstruct.t -> 'a -> 'a job option
 (** [write t ~file_offset fd buf d] will submit a [write(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [buf].  The user data [d] will be returned by
@@ -188,7 +214,7 @@ val write : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> bytes -
 val iov_max : int
 (** The maximum length of the list that can be passed to [readv] and similar. *)
 
-val readv : 'a t -> file_offset:offset -> Unix.file_descr -> bytes list -> 'a -> 'a job option
+val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Bstruct.t list -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [iov].  The user data [d] will
@@ -196,7 +222,7 @@ val readv : 'a t -> file_offset:offset -> Unix.file_descr -> bytes list -> 'a ->
 
     Requires [List.length iov <= Uring.iov_max] *)
 
-val writev : 'a t -> file_offset:offset -> Unix.file_descr -> bytes list -> 'a -> 'a job option
+val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Bstruct.t list -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by
@@ -381,7 +407,7 @@ val cancel : 'a t -> 'a job -> 'a -> 'a job option
 module Msghdr : sig
   type t
 
-  val create : ?n_fds:int -> ?addr:Sockaddr.t -> bytes list -> t
+  val create : ?n_fds:int -> ?addr:Sockaddr.t -> Bstruct.t list -> t
   (** [create buffs] makes a new [msghdr] using the [buffs]
       for the underlying [iovec].
 
@@ -394,7 +420,7 @@ module Msghdr : sig
   val get_fds : t -> Unix.file_descr list
 end
 
-val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> bytes list -> 'a -> 'a job option
+val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Bstruct.t list -> 'a -> 'a job option
 (** [send_msg t fd buffs d] will submit a [sendmsg(2)] request. The [Msghdr] will be constructed
     from the FDs ([fds]), address ([dst]) and buffers ([buffs]).
 

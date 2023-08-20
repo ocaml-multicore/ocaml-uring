@@ -17,23 +17,23 @@ let get_completion_and_print uring =
   let remaining = ref len in
   Printf.eprintf "%d bytes read\n%!" len;
   List.iter (fun buf ->
-    let buflen = Bytes.length buf in
+    let buflen = Uring.Bstruct.length buf in
     if !remaining > 0 then begin
       if buflen <= !remaining then begin
-        print_string (Bytes.to_string buf);
+        print_string (Uring.Bstruct.to_string buf);
         remaining := !remaining - buflen;
       end else begin
-        print_string (Bytes.sub_string buf 0 !remaining);
+        print_string (Uring.Bstruct.to_string buf ~off:0 ~len:!remaining);
         remaining := 0;
       end
     end
   ) iov
 
-let submit_read_request fname uring =
+let submit_read_request fname uring slab =
   let fd = Unix.(handle_unix_error (openfile fname [O_RDONLY]) 0) in
   let file_sz = get_file_size fd in
   let blocks = if file_sz mod block_size <> 0 then (file_sz / block_size)+1 else file_sz/block_size in
-  let iov = List.init blocks (fun _ -> Bytes.create block_size) in
+  let iov = List.init blocks (fun _ -> Uring.Slab.slice slab block_size) in
   let _ = Uring.readv uring fd iov iov ~file_offset:Optint.Int63.zero in
   Gc.full_major (); (* <--- KABOOM! ... well not really, just the bytes are empty... did something move? *)
   let numreq = Uring.submit uring in
@@ -43,5 +43,6 @@ let submit_read_request fname uring =
 let () =
    let fname = Sys.argv.(1) in
    let uring = Uring.create ~queue_depth:1 () in
-   submit_read_request fname uring;
+   let slab = Uring.Slab.create Uring.major_alloc_byte_size in
+   submit_read_request fname uring slab;
    get_completion_and_print uring

@@ -20,8 +20,10 @@ let rec consume t =
 val t : unit Uring.t = <abstr>
 # let fd = Unix.openfile "/dev/zero" [ O_RDONLY ] 0;;
 val fd : Unix.file_descr = <abstr>
-# let b = Bytes.create 1;;
-val b : bytes = Bytes.of_string "\000"
+# let b = 
+  let slab = Uring.Slab.create Uring.major_alloc_byte_size in
+  Uring.Slab.slice slab 1;;
+val b : Uring.Bstruct.t = <abstr>
 
 # Uring.readv t fd (ldup 1 b) () ~file_offset:Int63.zero;;
 - : unit Uring.job option = Some <abstr>

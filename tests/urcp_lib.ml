@@ -26,8 +26,8 @@ let pp ppf {insize;offset;reads;writes;write_left; read_left;_} =
     insize Int63.pp offset reads writes read_left write_left
 
 type iovec = {
-  all : bytes list;
-  mutable next : bytes list;
+  all : Uring.Bstruct.t list;
+  mutable next : Uring.Bstruct.t list;
 }
 
 type req = {
@@ -43,8 +43,8 @@ let pp_req ppf {op; len; off; fileoff; t; _ } =
   Fmt.pf ppf "[%s fileoff %a len %d off %d] [%a]" (match op with |`R -> "r" |`W -> "w") Int63.pp fileoff len off pp t
 
 (* Perform a complete read into bufs. *)
-let queue_read uring t len =
-  let all = [Bytes.create len] in
+let queue_read slab uring t len =
+  let all = [ Uring.Slab.slice slab len ] in
   let iov = { all; next = all } in
   let req = { op=`R; iov; fileoff=t.offset; len; off=0; t } in
   Logs.debug (fun l -> l "queue_read: %a" pp_req req);
@@ -75,7 +75,7 @@ let handle_read_completion uring req res =
     raise (Failure ("unix errorno " ^ (string_of_int n)))
   | n when n < bytes_to_read ->
     (* handle short read so new iovec and resubmit *)
-    req.iov.next <- Uring.Bytes.shiftv req.iov.next n;
+    req.iov.next <- Uring.Bstruct.shiftv req.iov.next n;
     req.off <- req.off + n;
     let r = Uring.readv ~file_offset:(Int63.of_int req.off) uring req.t.infd req.iov.next req in
     assert(r <> None);
@@ -104,7 +104,7 @@ let handle_write_completion uring req res =
     Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < bytes_to_write ->
     (* handle short write so new iovec and resubmit *)
-    req.iov.next <- Uring.Bytes.shiftv req.iov.next n;
+    req.iov.next <- Uring.Bstruct.shiftv req.iov.next n;
     req.off <- req.off + n;
     let r = Uring.writev ~file_offset:req.fileoff uring req.t.infd req.iov.next req in
     assert(r <> None);
@@ -120,7 +120,7 @@ let handle_completion uring req res =
   |`R -> handle_read_completion uring req res
   |`W -> handle_write_completion uring req res
 
-let copy_file uring t =
+let copy_file uring slab t =
   (* Create a set of read requests that we will turn into write requests
    * up until the queue depth *)
   while t.write_left > 0 || t.read_left > 0 do
@@ -128,7 +128,7 @@ let copy_file uring t =
       if t.read_left > 0 then begin
         if t.reads + t.writes < (Uring.queue_depth uring) then begin
           let size = min t.block_size t.read_left in
-          queue_read uring t size;
+          queue_read slab uring t size;
           submit_reads ()
         end
       end;
@@ -161,7 +161,8 @@ let run_cp block_size queue_depth infile outfile () =
    let t = { block_size; insize; offset=Int63.zero; reads=0; writes=0; write_left=insize; read_left=insize; infd; outfd } in
    Logs.debug (fun l -> l "starting: %a bs=%d qd=%d" pp t block_size queue_depth);
    let uring = Uring.create ~queue_depth () in
-   copy_file uring t;
+   let slab = Uring.Slab.create Uring.major_alloc_byte_size in
+   copy_file uring slab t;
    Unix.close infd;
    Unix.close outfd;
    Uring.exit uring;

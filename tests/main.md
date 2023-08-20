@@ -23,6 +23,8 @@ let rec consume t =
 
 let traceln fmt =
   Format.printf (fmt ^^ "@.")
+
+let () = Test_data.setup ()
 ```
 
 Setup a new printer for bytes to make things readable.
@@ -46,10 +48,13 @@ Prove we can wait more entries than queue depth
 # let t : [ `Read ] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Read ] Uring.t = <abstr>
 
+# let slab = Uring.Slab.create Uring.major_alloc_byte_size;;
+val slab : Uring.Slab.t = <abstr>
+
 # let fd = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0;;
 val fd : Unix.file_descr = <abstr>
-# let b = Bytes.create 1;;
-val b : bytes = Bytes.t <len:1>
+# let b = Uring.Slab.slice slab 1;;
+val b : Uring.Bstruct.t = <abstr>
 # Uring.read t fd b `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
@@ -323,46 +328,6 @@ Exception: Unix.Unix_error(Unix.EXDEV, "openat2", "..")
 - : unit = ()
 ```
 
-## Read with fixed buffer
-
-```ocaml
-let set_fixed_buffer t size =
-  let fbuf = Bytes.create Uring.major_alloc_byte_size in
-  match Uring.set_fixed_buffer t fbuf with
-  | Ok () -> fbuf
-  | Error `ENOMEM -> failwith "Resource limit exceeded"
-
-let () = Test_data.setup ()
-```
-
-```ocaml
-let t : [ `Read ] Uring.t = Uring.create ~queue_depth:1 ()
-let fbuf : Bytes.t = set_fixed_buffer t Uring.major_alloc_byte_size
-```
-
-```ocaml
-# let off = 3;;
-val off : int = 3
-# let len = 5;;
-val len : int = 5
-# let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
-val fd : Unix.file_descr = <abstr>
-# let file_offset = Int63.of_int 2 in
-  Uring.read_fixed t ~file_offset fd ~off ~len `Read;;
-- : [ `Read ] Uring.job option = Some <abstr>
-# Uring.submit t;;
-- : int = 1
-# consume t;;
-- : [ `Read ] * int = (`Read, 5)
-# Bytes.sub fbuf off len |> Bytes.to_string;;
-- : string = "test "
-
-# let fd : unit = Unix.close fd;;
-val fd : unit = ()
-# Uring.exit t;;
-- : unit = ()
-```
-
 Reading with read:
 
 ```ocaml
@@ -374,26 +339,26 @@ val fd : Unix.file_descr = <abstr>
 # let b1_len = 3 and b2_len = 7;;
 val b1_len : int = 3
 val b2_len : int = 7
-# let b1 = Bytes.create Uring.major_alloc_byte_size and b2 = Bytes.create Uring.major_alloc_byte_size;;
-val b1 : bytes = Bytes.t <len:16384>
-val b2 : bytes = Bytes.t <len:16384>
+# let b1 = Uring.Slab.slice slab b1_len and b2 = Uring.Slab.slice slab b2_len;;
+val b1 : Uring.Bstruct.t = <abstr>
+val b2 : Uring.Bstruct.t = <abstr>
 
-# Uring.read ~len:b1_len t fd b1 `Read ~file_offset:Int63.minus_one;;
+# Uring.read t fd b1 `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # let `Read, read = consume t;;
 val read : int = 3
-# Bytes.sub_string b1 0 b1_len;;
+# Uring.Bstruct.to_string b1;;
 - : string = "A t"
 
-# Uring.read ~len:b2_len t fd b2 `Read ~file_offset:Int63.minus_one;;
+# Uring.read t fd b2 `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # let `Read, read = consume t;;
 val read : int = 7
-# Bytes.sub_string b2 0 b2_len;;
+# Uring.Bstruct.to_string b2;;
 - : string = "est fil"
 
 # let fd : unit = Unix.close fd;;
@@ -406,22 +371,16 @@ Writing with write:
 # let t : [`Read | `Write] Uring.t =  Uring.create ~queue_depth:2 ();;
 val t : [ `Read | `Write ] Uring.t = <abstr>
 
-# let rb_len = 10;;
-val rb_len : int = 10
-
-# let rb = Bytes.create Uring.major_alloc_byte_size;;
-val rb : bytes = Bytes.t <len:16384>
-# let wb = 
-  let b = Bytes.create Uring.major_alloc_byte_size in
-  Bytes.blit_string "Hello" 0 b 0 5;
-  b;;
-val wb : bytes = Bytes.t <len:16384>
+# let rb = Uring.Slab.slice slab 10;;
+val rb : Uring.Bstruct.t = <abstr>
+# let wb = Uring.Slab.slice_string slab "Hello";;
+val wb : Uring.Bstruct.t = <abstr>
 
 # let r, w = Unix.pipe ();;
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
 
-# Uring.write ~len:5 t w wb `Write ~file_offset:Int63.minus_one;;
+# Uring.write t w wb `Write ~file_offset:Int63.minus_one;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
@@ -429,7 +388,7 @@ val w : Unix.file_descr = <abstr>
 val v : [ `Read | `Write ] = `Write
 val read : int = 5
 
-# Uring.read ~len:rb_len t r rb `Read ~file_offset:Int63.minus_one;;
+# Uring.read t r rb `Read ~file_offset:Int63.minus_one;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
@@ -437,7 +396,7 @@ val read : int = 5
 val v : [ `Read | `Write ] = `Read
 val read : int = 5
 
-# Bytes.sub_string rb 0 5;;
+# Uring.Bstruct.to_string ~len:read rb;;
 - : string = "Hello"
 
 # let w : unit = Unix.close w;;

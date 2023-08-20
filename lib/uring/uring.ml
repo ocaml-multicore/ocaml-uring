@@ -17,6 +17,9 @@
 let major_alloc_byte_size = Config.max_young_wosize * Sys.word_size
 module Config = Uring_config
 
+module Bstruct = Util.Bstruct
+module Slab = Util.Slab
+
 module Private = struct
   module Heap = Heap
 end
@@ -245,7 +248,7 @@ module Op = Config.Op
     t.old_buffers <- []
 
   module Iovec = struct
-    external set : ptr -> bytes list -> unit = "ocaml_uring_set_iovec" [@@noalloc]
+    external set : ptr -> Bstruct.t list -> unit = "ocaml_uring_set_iovec" [@@noalloc]
 
     let sizeof = Config.sizeof_iovec
 
@@ -268,7 +271,7 @@ end
 (* Used for the sendmsg/recvmsg calls. Liburing doesn't support sendto/recvfrom at the time of writing. *)
 module Msghdr = struct
   type msghdr
-  type t = msghdr * Sockaddr.t option * bytes list (* `bytes list` is here only for preventing it being GCed *)
+  type t = msghdr * Sockaddr.t option * Bstruct.t list (* `bytes list` is here only for preventing it being GCed *)
   external make_msghdr : int -> Unix.file_descr list -> Sockaddr.t option -> msghdr = "ocaml_uring_make_msghdr"
   external get_msghdr_fds : msghdr -> Unix.file_descr list = "ocaml_uring_get_msghdr_fds"
 
@@ -309,8 +312,8 @@ module Uring = struct
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> bool = "ocaml_uring_submit_timeout" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
-  external submit_read : t -> Unix.file_descr -> id -> bytes -> int -> offset -> bool = "ocaml_uring_submit_read_bytes" "ocaml_uring_submit_read_native" [@@noalloc]
-  external submit_write : t -> Unix.file_descr -> id -> bytes -> int -> offset -> bool = "ocaml_uring_submit_write_bytes" "ocaml_uring_submit_write_native" [@@noalloc]
+  external submit_read : t -> Unix.file_descr -> id -> Bstruct.t -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
+  external submit_write : t -> Unix.file_descr -> id -> Bstruct.t -> offset -> bool = "ocaml_uring_submit_write" [@@noalloc]
   external submit_readv : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_readv" [@@noalloc]
   external submit_writev : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_writev" [@@noalloc]
   external submit_readv_fixed : t -> Unix.file_descr -> id -> bytes -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
@@ -463,11 +466,11 @@ let unlink t ~dir ?(fd=at_fdcwd) path user_data =
       Uring.submit_unlinkat t.uring id fd buf dir
     ) user_data
 
-let read ?len t ~file_offset fd (buf : bytes) user_data =
-  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf (Option.value ~default:(Bytes.length buf) len) file_offset) user_data ~extra_data:buf
+let read t ~file_offset fd (buf : Bstruct.t) user_data =
+  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset) user_data ~extra_data:buf
 
-let write ?len t ~file_offset fd (buf : bytes) user_data =
-  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf (Option.value ~default:(Bytes.length buf) len)  file_offset) user_data ~extra_data:buf
+let write t ~file_offset fd (buf : Bstruct.t) user_data =
+  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset) user_data ~extra_data:buf
 
 let iov_max = Config.iov_max
 

@@ -13,14 +13,14 @@ let rec wait t handle =
     | None -> wait t handle
     | Some { result; data = buf } -> handle result buf
 
-let run_bechmark ~polling_timeout fd =
+let run_bechmark slab ~polling_timeout fd =
   let got = ref 0 in
   (* For polling mode, [queue_depth] needs to be slightly larger than [n_concurrent] or submission
      occasionally fails for some reason. *)
   let t = Uring.create ?polling_timeout ~queue_depth:(n_concurrent * 2) () in
   (* We start by submitting [n_concurrent] reads. *)
   for _ = 1 to n_concurrent do
-    let buf = Bytes.create buffer_size in
+    let buf = Uring.Slab.slice slab buffer_size in
     let _job : _ Uring.job = Uring.readv t fd [buf] ~file_offset:Optint.Int63.zero [buf] |> Option.get in
     ()
   done;
@@ -55,8 +55,10 @@ let run_bechmark ~polling_timeout fd =
 
 let () =
   let fd = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0 in
-  run_bechmark fd ~polling_timeout:None;
-  run_bechmark fd ~polling_timeout:(Some 1000);
-  run_bechmark fd ~polling_timeout:None;
-  run_bechmark fd ~polling_timeout:(Some 1000);
+  (* TODO: The slab doesn't release space so this could in theory run out of room... *)
+  let slab = Uring.Slab.create Uring.major_alloc_byte_size in
+  run_bechmark slab fd ~polling_timeout:None;
+  run_bechmark slab fd ~polling_timeout:(Some 1000);
+  run_bechmark slab fd ~polling_timeout:None;
+  run_bechmark slab fd ~polling_timeout:(Some 1000);
   Unix.close fd
