@@ -189,7 +189,7 @@ let () =
       let at_struct = List.map (fun (name, v) -> Printf.sprintf "  let %s = 0x%x" name v) at_flags in
       let mask_struct = List.map (fun (name, v) -> Printf.sprintf "    let %s = 0x%x" name v) mask_flags in
       let attr_struct = List.map (fun (name, v) -> Printf.sprintf "    let %s = 0x%x" name v) attr_flags in
-      C.Flags.write_lines "config.ml"
+      C.Flags.write_lines "uring_config.ml"
         (defs @
          ["module Op : sig";
           "  type t";

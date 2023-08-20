@@ -14,6 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+let major_alloc_byte_size = Config.max_young_wosize * Sys.word_size
+module Config = Uring_config
+
 module Private = struct
   module Heap = Heap
 end
@@ -198,21 +201,24 @@ module Op = Config.Op
  * `writev`, once we call `Uring.submit` the `iovec` structures are
  * copied by the kernel and we can release them, which we do.
  *)
-module Sketch = struct
+ module Sketch = struct
+  type buffer = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
   type t = {
-    mutable buffer : bytes;
+    mutable buffer : buffer;
     mutable off : int;
-    mutable old_buffers : bytes list;
+    mutable old_buffers : buffer list;
   }
 
-  type ptr = bytes * int * int
+  type ptr = buffer * int * int
 
-  let create_buffer len = Bytes.create len
+  let create_buffer len = Bigarray.(Array1.create char c_layout len)
+
+  let empty = create_buffer 0
 
   let create () =
-    { buffer = Bytes.empty; off = 0; old_buffers = [] }
+    { buffer = empty; off = 0; old_buffers = [] }
 
-  let length t = Bytes.length t.buffer
+  let length t = Bigarray.Array1.size_in_bytes t.buffer
 
   let round a x = (x + (a - 1)) land (lnot (a - 1))
   let round = round (Sys.word_size / 8)
@@ -303,8 +309,8 @@ module Uring = struct
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> bool = "ocaml_uring_submit_timeout" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
-  external submit_read : t -> Unix.file_descr -> id -> bytes -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
-  external submit_write : t -> Unix.file_descr -> id -> bytes -> offset -> bool = "ocaml_uring_submit_write" [@@noalloc]
+  external submit_read : t -> Unix.file_descr -> id -> bytes -> int -> offset -> bool = "ocaml_uring_submit_read_bytes" "ocaml_uring_submit_read_native" [@@noalloc]
+  external submit_write : t -> Unix.file_descr -> id -> bytes -> int -> offset -> bool = "ocaml_uring_submit_write_bytes" "ocaml_uring_submit_write_native" [@@noalloc]
   external submit_readv : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_readv" [@@noalloc]
   external submit_writev : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_writev" [@@noalloc]
   external submit_readv_fixed : t -> Unix.file_descr -> id -> bytes -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
@@ -457,11 +463,11 @@ let unlink t ~dir ?(fd=at_fdcwd) path user_data =
       Uring.submit_unlinkat t.uring id fd buf dir
     ) user_data
 
-let read t ~file_offset fd (buf : bytes) user_data =
-  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset) user_data ~extra_data:buf
+let read ?len t ~file_offset fd (buf : bytes) user_data =
+  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf (Option.value ~default:(Bytes.length buf) len) file_offset) user_data ~extra_data:buf
 
-let write t ~file_offset fd (buf : bytes) user_data =
-  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset) user_data ~extra_data:buf
+let write ?len t ~file_offset fd (buf : bytes) user_data =
+  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf (Option.value ~default:(Bytes.length buf) len)  file_offset) user_data ~extra_data:buf
 
 let iov_max = Config.iov_max
 
@@ -624,7 +630,7 @@ let get_debug_stats t =
     sqe_ready = Uring.sq_ready t.uring;
     active_ops = active_ops t;
     sketch_used = t.sketch.off;
-    sketch_buffer_size = Bytes.length t.sketch.buffer;
+    sketch_buffer_size = Bigarray.Array1.dim t.sketch.buffer;
     sketch_old_buffers = List.length t.sketch.old_buffers;
   }
 
@@ -636,7 +642,7 @@ module Bytes = struct
   (* We can't do sub views on raw bytes so
     it is a bit wasteful as we just drop half
     empty byte arrays :S *)
-  let rec shiftv ts = function
+  let rec shiftv ts v = match v with
     | 0 -> skip_empty ts
     | n ->
       match ts with
@@ -644,4 +650,14 @@ module Bytes = struct
       | t :: ts -> 
         let len = Bytes.length t in
         if n >= len then shiftv ts (n - len) else ts
+
+  
+  let of_bigarray ~off ~len ba =
+    let ba_len = Bigarray.Array1.dim ba in
+    assert (off >= 0 && off + len < ba_len);
+    let b = Bytes.create len in
+    for i = 0 to len do
+      Bytes.unsafe_set b i (Bigarray.Array1.unsafe_get ba (off + i))
+    done;
+    b
 end

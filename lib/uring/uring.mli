@@ -14,6 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+module Config = Uring_config
+
 (** Io_uring interface. *)
 
 module Region = Region
@@ -24,6 +26,8 @@ type 'a t
 type 'a job
 (** A handle for a submitted job, which can be used to cancel it.
     If an operation returns [None], this means that submission failed because the ring is full. *)
+
+val major_alloc_byte_size : int
 
 val create : ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
 (** [create ~queue_depth] will return a fresh Io_uring structure [t].
@@ -169,13 +173,13 @@ type offset := Optint.Int63.t
 (** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
     For sockets, use an offset of [Optint.Int63.zero] ([minus_one] is not allowed here). *)
 
-val read : 'a t -> file_offset:offset -> Unix.file_descr -> bytes -> 'a -> 'a job option
+val read : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> bytes -> 'a -> 'a job option
 (** [read t ~file_offset fd buf d] will submit a [read(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [buf].  The user data [d] will
     be returned by {!wait} or {!peek} upon completion. *)
 
-val write : 'a t -> file_offset:offset -> Unix.file_descr -> bytes -> 'a -> 'a job option
+val write : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> bytes -> 'a -> 'a job option
 (** [write t ~file_offset fd buf d] will submit a [write(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [buf].  The user data [d] will be returned by
@@ -469,4 +473,5 @@ end
 
 module Bytes : sig
   val shiftv : bytes list -> int -> bytes list
+  val of_bigarray : off:int -> len:int -> (char, 'a, 'b) Bigarray.Array1.t -> bytes
 end

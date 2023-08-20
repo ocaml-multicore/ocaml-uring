@@ -59,7 +59,7 @@
 #endif
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
-#define Sketch_ptr_val(vsp) ((void *)(Bytes_val(Field(vsp, 0)) + Long_val(Field(vsp, 1))))
+#define Sketch_ptr_val(vsp) (Caml_ba_data_val(Field(vsp, 0)) + Long_val(Field(vsp, 1)))
 #define Sketch_ptr_len_val(vsp) Long_val(Field(vsp, 2))
 
 // Note that this does not free the ring data. You must not allow this to be
@@ -368,10 +368,9 @@ ocaml_uring_submit_writev_fixed_byte(value* values, int argc) {
 }
 
 value /* noalloc */
-ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_bytes, value v_fileoff) {
+ocaml_uring_submit_read_native(value v_uring, value v_fd, value v_id, value v_bytes, value v_len, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  value v_len = Val_long(caml_string_length(v_bytes));
   void *buf = Bytes_val(v_bytes);
   if (!sqe) return (Val_false);
   dprintf("submit_read: fd %d buff %p len %zd fileoff %d\n",
@@ -381,11 +380,21 @@ ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_bytes, va
   return (Val_true);
 }
 
+value
+ocaml_uring_submit_read_bytes(value* values, int argc) {
+  return ocaml_uring_submit_read_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5]);
+}
+
 value /* noalloc */
-ocaml_uring_submit_write(value v_uring, value v_fd, value v_id, value v_bytes, value v_fileoff) {
+ocaml_uring_submit_write_native(value v_uring, value v_fd, value v_id, value v_bytes, value v_len, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  value v_len = Val_int(caml_string_length(v_bytes));
   void *buf = Bytes_val(v_bytes);
   if (!sqe) return (Val_false);
   dprintf("submit_write: fd %d buff %p len %zd fileoff %d\n",
@@ -393,6 +402,17 @@ ocaml_uring_submit_write(value v_uring, value v_fd, value v_id, value v_bytes, v
   io_uring_prep_write(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
+}
+
+value
+ocaml_uring_submit_write_bytes(value* values, int argc) {
+  return ocaml_uring_submit_write_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5]);
 }
 
 value /* noalloc */

@@ -2,7 +2,7 @@
  (name uring)
  (public_name uring)
  (foreign_archives uring)
- (libraries fmt optint unix)
+ (libraries fmt optint unix compiler-libs.optcomp)
  (foreign_stubs
   (language c)
   (names uring_stubs)
@@ -11,7 +11,7 @@
   (extra_deps include/liburing/compat.h)))
 
 (rule
- (targets config.ml)
+ (targets uring_config.ml)
  (deps
   include/liburing.h
   include/liburing/io_uring.h
