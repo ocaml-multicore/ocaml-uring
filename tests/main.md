@@ -184,6 +184,22 @@ val fd : Unix.file_descr = <abstr>
   x.st_kind, Printf.sprintf "0o%o" x.st_perm, x.st_size;;
 - : Unix.file_kind * string * int = (Unix.S_REG, "0o600", 9)
 
+# Uring.fsync t fd `Create;;
+- : [ `Create ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let v, read = consume t;;
+val v : [ `Create ] = `Create
+val read : int = 0
+
+# Uring.fdatasync t ~off:1L ~len:5 fd `Create;;
+- : [ `Create ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let v, read = consume t;;
+val v : [ `Create ] = `Create
+val read : int = 0
+
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
 

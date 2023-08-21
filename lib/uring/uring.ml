@@ -332,6 +332,8 @@ module Uring = struct
   external submit_unlinkat : t -> id -> Unix.file_descr -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
   external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
+  external submit_fsync : t -> id -> Unix.file_descr -> int64 -> int -> bool = "ocaml_uring_submit_fsync" [@@noalloc]
+  external submit_fdatasync : t -> id -> Unix.file_descr -> int64 -> int -> bool = "ocaml_uring_submit_fdatasync" [@@noalloc]
 
   type cqe_option = private
     | Cqe_none
@@ -540,6 +542,12 @@ let recv_msg t fd msghdr user_data =
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
       Uring.submit_recv_msg t.uring id fd msghdr iovec) user_data ~extra_data:msghdr
+
+let fsync t ?(off=0L) ?(len=0) fd user_data =
+  with_id t (fun id -> Uring.submit_fsync t.uring id fd off len) user_data
+
+let fdatasync t ?(off=0L) ?(len=0) fd user_data =
+  with_id t (fun id -> Uring.submit_fdatasync t.uring id fd off len) user_data
 
 let cancel t job user_data =
   ignore (Heap.ptr job : Uring.id);  (* Check it's still valid *)
