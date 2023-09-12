@@ -251,6 +251,32 @@ val openat2 : 'a t ->
     @param perm sets the access control bits for newly created files (subject to the process's umask)
     @param resolve controls how the pathname is resolved. *)
 
+module Linkat_flags : sig
+  include FLAGS
+
+  val empty_path : t
+  (** If the old path is empty, link to old_dir_fd. *)
+
+  val symlink_follow : t
+  (** If the old path is a symlink, link its target. *)
+end
+
+val linkat : 'a t ->
+  ?old_dir_fd:Unix.file_descr ->
+  ?new_dir_fd:Unix.file_descr ->
+  flags:Linkat_flags.t ->
+  old_path:string ->
+  new_path:string ->
+  'a -> 'a job option
+(** [linkat t ~flags ~old_path ~new_path] creates a new hard link.
+
+    If [new_path] already exists then it is not overwritten.
+
+    @param old_dir_fd If provided and [old_path] is a relative path, it is interpreted relative to [old_dir_fd].
+    @param new_dir_fd If provided and [new_path] is a relative path, it is interpreted relative to [new_dir_fd].
+    @param old_path Path of the already-existing link.
+    @param new_path Path for the newly created link. *)
+
 val unlink : 'a t -> dir:bool -> ?fd:Unix.file_descr -> string -> 'a -> 'a job option
 (** [unlink t ~dir ~fd path] removes the directory entry [path], which is resolved relative to [fd].
     If [fd] is not given, then the current working directory is used.

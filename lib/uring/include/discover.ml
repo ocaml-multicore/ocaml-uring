@@ -139,6 +139,7 @@ let () =
             "AT_EMPTY_PATH", Int;
             "AT_NO_AUTOMOUNT", Int;
             "AT_SYMLINK_NOFOLLOW", Int;
+            "AT_SYMLINK_FOLLOW", Int;
             "AT_STATX_SYNC_AS_STAT", Int;
             "AT_STATX_FORCE_SYNC", Int;
             "AT_STATX_DONT_SYNC", Int;
@@ -199,10 +200,10 @@ let () =
          ] @ op_struct @ [
            "end"
          ] @ [
-          "module Statx = struct";
-          "  module Flags = struct";
+          "module At = struct";
          ] @ at_struct @ [
-          "  end";
+          "end";
+          "module Statx = struct";
           "  module Mask = struct";
          ] @ mask_struct @ [
           "  end";

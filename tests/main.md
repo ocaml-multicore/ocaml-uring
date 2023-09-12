@@ -810,6 +810,45 @@ val check : unit -> bool * bool = <fun>
 - : unit = ()
 ```
 
+## Linkat
+
+```ocaml
+# close_out (open_out "test-file");;
+- : unit = ()
+# Unix.symlink "test-file" "old-path";;
+- : unit = ()
+# let t : unit Uring.t = Uring.create ~queue_depth:2 ();;
+val t : unit Uring.t = <abstr>
+# Uring.linkat t ~old_path:"old-path" ~new_path:"new-symlink" ~flags:Uring.Linkat_flags.empty ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# (Unix.lstat "new-symlink").st_kind;;
+- : Unix.file_kind = Unix.S_LNK
+```
+
+This currently doesn't work due to https://github.com/axboe/liburing/issues/955:
+
+    # Uring.linkat t ~old_path:"old-path" ~new_path:"new-file" ~flags:Uring.Linkat_flags.symlink_follow ();;
+    - : unit Uring.job option = Some <abstr>
+    # Uring.submit t;;
+    - : int = 1
+    # Uring.wait t;;
+    - : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+    # (Unix.lstat "new-file").st_kind;;
+    - : Unix.file_kind = Unix.S_REG
+
+    # ["test-file"; "old-path"; "new-symlink"; "new-file"] |> List.iter Unix.unlink;;
+
+```ocaml
+# ["test-file"; "old-path"; "new-symlink"] |> List.iter Unix.unlink;;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Timeout
 
 Timeout should return (-ETIME). This is defined in https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno.h#L45
