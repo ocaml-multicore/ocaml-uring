@@ -343,6 +343,7 @@ module Uring = struct
   external peek_cqe : t -> cqe_option = "ocaml_uring_peek_cqe"
 
   external error_of_errno : int -> Unix.error = "ocaml_uring_error_of_errno"
+  external register_eventfd : t -> Unix.file_descr -> unit = "ocaml_uring_register_eventfd"
 end
 
 type 'a t = {
@@ -582,6 +583,10 @@ let get_cqe_nonblocking t =
   fn_on_ring Uring.peek_cqe t
 
 let peek = get_cqe_nonblocking
+
+let register_eventfd t fd =
+  check t;
+  Uring.register_eventfd t.uring fd
 
 let wait ?timeout t =
   check t;
