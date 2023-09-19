@@ -441,6 +441,10 @@ val get_cqe_nonblocking : 'a t -> 'a completion_option
 val peek : 'a t -> 'a completion_option
 [@@deprecated "Renamed to Uring.get_cqe_nonblocking"]
 
+val register_eventfd : 'a t -> Unix.file_descr -> unit
+(** [register_eventfd t fd] will register an eventfd to the the uring [t].
+    See documentation for io_uring_register_eventfd *)
+
 val error_of_errno : int -> Unix.error
 (** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)
 

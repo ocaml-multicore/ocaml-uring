@@ -998,3 +998,15 @@ ocaml_uring_opcode_supported(value v_probe, value v_op)
   else
     return Val_false;
 }
+
+value
+ocaml_uring_register_eventfd(value v_uring, value v_fd) {
+  struct io_uring *ring = Ring_val(v_uring);
+  int fd = Int_val(v_fd);
+
+  int ret = io_uring_register_eventfd(ring, fd);
+  if (ret)
+    unix_error(-ret, "io_uring_register_eventfd", Nothing);
+
+  return Val_unit;
+}
