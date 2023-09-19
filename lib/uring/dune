@@ -7,8 +7,20 @@
   (language c)
   (names uring_stubs)
   (include_dirs include)
-  (flags :standard "-D_GNU_SOURCE")
-  (extra_deps include/liburing/compat.h)))
+  (extra_deps include/liburing/compat.h primitives.h)))
+
+(rule
+ (enabled_if %{bin-available:lintcstubs_arity_cmt})
+ (action
+  (with-stdout-to
+   primitives.h.new
+   (run %{bin:lintcstubs_arity_cmt} %{dep:.uring.objs/byte/uring.cmt}))))
+
+(rule
+ (enabled_if %{bin-available:lintcstubs_arity_cmt})
+ (alias runtest)
+ (action
+  (diff primitives.h primitives.h.new)))
 
 (rule
  (targets config.ml)

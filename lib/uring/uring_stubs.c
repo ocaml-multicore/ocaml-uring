@@ -16,6 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "primitives.h"
+
 #include <endian.h>	/* liburing.h needs this for __BYTE_ORDER */
 #include <liburing.h>
 #include <caml/alloc.h>
@@ -158,12 +160,13 @@ ocaml_uring_sq_ready(value v_uring) {
   return (Val_int(io_uring_sq_ready(ring)));
 }
 
-void /* noalloc */
+value /* noalloc */
 ocaml_uring_set_timespec(value v_sketch_ptr, value v_timeout)
 {
   struct __kernel_timespec *t = Sketch_ptr_val(v_sketch_ptr);
   t->tv_sec = 0;
   t->tv_nsec = Int64_val(v_timeout);
+  return Val_unit;
 }
 
 #define Val_boottime Val_int(0)
@@ -269,7 +272,7 @@ ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_
   return (Val_true);
 }
 
-void /* noalloc */
+value /* noalloc */
 ocaml_uring_set_iovec(value v_sketch_ptr, value v_csl)
 {
   int i;
@@ -286,6 +289,7 @@ ocaml_uring_set_iovec(value v_sketch_ptr, value v_csl)
     iovs[i].iov_base = Caml_ba_data_val(v_ba) + Long_val(v_off);
     iovs[i].iov_len = Long_val(v_len);
   }
+  return Val_unit;
 }
 
 // Caller must ensure the buffers pointed to by v_sketch_ptr are not GC'd until the job is finished.
