@@ -159,7 +159,7 @@ let run_cp block_size queue_depth infile outfile () =
    Logs.debug (fun l -> l "starting: %a bs=%d qd=%d" pp t block_size queue_depth);
    let fixed_buf_len = queue_depth * block_size in
    let uring = Uring.create ~queue_depth () in
-   let fbuf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
+   let fbuf = Bytes.create fixed_buf_len in
    Fun.protect
      (fun () ->
         match Uring.set_fixed_buffer uring fbuf with

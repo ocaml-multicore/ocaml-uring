@@ -16,7 +16,7 @@
 (executable
  (name urcat)
  (modules urcat)
- (libraries unix uring))
+ (libraries unix compiler-libs.optcomp uring))
 
 (executable
  (name urcp)

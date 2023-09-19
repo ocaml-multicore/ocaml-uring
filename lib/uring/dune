@@ -2,7 +2,7 @@
  (name uring)
  (public_name uring)
  (foreign_archives uring)
- (libraries cstruct fmt optint unix)
+ (libraries fmt optint unix compiler-libs.optcomp)
  (foreign_stubs
   (language c)
   (names uring_stubs)
@@ -23,7 +23,7 @@
   (diff primitives.h primitives.h.new)))
 
 (rule
- (targets config.ml)
+ (targets uring_config.ml)
  (deps
   include/liburing.h
   include/liburing/io_uring.h

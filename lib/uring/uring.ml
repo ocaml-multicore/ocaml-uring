@@ -14,6 +14,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+let major_alloc_byte_size = Config.max_young_wosize * Sys.word_size
+module Config = Uring_config
+
+module Bstruct = Util.Bstruct
+module Slab = Util.Slab
+
 module Private = struct
   module Heap = Heap
 end
@@ -191,16 +197,6 @@ end
 
 module Op = Config.Op
 
-(* The C stubs rely on the layout of Cstruct.t, so we just check here that it hasn't changed. *)
-module Check_cstruct : sig
-  [@@@warning "-34"]
-  type t = private {
-    buffer: (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t;
-    off   : int;
-    len   : int;
-  }
-end = Cstruct
-
 (*
  * A Sketch buffer is an area used to hold objects that remain alive
  * until the next `Uring.submit`.
@@ -208,19 +204,22 @@ end = Cstruct
  * `writev`, once we call `Uring.submit` the `iovec` structures are
  * copied by the kernel and we can release them, which we do.
  *)
-module Sketch = struct
+ module Sketch = struct
+  type buffer = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
   type t = {
-    mutable buffer : Cstruct.buffer;
+    mutable buffer : buffer;
     mutable off : int;
-    mutable old_buffers : Cstruct.buffer list;
+    mutable old_buffers : buffer list;
   }
 
-  type ptr = Cstruct.buffer * int * int
+  type ptr = buffer * int * int
 
   let create_buffer len = Bigarray.(Array1.create char c_layout len)
 
+  let empty = create_buffer 0
+
   let create () =
-    { buffer = Cstruct.empty.buffer; off = 0; old_buffers = [] }
+    { buffer = empty; off = 0; old_buffers = [] }
 
   let length t = Bigarray.Array1.size_in_bytes t.buffer
 
@@ -244,15 +243,12 @@ module Sketch = struct
     t.off <- t.off + alloc_len;
     (t.buffer, off, alloc_len)
 
-  let _cstruct_of_ptr ((buf, off, len) : ptr) =
-    Cstruct.of_bigarray buf ~off ~len
-
   let release t =
     t.off <- 0;
     t.old_buffers <- []
 
   module Iovec = struct
-    external set : ptr -> Cstruct.t list -> unit = "ocaml_uring_set_iovec" [@@noalloc]
+    external set : ptr -> Bstruct.t list -> unit = "ocaml_uring_set_iovec" [@@noalloc]
 
     let sizeof = Config.sizeof_iovec
 
@@ -275,7 +271,7 @@ end
 (* Used for the sendmsg/recvmsg calls. Liburing doesn't support sendto/recvfrom at the time of writing. *)
 module Msghdr = struct
   type msghdr
-  type t = msghdr * Sockaddr.t option * Cstruct.t list (* `Cstruct.t list` is here only for preventing it being GCed *)
+  type t = msghdr * Sockaddr.t option * Bstruct.t list (* `bytes list` is here only for preventing it being GCed *)
   external make_msghdr : int -> Unix.file_descr list -> Sockaddr.t option -> msghdr = "ocaml_uring_make_msghdr"
   external get_msghdr_fds : msghdr -> Unix.file_descr list = "ocaml_uring_get_msghdr_fds"
 
@@ -303,7 +299,7 @@ module Uring = struct
   external exit : t -> unit = "ocaml_uring_exit"
 
   external unregister_buffers : t -> unit = "ocaml_uring_unregister_buffers"
-  external register_bigarray : t ->  Cstruct.buffer -> unit = "ocaml_uring_register_ba"
+  external register_bytes : t -> bytes -> unit = "ocaml_uring_register_bytes"
   external submit : t -> int = "ocaml_uring_submit"
   external sq_ready : t -> int = "ocaml_uring_sq_ready" [@@noalloc]
 
@@ -316,12 +312,12 @@ module Uring = struct
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> bool = "ocaml_uring_submit_timeout" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
-  external submit_read : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
-  external submit_write : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_write" [@@noalloc]
+  external submit_read : t -> Unix.file_descr -> id -> Bstruct.t -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
+  external submit_write : t -> Unix.file_descr -> id -> Bstruct.t -> offset -> bool = "ocaml_uring_submit_write" [@@noalloc]
   external submit_readv : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_readv" [@@noalloc]
   external submit_writev : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_writev" [@@noalloc]
-  external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
-  external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
+  external submit_readv_fixed : t -> Unix.file_descr -> id -> bytes -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
+  external submit_writev_fixed : t -> Unix.file_descr -> id -> bytes -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
   external submit_statx : t -> id -> Unix.file_descr -> Statx.t -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
@@ -349,7 +345,7 @@ end
 type 'a t = {
   id : < >;
   uring: Uring.t;
-  mutable fixed_iobuf: Cstruct.buffer;
+  mutable fixed_iobuf: bytes;
   data : 'a Heap.t;
   sketch : Sketch.t;
   queue_depth: int;
@@ -395,7 +391,7 @@ let create ?polling_timeout ~queue_depth () =
   let uring = Uring.create queue_depth polling_timeout in
   let data = Heap.create queue_depth in
   let id = object end in
-  let fixed_iobuf = Cstruct.empty.buffer in
+  let fixed_iobuf = Bytes.empty in
   let sketch = Sketch.create () in
   let t = { id; uring; sketch; fixed_iobuf; data; queue_depth } in
   register_gc_root t;
@@ -413,11 +409,11 @@ let ensure_idle t op =
 
 let set_fixed_buffer t iobuf =
   ensure_idle t "set_fixed_buffer";
-  if Bigarray.Array1.dim t.fixed_iobuf > 0 then
+  if Bytes.length t.fixed_iobuf > 0 then
     Uring.unregister_buffers t.uring;
   t.fixed_iobuf <- iobuf;
-  if Bigarray.Array1.dim iobuf > 0 then (
-    match Uring.register_bigarray t.uring iobuf with
+  if Bytes.length iobuf > 0 then (
+    match Uring.register_bytes t.uring iobuf with
     | () -> Ok ()
     | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
   ) else Ok ()
@@ -471,10 +467,10 @@ let unlink t ~dir ?(fd=at_fdcwd) path user_data =
       Uring.submit_unlinkat t.uring id fd buf dir
     ) user_data
 
-let read t ~file_offset fd (buf : Cstruct.t) user_data =
+let read t ~file_offset fd (buf : Bstruct.t) user_data =
   with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset) user_data ~extra_data:buf
 
-let write t ~file_offset fd (buf : Cstruct.t) user_data =
+let write t ~file_offset fd (buf : Bstruct.t) user_data =
   with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset) user_data ~extra_data:buf
 
 let iov_max = Config.iov_max
@@ -488,7 +484,9 @@ let read_fixed t ~file_offset fd ~off ~len user_data =
   with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
 let read_chunk ?len t ~file_offset fd chunk user_data =
-  let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
+  (* TODO: Not the right offset? *)
+  let buffer, off = Region.to_bytes ?len chunk, 0 in
+  let len = Bytes.length buffer in
   if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
   with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
@@ -496,7 +494,9 @@ let write_fixed t ~file_offset fd ~off ~len user_data =
   with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
 let write_chunk ?len t ~file_offset fd chunk user_data =
-  let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
+  (* TODO: Not the right offset? *)
+  let buffer, off = Region.to_bytes ?len chunk, 0 in
+  let len = Bytes.length buffer in
   if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
   with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
 
@@ -641,3 +641,31 @@ let get_debug_stats t =
     sketch_buffer_size = Bigarray.Array1.dim t.sketch.buffer;
     sketch_old_buffers = List.length t.sketch.old_buffers;
   }
+
+module Bytes = struct
+  let rec skip_empty = function
+  | t :: ts when Bytes.length t = 0 -> skip_empty ts
+  | x -> x
+
+  (* We can't do sub views on raw bytes so
+    it is a bit wasteful as we just drop half
+    empty byte arrays :S *)
+  let rec shiftv ts v = match v with
+    | 0 -> skip_empty ts
+    | n ->
+      match ts with
+      | [] -> failwith "Error"
+      | t :: ts -> 
+        let len = Bytes.length t in
+        if n >= len then shiftv ts (n - len) else ts
+
+  
+  let of_bigarray ~off ~len ba =
+    let ba_len = Bigarray.Array1.dim ba in
+    assert (off >= 0 && off + len < ba_len);
+    let b = Bytes.create len in
+    for i = 0 to len do
+      Bytes.unsafe_set b i (Bigarray.Array1.unsafe_get ba (off + i))
+    done;
+    b
+end

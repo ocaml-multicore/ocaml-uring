@@ -106,12 +106,12 @@ value ocaml_uring_setup(value entries, value polling_timeout) {
 }
 
 // Note that the ring must be idle when calling this.
-value ocaml_uring_register_ba(value v_uring, value v_ba) {
+value ocaml_uring_register_bytes(value v_uring, value v_ba) {
   CAMLparam2(v_uring, v_ba);
   struct io_uring *ring = Ring_val(v_uring);
   struct iovec iov[1];
-  iov[0].iov_base = Caml_ba_data_val(v_ba);
-  iov[0].iov_len = Caml_ba_array_val(v_ba)->dim[0];
+  iov[0].iov_base = Bytes_val(v_ba);
+  iov[0].iov_len = caml_string_length(v_ba);
   dprintf("uring %p: registering iobuf base %p len %lu\n", ring, iov[0].iov_base, iov[0].iov_len);
   int ret = io_uring_register_buffers(ring, iov, 1);
   if (ret)
@@ -286,7 +286,7 @@ ocaml_uring_set_iovec(value v_sketch_ptr, value v_csl)
     value v_ba = Field(v_cs, 0);
     value v_off = Field(v_cs, 1);
     value v_len = Field(v_cs, 2);
-    iovs[i].iov_base = Caml_ba_data_val(v_ba) + Long_val(v_off);
+    iovs[i].iov_base = Bytes_val(v_ba) + Long_val(v_off);
     iovs[i].iov_len = Long_val(v_len);
   }
   return Val_unit;
@@ -299,7 +299,6 @@ ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_sketch_p
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
   size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
-
   if (sqe == NULL)
     return (Val_false);
   dprintf("submit_readv: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
@@ -329,7 +328,7 @@ value /* noalloc */
 ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = Bytes_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_readv_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
@@ -354,7 +353,7 @@ value /* noalloc */
 ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = Bytes_val(v_ba) + Long_val(v_off);
   if (!sqe)
     return (Val_false);
   dprintf("submit_writev_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
@@ -376,13 +375,13 @@ ocaml_uring_submit_writev_fixed_byte(value* values, int argc) {
 }
 
 value /* noalloc */
-ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff) {
+ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_bstruct, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  value v_ba = Field(v_cstruct, 0);
-  value v_off = Field(v_cstruct, 1);
-  value v_len = Field(v_cstruct, 2);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  value v_ba = Field(v_bstruct, 0);
+  value v_off = Field(v_bstruct, 1);
+  value v_len = Field(v_bstruct, 2);
+  void *buf = Bytes_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_read: fd %d buff %p len %zd fileoff %d\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
@@ -392,13 +391,13 @@ ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_cstruct, 
 }
 
 value /* noalloc */
-ocaml_uring_submit_write(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff) {
+ocaml_uring_submit_write(value v_uring, value v_fd, value v_id, value v_bstruct, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  value v_ba = Field(v_cstruct, 0);
-  value v_off = Field(v_cstruct, 1);
-  value v_len = Field(v_cstruct, 2);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  value v_ba = Field(v_bstruct, 0);
+  value v_off = Field(v_bstruct, 1);
+  value v_len = Field(v_bstruct, 2);
+  void *buf = Bytes_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_write: fd %d buff %p len %zd fileoff %d\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));

@@ -14,6 +14,34 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+module Config = Uring_config
+
+module Bstruct : sig
+  type t
+
+  val length : t -> int
+
+  val to_string : ?off:int -> ?len:int -> t -> string
+
+  val shiftv : t list -> int -> t list
+end
+
+module Slab : sig
+  type t
+
+  val create : int -> t
+  (** [create size] is a new slab. *)
+
+  val slice : t -> int -> Bstruct.t
+  (** [slice slab len] returns a new bstruct from the bigger slab if there
+      is space. *)
+
+  val slice_string : t -> string -> Bstruct.t
+
+  val slice_strings : t -> string list -> Bstruct.t list
+  (** [slice_strings t s] will copy the strings into the slab and return bstructs for them. *)
+end
+
 (** Io_uring interface. *)
 
 module Region = Region
@@ -24,6 +52,8 @@ type 'a t
 type 'a job
 (** A handle for a submitted job, which can be used to cancel it.
     If an operation returns [None], this means that submission failed because the ring is full. *)
+
+val major_alloc_byte_size : int
 
 val create : ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
 (** [create ~queue_depth] will return a fresh Io_uring structure [t].
@@ -44,7 +74,7 @@ val exit : 'a t -> unit
     for the "fixed buffer" mode of io_uring to avoid data copying between
     userspace and the kernel. *)
 
-val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
+val set_fixed_buffer : 'a t -> bytes -> (unit, [> `ENOMEM]) result
 (** [set_fixed_buffer t buf] sets [buf] as the fixed buffer for [t].
 
     You will normally want to wrap this with {!Region.alloc} or similar
@@ -57,7 +87,7 @@ val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
 
     @raise Invalid_argument if there are any requests in progress *)
 
-val buf : 'a t -> Cstruct.buffer
+val buf : 'a t -> bytes
 (** [buf t] is the fixed internal memory buffer associated with uring [t]
     using {!set_fixed_buffer}, or a zero-length buffer if none is set. *)
 
@@ -169,13 +199,13 @@ type offset := Optint.Int63.t
 (** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
     For sockets, use an offset of [Optint.Int63.zero] ([minus_one] is not allowed here). *)
 
-val read : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
+val read : 'a t -> file_offset:offset -> Unix.file_descr -> Bstruct.t -> 'a -> 'a job option
 (** [read t ~file_offset fd buf d] will submit a [read(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [buf].  The user data [d] will
     be returned by {!wait} or {!peek} upon completion. *)
 
-val write : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
+val write : 'a t -> file_offset:offset -> Unix.file_descr -> Bstruct.t -> 'a -> 'a job option
 (** [write t ~file_offset fd buf d] will submit a [write(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [buf].  The user data [d] will be returned by
@@ -184,7 +214,7 @@ val write : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 
 val iov_max : int
 (** The maximum length of the list that can be passed to [readv] and similar. *)
 
-val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Bstruct.t list -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [iov].  The user data [d] will
@@ -192,7 +222,7 @@ val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> '
 
     Requires [List.length iov <= Uring.iov_max] *)
 
-val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Bstruct.t list -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by
@@ -377,7 +407,7 @@ val cancel : 'a t -> 'a job -> 'a -> 'a job option
 module Msghdr : sig
   type t
 
-  val create : ?n_fds:int -> ?addr:Sockaddr.t -> Cstruct.t list -> t
+  val create : ?n_fds:int -> ?addr:Sockaddr.t -> Bstruct.t list -> t
   (** [create buffs] makes a new [msghdr] using the [buffs]
       for the underlying [iovec].
 
@@ -390,7 +420,7 @@ module Msghdr : sig
   val get_fds : t -> Unix.file_descr list
 end
 
-val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Bstruct.t list -> 'a -> 'a job option
 (** [send_msg t fd buffs d] will submit a [sendmsg(2)] request. The [Msghdr] will be constructed
     from the FDs ([fds]), address ([dst]) and buffers ([buffs]).
 
@@ -469,4 +499,9 @@ val get_debug_stats : _ t -> Stats.t
 
 module Private : sig
   module Heap = Heap
+end
+
+module Bytes : sig
+  val shiftv : bytes list -> int -> bytes list
+  val of_bigarray : off:int -> len:int -> (char, 'a, 'b) Bigarray.Array1.t -> bytes
 end

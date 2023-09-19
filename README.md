@@ -100,12 +100,16 @@ let rec write_all fd = function
     let result, data = wait_with_retry uring in
     assert (data = `Write_all);  (* There aren't any other requests pending *)
     assert (result > 0);         (* Check for error return *)
-    let bufs = Cstruct.shiftv bufs result in
+    let bufs = Uring.Bstruct.shiftv bufs result in
     write_all fd bufs
 ```
 
 ```ocaml
-# write_all fd Cstruct.[of_string "INFO: "; of_string "A log message"];;
+# let slab = Uring.Slab.create Uring.major_alloc_byte_size;;
+val slab : Uring.Slab.t = <abstr>
+# let bs = Uring.Slab.slice_strings slab ["INFO: "; "A log message"];;
+val bs : Uring.Bstruct.t list = [<abstr>; <abstr>]
+# write_all fd bs;;
 - : unit = ()
 ```
 

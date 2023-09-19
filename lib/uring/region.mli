@@ -17,7 +17,7 @@ type t
   (** [No_space] is raised when an allocation request cannot
       be satisfied. *)
 
-  val init: block_size:int -> Cstruct.buffer -> int -> t
+  val init: block_size:int -> bytes -> int -> t
   (** [init ~block_size buf slots] initialises a region from
       the buffer [buf] with total size of [block_size * slots]. *)
 
@@ -37,16 +37,10 @@ type t
       offset in its associated region.  This can be used in IO calls
       involving that memory. *)
 
-  val to_cstruct : ?len:int -> chunk -> Cstruct.t
+  val to_bytes : ?len:int -> chunk -> bytes
   (** [to_cstruct chunk] is a cstruct of [chunk]'s slice of the region.
       Note that this is a zero-copy view into the underlying region [t]
       and so [chunk] should not be freed until this cstruct is no longer used.
-      @param len Use only the first [len] bytes of [chunk]. *)
-
-  val to_bigstring : ?len:int -> chunk -> Cstruct.buffer
-  (** [to_bigstring] is like {!to_cstruct}, but creates a {!Bigarray}.
-      Note that this is a zero-copy view into the underlying region [t]
-      and so [chunk] should not be freed until this Bigarray reference is no longer used.
       @param len Use only the first [len] bytes of [chunk]. *)
 
   val to_string : ?len:int -> chunk -> string
