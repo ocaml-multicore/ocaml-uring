@@ -31,8 +31,6 @@ end
 module Flags = struct
   type t = int
 
-  let empty = 0
-
   let of_int x = x
 
   let ( + ) = ( lor )
