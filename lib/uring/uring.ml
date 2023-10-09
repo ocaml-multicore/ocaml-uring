@@ -23,6 +23,7 @@ module Int63 = Optint.Int63
 
 module type FLAGS = sig
   type t = private int
+  val empty : t
   val of_int : int -> t
   val ( + ) : t -> t -> t
   val mem : t -> t -> bool
@@ -30,6 +31,8 @@ end
 
 module Flags = struct
   type t = int
+
+  let empty = 0
 
   let of_int x = x
 
@@ -54,7 +57,6 @@ module Open_flags = struct
   let nonblock  = Config.o_nonblock
   let dsync     = Config.o_dsync
   let direct    = Config.o_direct
-  let largefile = Config.o_largefile
   let directory = Config.o_directory
   let nofollow  = Config.o_nofollow
   let noatime   = Config.o_noatime
