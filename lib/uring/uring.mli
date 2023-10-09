@@ -90,6 +90,8 @@ module type FLAGS = sig
   type t = private int
   (** A set of flags. *)
 
+  val empty : t
+
   val of_int : int -> t
 
   val ( + ) : t -> t -> t
