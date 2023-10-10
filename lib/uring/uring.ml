@@ -116,7 +116,7 @@ module Statx = struct
 
   module Flags = struct
     include Flags
-    include Config.Statx.Flags
+    include Config.At
   end
 
   module Attr = struct
@@ -329,6 +329,7 @@ module Uring = struct
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
   external submit_openat2 : t -> id -> Unix.file_descr -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
+  external submit_linkat : t -> id -> Unix.file_descr -> Sketch.ptr -> Unix.file_descr -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
   external submit_unlinkat : t -> id -> Unix.file_descr -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
   external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
@@ -464,6 +465,19 @@ let openat2 t ~access ~flags ~perm ~resolve ?(fd=at_fdcwd) path user_data =
   in
   let open_how = Open_how.v ~open_flags ~perm ~resolve path in
   with_id_full t (fun id -> Uring.submit_openat2 t.uring id fd open_how) user_data ~extra_data:open_how
+
+module Linkat_flags = struct
+  include Flags
+  let empty_path = Config.At.empty_path
+  let symlink_follow  = Config.At.symlink_follow
+end
+
+let linkat t ?(old_dir_fd=at_fdcwd) ?(new_dir_fd=at_fdcwd) ~flags ~old_path ~new_path user_data =
+  with_id t (fun id ->
+    let old_path_buf = Sketch.String.alloc t.sketch old_path in
+    let new_path_buf = Sketch.String.alloc t.sketch new_path in
+    Uring.submit_linkat t.uring id old_dir_fd old_path_buf new_dir_fd new_path_buf flags
+  ) user_data
 
 let unlink t ~dir ?(fd=at_fdcwd) path user_data =
   with_id t (fun id ->
