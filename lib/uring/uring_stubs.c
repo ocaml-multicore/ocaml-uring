@@ -850,6 +850,32 @@ ocaml_uring_submit_unlinkat(value v_uring, value v_id, value v_fd, value v_sketc
 }
 
 value /* noalloc */
+ocaml_uring_submit_fsync(value v_uring, value v_id, value v_fd, value v_off, value v_len)
+{
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) return (Val_false);
+  io_uring_prep_fsync(sqe, Int_val(v_fd), 0);
+  sqe->off = Int64_val(v_off);
+  sqe->len = Int_val(v_len);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+value /* noalloc */
+ocaml_uring_submit_fdatasync(value v_uring, value v_id, value v_fd, value v_off, value v_len)
+{
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) return (Val_false);
+  io_uring_prep_fsync(sqe, Int_val(v_fd), IORING_FSYNC_DATASYNC);
+  sqe->off = Int64_val(v_off);
+  sqe->len = Int_val(v_len);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+value /* noalloc */
 ocaml_uring_submit_cancel(value v_uring, value v_id, value v_target) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe;

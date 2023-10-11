@@ -607,6 +607,16 @@ val recv_msg : 'a t -> Unix.file_descr -> Msghdr.t -> 'a -> 'a job option
 (** [recv_msg t fd msghdr d] will submit a [recvmsg(2)] request. If the request is
     successful then the [msghdr] will contain the sender address and the data received. *)
 
+val fsync : 'a t -> ?off:int64 -> ?len:int -> Unix.file_descr -> 'a -> 'a job option
+(** [fsync t ?off ?len fd d] will submit an [fsync(2)] request, with the optional
+    offset [off] and length [len] specifying the subset of the file to perform the
+    synchronisation on. *)
+
+val fdatasync : 'a t -> ?off:int64 -> ?len:int -> Unix.file_descr -> 'a -> 'a job option
+(** [fdatasync t ?off ?len fd d] will submit an [fdatasync(2)] request, with the optional
+    offset [off] and length [len] specifying the subset of the file to perform the
+    synchronisation on. *)
+
 (** {2 Probing}
 
     You can check which operations are supported by the running kernel. *)
