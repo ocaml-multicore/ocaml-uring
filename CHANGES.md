@@ -1,3 +1,13 @@
+## v0.8
+
+- add `linkat` operations. (@LucaSeri @talex5 #105, reviewed by @avsm)
+
+- add `fsync` and `fdatasync` operations. (@avsm #103, reviewed by @talex5)
+
+- add docstrings for many more functions (@avsm #100, reviewed by @talex5 @patricoferris)
+
+- use lintcstubs to generate C prototypes and fix bugs (@talex5 #104)
+
 ## v0.7
 
 - Add `statx` support (@patricoferris, @talex5, @avsm #95 #97).
