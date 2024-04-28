@@ -113,17 +113,17 @@ let () =
         let new_flags = 
           C.C_define.Type.[
             (* Masks *)
-            "STATX_MNT_ID", Int;
-            "STATX_DIOALIGN", Int;
+            "STATX_MNT_ID", Int, 0x00001000;
+            "STATX_DIOALIGN", Int, 0x00002000;
             (* File Attributes *)
-            "STATX_ATTR_VERITY", Int;
-            "STATX_ATTR_DAX", Int;
+            "STATX_ATTR_VERITY", Int, 0x00100000;
+            "STATX_ATTR_DAX", Int, 0x00200000;
           ]
         in
         let new_flag_prelude =
           let def_flag = function
-            | name, C.C_define.Type.Int -> 
-              Printf.sprintf "#ifndef %s\n#define %s 0\n#endif\n" name name;
+            | name, C.C_define.Type.Int, v ->
+              Printf.sprintf "#ifndef %s\n#define %s %d\n#endif\n" name name v;
             | _ -> assert false
           in
           String.concat "" (List.map def_flag new_flags)
@@ -163,7 +163,7 @@ let () =
             "STATX_ATTR_APPEND", Int;
             "STATX_ATTR_NODUMP", Int ;
             "STATX_ATTR_ENCRYPTED", Int;
-          ] @ new_flags)
+          ] @ List.map (fun (n, t, _) -> n, t) new_flags)
         |> List.fold_left (fun (ats, stats, attrs) (v, k) -> match String.split_on_char '_' v, k with
             | "AT" :: name, C.C_define.Value.Int v ->
               let ocaml_name =  String.lowercase_ascii (String.concat "_" name) in
