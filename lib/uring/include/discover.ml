@@ -116,6 +116,11 @@ let () =
             "STATX_MNT_ID", Int, 0x00001000;
             "STATX_DIOALIGN", Int, 0x00002000;
             (* File Attributes *)
+            "STATX_ATTR_COMPRESSED", Int, 0x00000004;
+            "STATX_ATTR_IMMUTABLE", Int, 0x00000010;
+            "STATX_ATTR_APPEND", Int, 0x00000020;
+            "STATX_ATTR_NODUMP", Int, 0x00000040;
+            "STATX_ATTR_ENCRYPTED", Int, 0x00000800;
             "STATX_ATTR_VERITY", Int, 0x00100000;
             "STATX_ATTR_DAX", Int, 0x00200000;
           ]
@@ -157,12 +162,6 @@ let () =
             "STATX_BLOCKS", Int;
             "STATX_BASIC_STATS", Int;
             "STATX_BTIME", Int;
-
-            "STATX_ATTR_COMPRESSED", Int;
-            "STATX_ATTR_IMMUTABLE", Int;
-            "STATX_ATTR_APPEND", Int;
-            "STATX_ATTR_NODUMP", Int ;
-            "STATX_ATTR_ENCRYPTED", Int;
           ] @ List.map (fun (n, t, _) -> n, t) new_flags)
         |> List.fold_left (fun (ats, stats, attrs) (v, k) -> match String.split_on_char '_' v, k with
             | "AT" :: name, C.C_define.Value.Int v ->
