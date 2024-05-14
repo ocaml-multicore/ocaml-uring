@@ -666,6 +666,9 @@ val active_ops : _ t -> int
 (** [active_ops t] returns the number of operations added to the ring (whether submitted or not)
     for which the completion event has not yet been collected. *)
 
+val sqe_ready : _ t -> int
+(** [sqe_ready t] is the number of unconsumed (if SQPOLL) or unsubmitted entries in the SQ ring. *)
+
 module Stats : sig
   type t = {
     sqe_ready : int;            (** SQEs not yet submitted. *)

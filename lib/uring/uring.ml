@@ -567,6 +567,8 @@ let cancel t job user_data =
   ignore (Heap.ptr job : Uring.id);  (* Check it's still valid *)
   with_id t (fun id -> Uring.submit_cancel t.uring id (Heap.ptr job)) user_data
 
+let sqe_ready t = Uring.sq_ready t.uring
+
 (* Free stale entries in the sketch buffer, if possible.
    This isn't quite right: a busy system might never have 0 unsubmitted entries.
    We should probably track how many requests need to be submitted before each
