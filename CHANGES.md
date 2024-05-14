@@ -1,3 +1,9 @@
+## v0.9
+
+- Fix statx constant fallback values, and fix with musl 1.2.5 (@alyssais #114).
+
+- Add Uring.sqe_ready (@talex5 #115).
+
 ## v0.8
 
 - add `linkat` operations. (@LucaSeri @talex5 #105, reviewed by @avsm)
