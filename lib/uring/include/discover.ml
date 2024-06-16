@@ -139,7 +139,7 @@ let () =
 #include <linux/stat.h>
 #endif
 |} ^ new_flag_prelude)
-          ~includes:["fcntl.h" ]
+          ~includes:["linux/fcntl.h" ]
           (C.C_define.Type.[
             "AT_EMPTY_PATH", Int;
             "AT_NO_AUTOMOUNT", Int;
