@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /*
- * Description: run various openat(2) tests
+ * Description: run various openat2(2) tests
  *
  */
 #include <errno.h>
@@ -72,6 +72,8 @@ static int test_open_fixed(const char *path, int dfd)
 	}
 	ret = io_uring_register_files(&ring, &fd, 1);
 	if (ret) {
+		if (ret == -EINVAL || ret == -EBADF)
+			return 0;
 		fprintf(stderr, "%s: register ret=%d\n", __FUNCTION__, ret);
 		return -1;
 	}
@@ -141,6 +143,8 @@ static int test_open_fixed_fail(const char *path, int dfd)
 
 	ret = io_uring_register_files(&ring, &fd, 1);
 	if (ret) {
+		if (ret == -EINVAL || ret == -EBADF)
+			return 0;
 		fprintf(stderr, "%s: register ret=%d\n", __FUNCTION__, ret);
 		return -1;
 	}

@@ -302,41 +302,13 @@ the original request. If this flag isn't set on completion, then the poll
 request has been terminated and no further events will be generated. This mode
 is available since 5.13.
 
-If
-.B IORING_POLL_UPDATE_EVENTS
-is set in the SQE
-.I len
-field, then the request will update an existing poll request with the mask of
-events passed in with this request. The lookup is based on the
-.I user_data
-field of the original SQE submitted, and this values is passed in the
-.I addr
-field of the SQE. This mode is available since 5.13.
-
-If
-.B IORING_POLL_UPDATE_USER_DATA
-is set in the SQE
-.I len
-field, then the request will update the
-.I user_data
-of an existing poll request based on the value passed in the
-.I off
-field. This mode is available since 5.13.
-
 This command works like
 an async
 .BR poll(2)
-and the completion event result is the returned mask of events. For the
-variants that update
-.I user_data
-or
-.I events
-, the completion result will be similar to
-.B IORING_OP_POLL_REMOVE.
-
+and the completion event result is the returned mask of events.
 .TP
 .B IORING_OP_POLL_REMOVE
-Remove an existing poll request.  If found, the
+Remove or update an existing poll request.  If found, the
 .I res
 field of the
 .I "struct io_uring_cqe"
@@ -348,6 +320,26 @@ or
 .B -EALREADY
 if the poll request was in the process of completing already.
 
+If
+.B IORING_POLL_UPDATE_EVENTS
+is set in the SQE
+.I len
+field, then the request will update an existing poll request with the mask of
+events passed in with this request. The lookup is based on the
+.I user_data
+field of the original SQE submitted, and this values is passed in the
+.I addr
+field of the SQE.
+If
+.B IORING_POLL_UPDATE_USER_DATA
+is set in the SQE
+.I len
+field, then the request will update the
+.I user_data
+of an existing poll request based on the value passed in the
+.I off
+field. Updating an existing poll is available since 5.13.
+
 .TP
 .B IORING_OP_EPOLL_CTL
 Add, remove or modify entries in the interest list of
@@ -357,13 +349,13 @@ See
 for details of the system call.
 .I fd
 holds the file descriptor that represents the epoll instance,
-.I addr
+.I off
 holds the file descriptor to add, remove or modify,
 .I len
 holds the operation (EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD) to perform and,
-.I off
+.I addr
 holds a pointer to the
-.I epoll_events
+.I epoll_event
 structure. Available since 5.6.
 
 .TP
@@ -494,9 +486,9 @@ ready to be received, the operation will proceed.
 .B IORING_OP_TIMEOUT
 This command will register a timeout operation. The
 .I addr
-field must contain a pointer to a struct timespec64 structure,
+field must contain a pointer to a struct __kernel_timespec structure,
 .I len
-must contain 1 to signify one timespec64 structure,
+must contain 1 to signify one __kernel_timespec structure,
 .I timeout_flags
 may contain IORING_TIMEOUT_ABS
 for an absolute timeout value, or 0 for a relative timeout.
@@ -567,7 +559,7 @@ instead of removing an existing operation, it updates it.
 .I addr
 and return values are same as before.
 .I addr2
-field must contain a pointer to a struct timespec64 structure.
+field must contain a pointer to a struct __kernel_timespec structure.
 .I timeout_flags
 may also contain IORING_TIMEOUT_ABS, in which case the value given is an
 absolute one, not a relative one.
@@ -1242,6 +1234,22 @@ for details on how to setup a context for fixed buffer I/O.
 .in
 .PP
 
+.TP
+.B IORING_OP_WAITID
+Issue the equivalent of a
+.BR waitid(2)
+system call.
+.I len
+must contain the idtype being queried/waited for and
+.I fd
+must contain the 'pid' (or id) being waited for.
+.I file_index
+is the 'options' being set (the child state changes to wait for).
+.I addr2
+is a pointer to siginfo_t, if any, being filled in. See also
+.BR waitid(2)
+for the general description of the related system call. Available since 6.5.
+
 .PP
 The
 .I flags
@@ -1274,7 +1282,7 @@ last SQE in a submission has this flag set, it will still terminate the current
 chain. This flag has no effect on previous SQE submissions, nor does it impact
 SQEs that are outside of the chain tail. This means that multiple chains can be
 executing in parallel, or chains and individual SQEs. Only members inside the
-chain are serialized. A chain of SQEs will be broken, if any request in that
+chain are serialized. A chain of SQEs will be broken if any request in that
 chain ends in error. io_uring considers any unexpected result an error. This
 means that, eg, a short read will also terminate the remainder of the chain.
 If a chain of SQE links is broken, the remaining unstarted part of the chain
@@ -1330,7 +1338,7 @@ linked timeout has the flag set, it's guaranteed to not post a CQE.
 
 The semantics are chosen to accommodate several use cases. First, when all but
 the last request of a normal link without linked timeouts are marked with the
-flag, only one CQE per lin is posted. Additionally, it enables suppression of
+flag, only one CQE per link is posted. Additionally, it enables suppression of
 CQEs in cases where the side effects of a successfully executed operation is
 enough for userspace to know the state of the system. One such example would
 be writing to a synchronisation file.
@@ -1517,9 +1525,9 @@ At least one CQE was dropped even with the
 .B IORING_FEAT_NODROP
 feature, and there are no otherwise available CQEs. This clears the error state
 and so with no other changes the next call to
-.BR io_uring_setup (2)
+.BR io_uring_enter (2)
 will not have this error. This error should be extremely rare and indicates the
-machine is running critically low on memory and. It may be reasonable for the
+machine is running critically low on memory. It may be reasonable for the
 application to terminate running unless it is able to safely handle any CQE
 being lost.
 .TP
@@ -1540,6 +1548,9 @@ pending. The application should wait for some completions and try again. May
 occur if the application tries to queue more requests than we have room for in
 the CQ ring, or if the application attempts to wait for more events without
 having reaped the ones already present in the CQ ring.
+.TP
+.B EEXIST
+The thread submitting the work is invalid.
 .TP
 .B EINVAL
 Some bits in the

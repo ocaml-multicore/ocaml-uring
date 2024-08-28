@@ -172,6 +172,35 @@ LIBURING_2.4 {
 		io_uring_prep_msg_ring_fd;
 		io_uring_prep_msg_ring_fd_alloc;
 		io_uring_prep_sendto;
+		io_uring_register_napi;		/* Added in 2.6. */
+		io_uring_unregister_napi;	/* Added in 2.6. */
 	local:
 		*;
 };
+
+LIBURING_2.5 {
+	global:
+		io_uring_queue_init_mem;
+		io_uring_prep_cmd_sock;		/* Added in 2.5,
+						   exported in 2.6. */
+		io_uring_prep_read_multishot;	/* Added in 2.6. */
+		io_uring_prep_waitid;		/* Added in 2.6. */
+		io_uring_prep_futex_wake;	/* Added in 2.6. */
+		io_uring_prep_futex_wait;	/* Added in 2.6. */
+		io_uring_prep_futex_waitv;	/* Added in 2.6. */
+} LIBURING_2.4;
+
+LIBURING_2.6 {
+	global:
+		io_uring_prep_fixed_fd_install;
+		io_uring_buf_ring_available;
+		io_uring_prep_ftruncate;
+		io_uring_prep_send_bundle;
+} LIBURING_2.5;
+
+LIBURING_2.7 {
+		io_uring_prep_fadvise64;
+		io_uring_prep_madvise64;
+		io_uring_prep_bind;
+		io_uring_prep_listen;
+} LIBURING_2.6;

@@ -10,13 +10,13 @@ CPPFLAGS ?=
 override CPPFLAGS += -D_GNU_SOURCE \
 	-Iinclude/ -include ../config-host.h \
 	-D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64
-CFLAGS ?= -g -O3 -Wall -Wextra -fno-stack-protector
+CFLAGS ?= -O3 -Wall -Wextra -fno-stack-protector
 override CFLAGS += -Wno-unused-parameter \
 	-DLIBURING_INTERNAL \
 	$(LIBURING_CFLAGS)
 SO_CFLAGS=-fPIC $(CFLAGS)
 L_CFLAGS=$(CFLAGS)
-LINK_FLAGS=
+LINK_FLAGS=-Wl,-z,defs
 LINK_FLAGS+=$(LDFLAGS)
 ENABLE_SHARED ?= 1
 
@@ -45,9 +45,9 @@ liburing_srcs := setup.c queue.c register.c syscall.c version.c
 
 ifeq ($(CONFIG_NOLIBC),y)
 	liburing_srcs += nolibc.c
-	override CFLAGS += -nostdlib -nodefaultlibs -ffreestanding -fno-builtin
-	override CPPFLAGS += -nostdlib -nodefaultlibs -ffreestanding -fno-builtin
-	override LINK_FLAGS += -nostdlib -nodefaultlibs
+	override CFLAGS += -nostdlib -nodefaultlibs -ffreestanding -fno-builtin -fno-stack-protector
+	override CPPFLAGS += -nostdlib -nodefaultlibs -ffreestanding -fno-builtin -fno-stack-protector
+	override LINK_FLAGS += -nostdlib -nodefaultlibs $(libgcc_link_flag)
 endif
 
 override CPPFLAGS += -MT "$@" -MMD -MP -MF "$@.d"
@@ -99,6 +99,23 @@ ifeq ($(ENABLE_SHARED),1)
 	ln -sf $(relativelibdir)$(libname) $(libdevdir)/liburing.so
 	ln -sf $(ffi_libname) $(libdir)/$(ffi_soname)
 	ln -sf $(relativelibdir)$(ffi_libname) $(libdevdir)/liburing-ffi.so
+endif
+
+uninstall:
+	@rm -f $(includedir)/liburing/io_uring.h
+	@rm -f $(includedir)/liburing.h
+	@rm -f $(includedir)/liburing/compat.h
+	@rm -f $(includedir)/liburing/barrier.h
+	@rm -f $(includedir)/liburing/io_uring_version.h
+	@rm -f $(libdevdir)/liburing.a
+	@rm -f $(libdevdir)/liburing-ffi.a
+ifeq ($(ENABLE_SHARED),1)
+	@rm -f $(libdir)/$(libname)
+	@rm -f $(libdir)/$(ffi_libname)
+	@rm -f $(libdir)/$(soname)
+	@rm -f $(libdevdir)/liburing.so
+	@rm -f $(libdir)/$(ffi_soname)
+	@rm -f $(libdevdir)/liburing-ffi.so
 endif
 
 clean:

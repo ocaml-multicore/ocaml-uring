@@ -4,7 +4,7 @@
 .\"
 .TH io_uring_prep_poll_timeout 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
 .SH NAME
-io_uring_prep_timeoute \- prepare a timeout request
+io_uring_prep_timeout \- prepare a timeout request
 .SH SYNOPSIS
 .nf
 .B #include <liburing.h>
@@ -45,10 +45,11 @@ The boottime clock source should be used.
 The realtime clock source should be used.
 .TP
 .B IORING_TIMEOUT_ETIME_SUCCESS
-Consider an expired timeout a success in terms of the posted completion.
-Normally a timeout that triggers would return in a
+Consider an expired timeout a success in terms of the posted completion. This
+means it will not sever dependent links, as a failed request normally would. The
+posted CQE result code will still contain
 .B -ETIME
-CQE
+in the
 .I res
 value.
 .TP
@@ -57,7 +58,7 @@ The request will return multiple timeout completions. The completion flag
 IORING_CQE_F_MORE is set if more timeouts are expected. The value specified in
 .I count
 is the number of repeats. A value of 0 means the timeout is indefinite and can
-only be stopped by a removal request.
+only be stopped by a removal request. Available since the 6.4 kernel.
 .PP
 The timeout completion event will trigger if either the specified timeout
 has occurred, or the specified number of events to wait for have been posted
@@ -77,7 +78,7 @@ The specified timeout occurred and triggered the completion event.
 .TP
 .B -EINVAL
 One of the fields set in the SQE was invalid. For example, two clocksources
-where given, or the specified timeout seconds or nanoseconds where < 0.
+were given, or the specified timeout seconds or nanoseconds were < 0.
 .TP
 .B -EFAULT
 io_uring was unable to access the data specified by
