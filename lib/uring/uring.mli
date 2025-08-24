@@ -284,6 +284,11 @@ val unlink : 'a t -> dir:bool -> ?fd:Unix.file_descr -> string -> 'a -> 'a job o
     @param dir If [true], this acts like [rmdir] (only removing empty directories).
                If [false], it acts like [unlink] (only removing non-directories). *)
 
+val mkdirat : 'a t -> mode:Unix.file_perm -> ?fd:Unix.file_descr -> string -> 'a -> 'a job option
+(** [mkdirat t ~mode ~fd path] makes a directory [path], which is resolved relative to [fd].
+    If [fd] is not given, then the current working directory is used.
+    @param mode The mode used to create the directory. *)
+
 module Poll_mask : sig
   include FLAGS
 

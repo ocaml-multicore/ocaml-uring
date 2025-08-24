@@ -331,6 +331,7 @@ module Uring = struct
   external submit_openat2 : t -> id -> Unix.file_descr -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
   external submit_linkat : t -> id -> Unix.file_descr -> Sketch.ptr -> Unix.file_descr -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
   external submit_unlinkat : t -> id -> Unix.file_descr -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
+  external submit_mkdirat : t -> id -> Unix.file_descr -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_mkdirat" [@@noalloc]
   external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
   external submit_fsync : t -> id -> Unix.file_descr -> int64 -> int -> bool = "ocaml_uring_submit_fsync" [@@noalloc]
@@ -485,6 +486,12 @@ let unlink t ~dir ?(fd=at_fdcwd) path user_data =
   with_id t (fun id ->
       let buf = Sketch.String.alloc t.sketch path in
       Uring.submit_unlinkat t.uring id fd buf dir
+    ) user_data
+
+let mkdirat t ~mode ?(fd=at_fdcwd) path user_data =
+  with_id t (fun id ->
+      let buf = Sketch.String.alloc t.sketch path in
+      Uring.submit_mkdirat t.uring id fd buf mode
     ) user_data
 
 let read t ~file_offset fd (buf : Cstruct.t) user_data =
