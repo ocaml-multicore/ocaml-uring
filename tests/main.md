@@ -865,6 +865,31 @@ This currently doesn't work due to https://github.com/axboe/liburing/issues/955:
 - : unit = ()
 ```
 
+## Mkdirat
+
+```ocaml
+# let t : [ `Mkdir of int ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Mkdir of int ] Uring.t = <abstr>
+# Uring.mkdirat t ~mode:0o755 "mkdir" (`Mkdir 0);;
+- : [ `Mkdir of int ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : [ `Mkdir of int ] Uring.completion_option =
+Uring.Some {Uring.result = 0; data = `Mkdir 0}
+# (Unix.stat "mkdir").st_perm;;
+- : int = 448
+# let v = Uring.mkdirat t ~mode:0o755 "mkdir" (`Mkdir 1);;
+val v : [ `Mkdir of int ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : [ `Mkdir of int ] Uring.completion_option =
+Uring.Some {Uring.result = -17; data = `Mkdir 1}
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Timeout
 
 Timeout should return (-ETIME). This is defined in https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno.h#L45

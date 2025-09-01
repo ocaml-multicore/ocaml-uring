@@ -854,6 +854,17 @@ ocaml_uring_submit_unlinkat(value v_uring, value v_id, value v_fd, value v_sketc
 }
 
 value /* noalloc */
+ocaml_uring_submit_mkdirat(value v_uring, value v_id, value v_fd, value v_sketch_ptr, value v_mode) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  char *path = Sketch_ptr_val(v_sketch_ptr);
+  if (!sqe) return (Val_false);
+  io_uring_prep_mkdirat(sqe, Int_val(v_fd), path, Int_val(v_mode));
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+value /* noalloc */
 ocaml_uring_submit_fsync(value v_uring, value v_id, value v_fd, value v_off, value v_len)
 {
   struct io_uring *ring = Ring_val(v_uring);
