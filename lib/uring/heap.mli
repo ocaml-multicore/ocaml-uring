@@ -28,7 +28,7 @@ type ptr = private int
 
 val ptr : 'a entry -> ptr
 (** [ptr e] is the index of [e].
-    @raise Invalid_arg if [e] has already been freed. *)
+    @raise Invalid_argument if [e] has already been freed. *)
 
 val alloc : 'a t -> 'a -> extra_data:'b -> 'a entry
 (** [alloc t a ~extra_data] adds the value [a] to [t] and returns a
