@@ -505,7 +505,7 @@ must be set to an
 pointer to an array of two values, with the values in the array being set to
 the maximum count of workers per NUMA node. Index 0 holds the bounded worker
 count, and index 1 holds the unbounded worker count. On successful return, the
-passed in array will contain the previous maximum valyes for each type. If the
+passed in array will contain the previous maximum values for each type. If the
 count being passed in is 0, then this command returns the current maximum values
 and doesn't modify the current setting.
 .I nr_args
@@ -528,8 +528,8 @@ of the ring file descriptor itself. This reduces the overhead of the
 system call.
 
 .I arg
-must be set to an unsigned int pointer to an array of type
-.I struct io_uring_rsrc_register
+must be set to a pointer to an array of type
+.I struct io_uring_rsrc_update
 of
 .I nr_args
 number of entries. The
@@ -570,8 +570,8 @@ Unregister descriptors previously registered with
 .B IORING_REGISTER_RING_FDS.
 
 .I arg
-must be set to an unsigned int pointer to an array of type
-.I struct io_uring_rsrc_register
+must be set to a pointer to an array of type
+.I struct io_uring_rsrc_update
 of
 .I nr_args
 number of entries. Only the
@@ -757,6 +757,9 @@ or
 .B IORING_REGISTER_RESTRICTIONS
 was specified, but there were already buffers, files, or restrictions
 registered.
+.TP
+.B EEXIST
+The thread performing the registration is invalid.
 .TP
 .B EFAULT
 buffer is outside of the process' accessible address space, or

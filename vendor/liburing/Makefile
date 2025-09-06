@@ -11,11 +11,11 @@ all:
 	@$(MAKE) -C test
 	@$(MAKE) -C examples
 
-.PHONY: all install default clean test
-.PHONY: FORCE cscope
+library:
+	@$(MAKE) -C src
 
-partcheck: all
-	@echo "make partcheck => TODO add tests with out kernel support"
+.PHONY: all install default clean test library
+.PHONY: FORCE cscope
 
 runtests: all
 	@$(MAKE) -C test runtests
@@ -60,8 +60,19 @@ install: $(NAME).pc $(NAME)-ffi.pc
 	$(INSTALL) -m 755 -d $(DESTDIR)$(mandir)/man7
 	$(INSTALL) -m 644 man/*.7 $(DESTDIR)$(mandir)/man7
 
+uninstall:
+	@$(MAKE) -C src uninstall prefix=$(DESTDIR)$(prefix) datadir=$(DESTDIR)$(datadir)
+	@rm -f $(DESTDIR)$(libdevdir)/pkgconfig/$(NAME).pc
+	@rm -f $(DESTDIR)$(libdevdir)/pkgconfig/$(NAME)-ffi.pc
+	@rm -rf $(DESTDIR)$(mandir)/man2/io_uring*.2
+	@rm -rf $(DESTDIR)$(mandir)/man3/io_uring*.3
+	@rm -rf $(DESTDIR)$(mandir)/man7/io_uring*.7
+
 install-tests:
 	@$(MAKE) -C test install prefix=$(DESTDIR)$(prefix) datadir=$(DESTDIR)$(datadir)
+
+uninstall-tests:
+	@$(MAKE) -C test uninstall prefix=$(DESTDIR)$(prefix) datadir=$(DESTDIR)$(datadir)
 
 clean:
 	@rm -f config-host.mak config-host.h cscope.out $(NAME).pc $(NAME)-ffi.pc test/*.dmesg

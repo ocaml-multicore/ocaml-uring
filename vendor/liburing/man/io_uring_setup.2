@@ -180,19 +180,19 @@ and may be rounded up to the next power-of-two.
 If this flag is specified, and if
 .IR entries
 exceeds
-.B IORING_MAX_ENTRIES ,
+.BR IORING_MAX_ENTRIES ,
 then
 .IR entries
 will be clamped at
-.B IORING_MAX_ENTRIES .
+.BR IORING_MAX_ENTRIES .
 If the flag
-.BR IORING_SETUP_SQPOLL
+.B IORING_SETUP_CQSIZE
 is set, and if the value of
 .IR "struct io_uring_params.cq_entries"
 exceeds
-.B IORING_MAX_CQ_ENTRIES ,
+.BR IORING_MAX_CQ_ENTRIES ,
 then it will be clamped at
-.B IORING_MAX_CQ_ENTRIES .
+.BR IORING_MAX_CQ_ENTRIES .
 .TP
 .B IORING_SETUP_ATTACH_WQ
 This flag should be set in conjunction with
@@ -210,7 +210,7 @@ See
 for details on how to enable the ring. Available since 5.10.
 .TP
 .B IORING_SETUP_SUBMIT_ALL
-Normally io_uring stops submitting a batch of request, if one of these requests
+Normally io_uring stops submitting a batch of requests, if one of these requests
 results in an error. This can cause submission of less than what is expected,
 if a request ends in error while being submitted. If the ring is created with
 this flag,
@@ -300,6 +300,48 @@ Note that if this flag is set then it is the application's responsibility to per
 trigger work (for example via any of the CQE waiting functions) or else completions may
 not be delivered.
 Available since 6.1.
+.TP
+.B IORING_SETUP_NO_MMAP
+By default, io_uring allocates kernel memory that callers must subsequently
+.BR mmap (2).
+If this flag is set, io_uring instead uses caller-allocated buffers;
+.I p->cq_off.user_addr
+must point to the memory for the sq/cq rings, and
+.I p->sq_off.user_addr
+must point to the memory for the sqes.
+Each allocation must be contiguous memory.
+Typically, callers should allocate this memory by using
+.BR mmap (2)
+to allocate a huge page.
+If this flag is set, a subsequent attempt to
+.BR mmap (2)
+the io_uring file descriptor will fail.
+Available since 6.5.
+.TP
+.B IORING_SETUP_REGISTERED_FD_ONLY
+If this flag is set, io_uring will register the ring file descriptor, and
+return the registered descriptor index, without ever allocating an unregistered
+file descriptor. The caller will need to use
+.B IORING_REGISTER_USE_REGISTERED_RING
+when calling
+.BR io_uring_register (2).
+This flag only makes sense when used alongside with
+.B IORING_SETUP_NO_MMAP,
+which also needs to be set.
+Available since 6.5.
+
+.TP
+.B IORING_SETUP_NO_SQARRAY
+If this flag is set, entries in the submission queue will be submitted in order,
+wrapping around to the first entry after reaching the end of the queue. In other
+words, there will be no more indirection via the array of submission entries,
+and the queue will be indexed directly by the submission queue tail and the
+range of indexed represented by it modulo queue size. Subsequently, the user
+should not map the array of submission queue entries, and the corresponding
+offset in
+.I struct io_sqring_offsets
+will be set to zero. Available since 6.6.
+
 .PP
 If no flags are specified, the io_uring instance is setup for
 interrupt driven I/O.  I/O may be submitted using
@@ -323,10 +365,12 @@ calls down from three to two. Available since kernel 5.4.
 .TP
 .B IORING_FEAT_NODROP
 If this flag is set, io_uring supports almost never dropping completion events.
-If a completion event occurs and the CQ ring is full, the kernel stores
-the event internally until such a time that the CQ ring has room for more
-entries. If this overflow condition is entered, attempting to submit more
-IO will fail with the
+A dropped event can only occur if the kernel runs out of memory, in which case
+you have worse problems than a lost event. Your application and others will
+likely get OOM killed anyway. If a completion event occurs and the CQ ring is
+full, the kernel stores the event internally until such a time that the CQ ring
+has room for more entries. In earlier kernels, if this overflow condition is
+entered, attempting to submit more IO would fail with the
 .B -EBUSY
 error value, if it can't flush the overflown events to the CQ ring. If this
 happens, the application must reap events from the CQ ring and attempt the
@@ -410,7 +454,7 @@ feature no longer requires the use of fixed files. Any normal file descriptor
 can be used for IO commands without needing registration. Available since
 kernel 5.11.
 .TP
-.B IORING_FEAT_ENTER_EXT_ARG
+.B IORING_FEAT_EXT_ARG
 If this flag is set, then the
 .BR io_uring_enter (2)
 system call supports passing in an extended argument instead of just the
@@ -496,7 +540,8 @@ struct io_sqring_offsets {
     __u32 flags;
     __u32 dropped;
     __u32 array;
-    __u32 resv[3];
+    __u32 resv1;
+    __u64 user_addr;
 };
 .EE
 .in
@@ -592,7 +637,8 @@ struct io_cqring_offsets {
     __u32 overflow;
     __u32 cqes;
     __u32 flags;
-    __u32 resv[3];
+    __u32 resv1;
+    __u64 user_addr;
 };
 .EE
 .in
@@ -647,6 +693,10 @@ was not, or
 was specified, but
 .I io_uring_params.cq_entries
 was invalid.
+.B IORING_SETUP_REGISTERED_FD_ONLY
+was specified, but
+.B IORING_SETUP_NO_MMAP
+was not.
 .TP
 .B EMFILE
 The per-process limit on the number of open file descriptors has been
@@ -666,6 +716,13 @@ Insufficient kernel resources are available.
 .B IORING_SETUP_SQPOLL
 was specified, but the effective user ID of the caller did not have sufficient
 privileges.
+.TP
+.B EPERM
+.I /proc/sys/kernel/io_uring_disabled
+has the value 2, or it has the value 1 and the calling process does not hold the
+.B CAP_SYS_ADMIN
+capability or is not a member of
+.I /proc/sys/kernel/io_uring_group.
 .SH SEE ALSO
 .BR io_uring_register (2),
 .BR io_uring_enter (2)

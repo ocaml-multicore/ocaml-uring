@@ -1,5 +1,5 @@
 Name: liburing
-Version: 2.4
+Version: 2.7
 Release: 1%{?dist}
 Summary: Linux-native io_uring I/O access library
 License: (GPLv2 with exceptions and LGPLv2+) or MIT
@@ -27,7 +27,7 @@ for the Linux-native io_uring.
 
 %build
 %set_build_flags
-./configure --prefix=%{_prefix} --libdir=/%{_libdir} --libdevdir=/%{_libdir} --mandir=%{_mandir} --includedir=%{_includedir}
+./configure --prefix=%{_prefix} --libdir=%{_libdir} --libdevdir=%{_libdir} --mandir=%{_mandir} --includedir=%{_includedir}
 
 %make_build
 

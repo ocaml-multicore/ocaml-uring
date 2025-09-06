@@ -46,16 +46,21 @@ test_srcs := \
 	a4c0b3decb33.c \
 	accept.c \
 	accept-link.c \
+	accept-non-empty.c \
 	accept-reuse.c \
 	accept-test.c \
 	across-fork.c \
 	b19062a56726.c \
 	b5837bd5311d.c \
+	bind-listen.c \
 	buf-ring.c \
+	buf-ring-nommap.c \
+	buf-ring-put.c \
 	ce593a6c480a.c \
 	close-opath.c \
 	connect.c \
 	connect-rep.c \
+	coredump.c \
 	cq-full.c \
 	cq-overflow.c \
 	cq-peek-batch.c \
@@ -65,6 +70,7 @@ test_srcs := \
 	d77a67ed5f27.c \
 	defer.c \
 	defer-taskrun.c \
+	defer-tw-timeout.c \
 	double-poll-crash.c \
 	drop-submit.c \
 	eeed8b54e0df.c \
@@ -80,6 +86,7 @@ test_srcs := \
 	fadvise.c \
 	fallocate.c \
 	fc2a85cb02ef.c \
+	fd-install.c \
 	fd-pass.c \
 	file-register.c \
 	files-exit-hang-poll.c \
@@ -87,12 +94,17 @@ test_srcs := \
 	file-update.c \
 	file-verify.c \
 	fixed-buf-iter.c \
+	fixed-buf-merge.c \
+	fixed-hugepage.c \
 	fixed-link.c \
 	fixed-reuse.c \
 	fpos.c \
 	fsnotify.c \
 	fsync.c \
+	futex.c \
 	hardlink.c \
+	ignore-single-mmap.c \
+	init-mem.c \
 	io-cancel.c \
 	iopoll.c \
 	iopoll-leak.c \
@@ -109,12 +121,15 @@ test_srcs := \
 	madvise.c \
 	mkdir.c \
 	msg-ring.c \
+	msg-ring-fd.c \
 	msg-ring-flags.c \
 	msg-ring-overflow.c \
 	multicqes_drain.c \
+	no-mmap-inval.c \
 	nolibc.c \
 	nop-all-sizes.c \
 	nop.c \
+	ooo-file-unreg.c \
 	openat2.c \
 	open-close.c \
 	open-direct-link.c \
@@ -135,25 +150,28 @@ test_srcs := \
 	poll-race-mshot.c \
 	poll-ring.c \
 	poll-v-poll.c \
-	pollfree.c \
 	probe.c \
 	read-before-exit.c \
+	read-mshot.c \
+	read-mshot-empty.c \
 	read-write.c \
 	recv-msgall.c \
 	recv-msgall-stream.c \
 	recv-multishot.c \
+	reg-fd-only.c \
 	reg-hint.c \
 	reg-reg-ring.c \
 	regbuf-merge.c \
 	register-restrictions.c \
 	rename.c \
 	ringbuf-read.c \
+	ringbuf-status.c \
 	ring-leak2.c \
 	ring-leak.c \
 	rsrc_tags.c \
 	rw_merge_test.c \
 	self.c \
-	sendmsg_fs_cve.c \
+	recvsend_bundle.c \
 	send_recv.c \
 	send_recvmsg.c \
 	send-zerocopy.c \
@@ -164,14 +182,16 @@ test_srcs := \
 	single-issuer.c \
 	skip-cqe.c \
 	socket.c \
+	socket-io-cmd.c \
+	socket-getsetsock-cmd.c \
 	socket-rw.c \
 	socket-rw-eagain.c \
 	socket-rw-offset.c \
 	splice.c \
 	sq-full.c \
 	sq-full-cpp.cc \
-	sqpoll-cancel-hang.c \
 	sqpoll-disable-exit.c \
+	sqpoll-exec.c \
 	sq-poll-dup.c \
 	sqpoll-exit-hang.c \
 	sq-poll-kthread.c \
@@ -188,10 +208,13 @@ test_srcs := \
 	thread-exit.c \
 	timeout.c \
 	timeout-new.c \
+	truncate.c \
 	tty-write-dpoll.c \
 	unlink.c \
 	version.c \
+	waitid.c \
 	wakeup-hang.c \
+	wq-aff.c \
 	xattr.c \
 	# EOL
 
@@ -223,7 +246,9 @@ all: $(test_targets)
 helpers.o: helpers.c
 	$(QUIET_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<
 
-%.t: %.c $(helpers) helpers.h ../src/liburing.a
+LIBURING := $(shell if [ -e ../src/liburing.a ]; then echo ../src/liburing.a; fi)
+
+%.t: %.c $(helpers) helpers.h $(LIBURING)
 	$(QUIET_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(helpers) $(LDFLAGS)
 
 #
@@ -232,7 +257,7 @@ helpers.o: helpers.c
 #   cc1plus: warning: command-line option '-Wmissing-prototypes' \
 #   is valid for C/ObjC but not for C++
 #
-%.t: %.cc $(helpers) helpers.h ../src/liburing.a
+%.t: %.cc $(helpers) helpers.h $(LIBURING)
 	$(QUIET_CXX)$(CXX) \
 	$(patsubst -Wmissing-prototypes,,$(CPPFLAGS)) \
 	$(patsubst -Wmissing-prototypes,,$(CXXFLAGS)) \
@@ -244,6 +269,9 @@ install: $(test_targets) runtests.sh runtests-loop.sh
 	$(INSTALL) -D -m 755 $(test_targets) $(datadir)/liburing-test/
 	$(INSTALL) -D -m 755 runtests.sh  $(datadir)/liburing-test/
 	$(INSTALL) -D -m 755 runtests-loop.sh  $(datadir)/liburing-test/
+
+uninstall:
+	@rm -rf $(datadir)/liburing-test/
 
 clean:
 	@rm -f $(all_targets) helpers.o output/*

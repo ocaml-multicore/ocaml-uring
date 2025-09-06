@@ -80,3 +80,18 @@ LIBURING_2.4 {
 		io_uring_setup_buf_ring;
 		io_uring_free_buf_ring;
 } LIBURING_2.3;
+
+LIBURING_2.5 {
+	global:
+		io_uring_queue_init_mem;
+} LIBURING_2.4;
+
+LIBURING_2.6 {
+	global:
+		io_uring_buf_ring_head;
+		io_uring_register_napi;
+		io_uring_unregister_napi;
+} LIBURING_2.5;
+
+LIBURING_2.7 {
+} LIBURING_2.6;

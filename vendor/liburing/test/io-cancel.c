@@ -93,7 +93,7 @@ static int wait_io(struct io_uring *ring, unsigned nr_io, int do_partial)
 		if (do_partial && cqe->user_data) {
 			if (!(cqe->user_data & 1)) {
 				if (cqe->res != BS) {
-					fprintf(stderr, "IO %d wasn't cancelled but got error %d\n", (unsigned) cqe->user_data, cqe->res);
+					fprintf(stderr, "IO %d wasn't canceled but got error %d\n", (unsigned) cqe->user_data, cqe->res);
 					goto err;
 				}
 			}
@@ -147,7 +147,7 @@ err:
 
 /*
  * Test cancels. If 'do_partial' is set, then we only attempt to cancel half of
- * the submitted IO. This is done to verify that cancelling one piece of IO doesn't
+ * the submitted IO. This is done to verify that canceling one piece of IO doesn't
  * impact others.
  */
 static int test_io_cancel(const char *file, int do_write, int do_partial,
@@ -271,7 +271,7 @@ static int test_dont_cancel_another_ring(void)
 
 	ret = io_uring_wait_cqe_timeout(&ring1, &cqe, &ts);
 	if (ret != -ETIME) {
-		fprintf(stderr, "read got cancelled or wait failed\n");
+		fprintf(stderr, "read got canceled or wait failed\n");
 		return 1;
 	}
 	io_uring_cqe_seen(&ring1, cqe);
@@ -347,18 +347,21 @@ static int test_cancel_req_across_fork(void)
 			case 1:
 				if (cqe->res != -EINTR &&
 				    cqe->res != -ECANCELED) {
-					fprintf(stderr, "%i %i\n", (int)cqe->user_data, cqe->res);
+					fprintf(stderr, "user_data %i res %i\n",
+						(unsigned)cqe->user_data, cqe->res);
 					exit(1);
 				}
 				break;
 			case 2:
 				if (cqe->res != -EALREADY && cqe->res) {
-					fprintf(stderr, "%i %i\n", (int)cqe->user_data, cqe->res);
+					fprintf(stderr, "user_data %i res %i\n",
+						(unsigned)cqe->user_data, cqe->res);
 					exit(1);
 				}
 				break;
 			default:
-				fprintf(stderr, "%i %i\n", (int)cqe->user_data, cqe->res);
+				fprintf(stderr, "user_data %i res %i\n",
+					(unsigned)cqe->user_data, cqe->res);
 				exit(1);
 			}
 
@@ -451,7 +454,8 @@ static int test_cancel_inflight_exit(void)
 		if ((cqe->user_data == 1 && cqe->res != -ECANCELED) ||
 		    (cqe->user_data == 2 && cqe->res != -ECANCELED) ||
 		    (cqe->user_data == 3 && cqe->res != -ETIME)) {
-			fprintf(stderr, "%i %i\n", (int)cqe->user_data, cqe->res);
+			fprintf(stderr, "user_data %i res %i\n",
+				(unsigned)cqe->user_data, cqe->res);
 			return 1;
 		}
 		io_uring_cqe_seen(&ring, cqe);
@@ -497,7 +501,7 @@ static int test_sqpoll_cancel_iowq_requests(void)
 	sleep(1);
 	io_uring_queue_exit(&ring);
 
-	/* close the write end, so if ring is cancelled properly read() fails*/
+	/* close the write end, so if ring is canceled properly read() fails*/
 	close(fds[1]);
 	ret = read(fds[0], buffer, 10);
 	close(fds[0]);
