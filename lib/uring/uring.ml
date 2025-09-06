@@ -86,6 +86,11 @@ module Poll_mask = struct
   let pollhup = Config.pollhup
 end
 
+module Setup_flags = struct
+  include Flags
+  include Config.Ioring_setup
+end
+
 module Statx = struct
   type t
 
@@ -299,7 +304,7 @@ type probe
 module Uring = struct
   type t
 
-  external create : int -> int option -> t = "ocaml_uring_setup"
+  external create : int -> int option -> Setup_flags.t -> t = "ocaml_uring_setup"
   external exit : t -> unit = "ocaml_uring_exit"
 
   external unregister_buffers : t -> unit = "ocaml_uring_unregister_buffers"
@@ -394,9 +399,9 @@ let register_gc_root t =
 let unregister_gc_root t =
   update_gc_roots (Ring_set.remove (Generic_ring.T t))
 
-let create ?polling_timeout ~queue_depth () =
+let create ?(flags=Setup_flags.empty) ?polling_timeout ~queue_depth () =
   if queue_depth < 1 then Fmt.invalid_arg "Non-positive queue depth: %d" queue_depth;
-  let uring = Uring.create queue_depth polling_timeout in
+  let uring = Uring.create queue_depth polling_timeout flags in
   let data = Heap.create queue_depth in
   let id = object end in
   let fixed_iobuf = Cstruct.empty.buffer in

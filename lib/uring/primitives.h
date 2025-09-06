@@ -57,7 +57,7 @@ CAMLprim value ocaml_uring_set_iovec(value, value);
 CAMLprim value ocaml_uring_set_string(value, value);
 CAMLprim value ocaml_uring_make_msghdr(value, value, value);
 CAMLprim value ocaml_uring_get_msghdr_fds(value);
-CAMLprim value ocaml_uring_setup(value, value);
+CAMLprim value ocaml_uring_setup(value, value, value);
 CAMLprim value ocaml_uring_exit(value);
 CAMLprim value ocaml_uring_unregister_buffers(value);
 CAMLprim value ocaml_uring_register_ba(value, value);

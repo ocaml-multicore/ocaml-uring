@@ -99,7 +99,24 @@ let uring_ops = [
   "IORING_OP_URING_CMD";
 ]
 
-let ops c =
+let uring_setup_flags = [
+  "IORING_SETUP_IOPOLL";
+  (* "IORING_SETUP_SQPOLL" *)  (* Enabled by passing a polling timeout instead *)
+  (* "IORING_SETUP_SQ_AFF"; *) (* todo: requires setting sq_thread_cpu too *)
+  (* "IORING_SETUP_CQSIZE"; *) (* todo: requires setting cq_entries *)
+  "IORING_SETUP_CLAMP";
+  (* "IORING_SETUP_ATTACH_WQ"; *) (* todo: requires setting wq_fd *)
+  "IORING_SETUP_R_DISABLED";
+  "IORING_SETUP_SUBMIT_ALL";
+  "IORING_SETUP_COOP_TASKRUN";
+  "IORING_SETUP_TASKRUN_FLAG";
+  "IORING_SETUP_SQE128";
+  "IORING_SETUP_CQE32";
+  "IORING_SETUP_SINGLE_ISSUER";
+  "IORING_SETUP_DEFER_TASKRUN";
+]
+
+let uring_defs c =
   Gen.abstract_module "Op" (
     C.C_define.import c (List.map (fun name -> name, C.C_define.Type.Int) uring_ops)
       ~c_flags:["-D_GNU_SOURCE"; "-I"; include_dir]
@@ -107,6 +124,18 @@ let ops c =
     |> List.map (function
         | name, C.C_define.Value.Int v ->
           let prefix_len = String.length "IORING_OP_" in
+          let ocaml_name = String.sub name prefix_len (String.length name - prefix_len) |> String.lowercase_ascii in
+          (ocaml_name, v)
+        | _ -> assert false
+      )
+  ) @
+  Gen.hex_module "Ioring_setup" (
+    C.C_define.import c (List.map (fun name -> name, C.C_define.Type.Int) uring_setup_flags)
+      ~c_flags:["-D_GNU_SOURCE"; "-I"; include_dir]
+      ~includes:["liburing.h"]
+    |> List.map (function
+        | name, C.C_define.Value.Int v ->
+          let prefix_len = String.length "IORING_SETUP_" in
           let ocaml_name = String.sub name prefix_len (String.length name - prefix_len) |> String.lowercase_ascii in
           (ocaml_name, v)
         | _ -> assert false
@@ -199,7 +228,7 @@ let () =
   C.main ~name:"discover" (fun c ->
       C.Flags.write_lines "config.ml" @@ List.flatten @@ List.map (fun f -> f c) [
         toplevel_defs;
-        ops;
+        uring_defs;
         stat_flags;
       ]
     )

@@ -23,6 +23,57 @@
 
 module Region = Region
 
+(** Type of flags that can be combined. *)
+module type FLAGS = sig
+  type t = private int
+  (** A set of flags. *)
+
+  val empty : t
+
+  val of_int : int -> t
+
+  val ( + ) : t -> t -> t
+  (** [a + b] is the union of the sets. *)
+
+  val mem : t -> t -> bool
+  (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
+end
+
+(** Flags that can be passed to {!create}. *)
+module Setup_flags : sig
+  include FLAGS
+
+  val iopoll : t
+  (** io_context is polled *)
+
+  val clamp : t
+  (** Clamp SQ/CQ ring sizes *)
+
+  val r_disabled : t
+  (** Start with ring disabled *)
+
+  val submit_all : t
+  (** Continue submit on error *)
+
+  val coop_taskrun : t
+  (** Cooperative task running *)
+
+  val taskrun_flag : t
+  (** Get notified if task work is available *)
+
+  val sqe128 : t
+  (** SQEs are 128 byte *)
+
+  val cqe32 : t
+  (** CQEs are 32 byte *)
+
+  val single_issuer : t
+  (** Only one task is allowed to submit requests *)
+
+  val defer_taskrun : t
+  (** Defer running task work to get events *)
+end
+
 type 'a t
 (** ['a t] is a reference to an Io_uring structure. *)
 
@@ -30,7 +81,7 @@ type 'a job
 (** A handle for a submitted job, which can be used to cancel it.
     If an operation returns [None], this means that submission failed because the ring is full. *)
 
-val create : ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
+val create : ?flags:Setup_flags.t -> ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
 (** [create ~queue_depth] will return a fresh Io_uring structure [t].
     Initially, [t] has no fixed buffer. Use {!set_fixed_buffer} if you want one.
     @param polling_timeout If given, use polling mode with the given idle timeout (in ms).
@@ -85,21 +136,6 @@ val timeout: ?absolute:bool -> 'a t -> clock -> int64 -> 'a -> 'a job option
     [absolute] denotes how [clock] and [ns] relate to one another. Default value is [false]
 
     [ns] is the timeout time in nanoseconds *)
-
-module type FLAGS = sig
-  type t = private int
-  (** A set of flags. *)
-
-  val empty : t
-
-  val of_int : int -> t
-
-  val ( + ) : t -> t -> t
-  (** [a + b] is the union of the sets. *)
-
-  val mem : t -> t -> bool
-  (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
-end
 
 (** Flags that can be passed to {!openat2}. *)
 module Open_flags : sig
