@@ -330,6 +330,8 @@ module Uring = struct
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
   external submit_statx : t -> id -> Unix.file_descr -> Statx.t -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
+  external submit_bind : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_bind" [@@noalloc]
+  external submit_listen : t -> id -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_listen" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
@@ -545,6 +547,13 @@ let statx t ?(fd=at_fdcwd) ~mask path statx flags user_data =
 
 let splice t ~src ~dst ~len user_data =
   with_id t (fun id -> Uring.submit_splice t.uring id src dst len) user_data
+
+let bind t fd addr user_data =
+  let addr = Sockaddr.of_unix addr in
+  with_id_full t (fun id -> Uring.submit_bind t.uring id fd addr) user_data ~extra_data:addr
+
+let listen t fd backlog user_data =
+  with_id t (fun id -> Uring.submit_listen t.uring id fd backlog) user_data
 
 let connect t fd addr user_data =
   let addr = Sockaddr.of_unix addr in
