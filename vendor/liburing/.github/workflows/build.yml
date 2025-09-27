@@ -50,6 +50,13 @@ jobs:
             cc: arm-linux-gnueabi-gcc
             cxx: arm-linux-gnueabi-g++
 
+          # riscv64
+          - arch: riscv64
+            cc_pkg: gcc-riscv64-linux-gnu
+            cxx_pkg: g++-riscv64-linux-gnu
+            cc: riscv64-linux-gnu-gcc
+            cxx: riscv64-linux-gnu-g++
+
           # powerpc64
           - arch: powerpc64
             cc_pkg: gcc-powerpc64-linux-gnu
@@ -100,12 +107,13 @@ jobs:
 
     steps:
     - name: Checkout source
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Install Compilers
       run: |
         if [[ "${{matrix.cc_pkg}}" == "clang" ]]; then \
             wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh; \
+            sudo apt-get purge --auto-remove llvm python3-lldb-14 llvm-14 -y; \
             sudo bash /tmp/llvm.sh 17; \
             sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 400; \
             sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 400; \

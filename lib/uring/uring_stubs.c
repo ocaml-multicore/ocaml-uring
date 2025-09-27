@@ -778,6 +778,30 @@ ocaml_uring_get_msghdr_fds(value v_msghdr) {
 
 // v_sockaddr must not be GC'd while the call is in progress
 value /* noalloc */
+ocaml_uring_submit_bind(value v_uring, value v_id, value v_fd, value v_sockaddr) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe;
+  struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
+  sqe = io_uring_get_sqe(ring);
+  if (!sqe) return (Val_false);
+  io_uring_prep_bind(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), addr->sock_addr_len);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+value /* noalloc */
+ocaml_uring_submit_listen(value v_uring, value v_id, value v_fd, value v_backlog) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe;
+  sqe = io_uring_get_sqe(ring);
+  if (!sqe) return (Val_false);
+  io_uring_prep_listen(sqe, Int_val(v_fd), Int_val(v_backlog));
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+// v_sockaddr must not be GC'd while the call is in progress
+value /* noalloc */
 ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockaddr) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe;

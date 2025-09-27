@@ -72,13 +72,27 @@ err:
 	return 1;
 }
 
-static void *wait_cqe_fn(void *data)
+struct data {
+	struct io_uring *ring;
+	unsigned int flags;
+	pthread_barrier_t startup;
+	pthread_barrier_t barrier;
+};
+
+static void *wait_cqe_fn(void *__data)
 {
-	struct io_uring *ring = data;
+	struct data *d = __data;
 	struct io_uring_cqe *cqe;
+	struct io_uring ring;
 	int ret;
 
-	ret = io_uring_wait_cqe(ring, &cqe);
+	io_uring_queue_init(4, &ring, d->flags);
+	d->ring = &ring;
+	pthread_barrier_wait(&d->startup);
+
+	pthread_barrier_wait(&d->barrier);
+
+	ret = io_uring_wait_cqe(&ring, &cqe);
 	if (ret) {
 		fprintf(stderr, "wait cqe %d\n", ret);
 		goto err;
@@ -93,22 +107,32 @@ static void *wait_cqe_fn(void *data)
 		goto err;
 	}
 
-	io_uring_cqe_seen(ring, cqe);
+	io_uring_cqe_seen(&ring, cqe);
+	io_uring_queue_exit(&ring);
 	return NULL;
 err:
-	io_uring_cqe_seen(ring, cqe);
+	io_uring_cqe_seen(&ring, cqe);
+	io_uring_queue_exit(&ring);
 	return (void *) (unsigned long) 1;
 }
 
-static int test_remote(struct io_uring *ring, struct io_uring *target)
+static int test_remote(struct io_uring *ring, unsigned int ring_flags)
 {
+	struct io_uring *target;
 	pthread_t thread;
 	void *tret;
 	struct io_uring_cqe *cqe;
 	struct io_uring_sqe *sqe;
+	struct data d;
 	int ret;
 
-	pthread_create(&thread, NULL, wait_cqe_fn, target);
+	d.flags = ring_flags;
+	pthread_barrier_init(&d.barrier, NULL, 2);
+	pthread_barrier_init(&d.startup, NULL, 2);
+	pthread_create(&thread, NULL, wait_cqe_fn, &d);
+
+	pthread_barrier_wait(&d.startup);
+	target = d.ring;
 
 	sqe = io_uring_get_sqe(ring);
 	if (!sqe) {
@@ -125,6 +149,8 @@ static int test_remote(struct io_uring *ring, struct io_uring *target)
 		goto err;
 	}
 
+	pthread_barrier_wait(&d.barrier);
+
 	ret = io_uring_wait_cqe(ring, &cqe);
 	if (ret < 0) {
 		fprintf(stderr, "wait completion %d\n", ret);
@@ -132,10 +158,12 @@ static int test_remote(struct io_uring *ring, struct io_uring *target)
 	}
 	if (cqe->res != 0) {
 		fprintf(stderr, "cqe res %d\n", cqe->res);
+		io_uring_cqe_seen(ring, cqe);
 		return -1;
 	}
 	if (cqe->user_data != 1) {
 		fprintf(stderr, "user_data %llx\n", (long long) cqe->user_data);
+		io_uring_cqe_seen(ring, cqe);
 		return -1;
 	}
 
@@ -314,25 +342,22 @@ static int test_disabled_ring(struct io_uring *ring, int flags)
 	return 0;
 }
 
-int main(int argc, char *argv[])
+static int test(int ring_flags)
 {
 	struct io_uring ring, ring2, pring;
 	int ret, i;
 
-	if (argc > 1)
-		return T_EXIT_SKIP;
-
-	ret = io_uring_queue_init(8, &ring, 0);
+	ret = io_uring_queue_init(8, &ring, ring_flags);
 	if (ret) {
 		fprintf(stderr, "ring setup failed: %d\n", ret);
 		return T_EXIT_FAIL;
 	}
-	ret = io_uring_queue_init(8, &ring2, 0);
+	ret = io_uring_queue_init(8, &ring2, ring_flags);
 	if (ret) {
 		fprintf(stderr, "ring setup failed: %d\n", ret);
 		return T_EXIT_FAIL;
 	}
-	ret = io_uring_queue_init(8, &pring, IORING_SETUP_IOPOLL);
+	ret = io_uring_queue_init(8, &pring, ring_flags | IORING_SETUP_IOPOLL);
 	if (ret) {
 		fprintf(stderr, "ring setup failed: %d\n", ret);
 		return T_EXIT_FAIL;
@@ -365,7 +390,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	ret = test_remote(&ring, &ring2);
+	ret = test_remote(&ring, ring_flags);
 	if (ret) {
 		fprintf(stderr, "test_remote failed\n");
 		return T_EXIT_FAIL;
@@ -417,4 +442,26 @@ int main(int argc, char *argv[])
 
 	io_uring_queue_exit(&ring2);
 	return T_EXIT_PASS;
+}
+
+int main(int argc, char *argv[])
+{
+	int ret;
+
+	if (argc > 1)
+		return T_EXIT_SKIP;
+
+	ret = test(0);
+	if (ret != T_EXIT_PASS) {
+		fprintf(stderr, "ring flags 0 failed\n");
+		return ret;
+	}
+
+	ret = test(IORING_SETUP_SINGLE_ISSUER|IORING_SETUP_DEFER_TASKRUN);
+	if (ret != T_EXIT_PASS) {
+		fprintf(stderr, "ring flags defer failed\n");
+		return ret;
+	}
+
+	return ret;
 }

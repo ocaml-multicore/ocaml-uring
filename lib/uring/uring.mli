@@ -595,6 +595,12 @@ val statx : 'a t -> ?fd:Unix.file_descr -> mask:Statx.Mask.t -> string -> Statx.
 (** [statx t ?fd ~mask path stat flags] stats [path], which is resolved relative to [fd]
     (or the current directory if [fd] is not given). *)
 
+val bind : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> 'a job option
+(** [bind t fd addr d] will submit a request to bind [fd] to [addr]. *)
+
+val listen : 'a t -> Unix.file_descr -> int -> 'a -> 'a job option
+(** [listen t fd backlog d] will submit a request to listen on [fd] with [backlog] maximum pending connections. *)
+
 val connect : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> 'a job option
 (** [connect t fd addr d] will submit a request to connect [fd] to [addr]. *)
 

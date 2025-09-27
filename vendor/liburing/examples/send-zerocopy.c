@@ -39,6 +39,7 @@
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <linux/mman.h>
+#include <signal.h>
 
 #include "liburing.h"
 
@@ -52,6 +53,7 @@ struct thread_data {
 	int idx;
 	unsigned long long packets;
 	unsigned long long bytes;
+	unsigned long long dt_ms;
 	struct sockaddr_storage dst_addr;
 	int fd;
 };
@@ -72,6 +74,7 @@ static int  cfg_type		= 0;
 static int  cfg_payload_len;
 static int  cfg_port		= 8000;
 static int  cfg_runtime_ms	= 4200;
+static bool cfg_rx_poll		= false;
 
 static socklen_t cfg_alen;
 static char *str_addr = NULL;
@@ -80,6 +83,16 @@ static char payload_buf[IP_MAXPACKET] __attribute__((aligned(4096)));
 static char *payload;
 static struct thread_data threads[MAX_THREADS];
 static pthread_barrier_t barrier;
+
+static bool should_stop = false;
+
+static void sigint_handler(__attribute__((__unused__)) int sig)
+{
+	/* kill if should_stop can't unblock threads fast enough */
+	if (should_stop)
+		_exit(-1);
+	should_stop = true;
+}
 
 /*
  * Implementation of error(3), prints an error message and exits.
@@ -119,6 +132,8 @@ static void set_iowq_affinity(struct io_uring *ring)
 	if (cfg_cpu == -1)
 		return;
 
+	CPU_ZERO(&mask);
+	CPU_SET(cfg_cpu, &mask);
 	ret = io_uring_register_iowq_aff(ring, 1, &mask);
 	if (ret)
 		t_error(1, ret, "unabled to set io-wq affinity\n");
@@ -315,10 +330,11 @@ static void do_tx(struct thread_data *td, int domain, int type, int protocol)
 	const int notif_slack = 128;
 	struct io_uring ring;
 	struct iovec iov;
-	uint64_t tstop;
+	uint64_t tstart;
 	int i, fd, ret;
 	int compl_cqes = 0;
 	int ring_flags = IORING_SETUP_COOP_TASKRUN | IORING_SETUP_SINGLE_ISSUER;
+	unsigned loop = 0;
 
 	if (cfg_defer_taskrun)
 		ring_flags |= IORING_SETUP_DEFER_TASKRUN;
@@ -355,9 +371,20 @@ static void do_tx(struct thread_data *td, int domain, int type, int protocol)
 	if (ret)
 		t_error(1, ret, "io_uring: buffer registration");
 
+	if (cfg_rx_poll) {
+		struct io_uring_sqe *sqe;
+
+		sqe = io_uring_get_sqe(&ring);
+		io_uring_prep_poll_add(sqe, fd, POLLIN);
+
+		ret = io_uring_submit(&ring);
+		if (ret != 1)
+			t_error(1, ret, "submit poll");
+	}
+
 	pthread_barrier_wait(&barrier);
 
-	tstop = gettimeofday_ms() + cfg_runtime_ms;
+	tstart = gettimeofday_ms();
 	do {
 		struct io_uring_sqe *sqe;
 		struct io_uring_cqe *cqe;
@@ -419,7 +446,11 @@ static void do_tx(struct thread_data *td, int domain, int type, int protocol)
 			}
 			io_uring_cqe_seen(&ring, cqe);
 		}
-	} while (gettimeofday_ms() < tstop);
+		if (should_stop)
+			break;
+	} while ((++loop % 16 != 0) || gettimeofday_ms() < tstart + cfg_runtime_ms);
+
+	td->dt_ms = gettimeofday_ms() - tstart;
 
 out_fail:
 	shutdown(fd, SHUT_RDWR);
@@ -435,7 +466,6 @@ out_fail:
 	io_uring_queue_exit(&ring);
 }
 
-
 static void *do_test(void *arg)
 {
 	struct thread_data *td = arg;
@@ -450,8 +480,24 @@ static void *do_test(void *arg)
 
 static void usage(const char *filepath)
 {
-	t_error(1, 0, "Usage: %s [-n<N>] [-z<val>] [-s<payload size>] "
-		    "(-4|-6) [-t<time s>] -D<dst_ip> udp", filepath);
+	printf("Usage:\t%s <protocol> <ip-version> -D<addr> [options]\n", filepath);
+	printf("\t%s <protocol> <ip-version> -R [options]\n\n", filepath);
+
+	printf("  -4\t\tUse IPv4\n");
+	printf("  -6\t\tUse IPv4\n");
+	printf("  -D <address>\tDestination address\n");
+	printf("  -p <port>\tServer port to listen on/connect to\n");
+	printf("  -s <size>\tBytes per request\n");
+	printf("  -s <size>\tBytes per request\n");
+	printf("  -n <nr>\tNumber of parallel requests\n");
+	printf("  -z <mode>\tZerocopy mode, 0 to disable, enabled otherwise\n");
+	printf("  -b <mode>\tUse registered buffers\n");
+	printf("  -l <mode>\tUse huge pages\n");
+	printf("  -d\t\tUse defer taskrun\n");
+	printf("  -C <cpu>\tPin to the specified CPU\n");
+	printf("  -T <nr>\tNumber of threads to use for sending\n");
+	printf("  -R\t\tPlay the server role\n");
+	printf("  -t <seconds>\tTime in seconds\n");
 }
 
 static void parse_opts(int argc, char **argv)
@@ -463,12 +509,14 @@ static void parse_opts(int argc, char **argv)
 	int c;
 	char *daddr = NULL;
 
-	if (argc <= 1)
+	if (argc <= 1) {
 		usage(argv[0]);
+		exit(0);
+	}
 
 	cfg_payload_len = max_payload_len;
 
-	while ((c = getopt(argc, argv, "46D:p:s:t:n:z:b:l:dC:T:R")) != -1) {
+	while ((c = getopt(argc, argv, "46D:p:s:t:n:z:b:l:dC:T:Ry")) != -1) {
 		switch (c) {
 		case '4':
 			if (cfg_family != PF_UNSPEC)
@@ -520,6 +568,9 @@ static void parse_opts(int argc, char **argv)
 		case 'R':
 			cfg_rx = 1;
 			break;
+		case 'y':
+			cfg_rx_poll = 1;
+			break;
 		}
 	}
 
@@ -536,6 +587,7 @@ static void parse_opts(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
+	unsigned long long tsum = 0;
 	unsigned long long packets = 0, bytes = 0;
 	struct thread_data *td;
 	const char *cfg_test;
@@ -577,6 +629,9 @@ int main(int argc, char **argv)
 	if (cfg_rx)
 		do_setup_rx(cfg_family, cfg_type, 0);
 
+	if (!cfg_rx)
+		signal(SIGINT, sigint_handler);
+
 	for (i = 0; i < cfg_nr_threads; i++)
 		pthread_create(&threads[i].thread, NULL,
 				!cfg_rx ? do_test : do_rx, &threads[i]);
@@ -586,13 +641,18 @@ int main(int argc, char **argv)
 		pthread_join(td->thread, &res);
 		packets += td->packets;
 		bytes += td->bytes;
+		tsum += td->dt_ms;
 	}
+	tsum = tsum / cfg_nr_threads;
 
-	fprintf(stderr, "packets=%llu (MB=%llu), rps=%llu (MB/s=%llu)\n",
-		packets, bytes >> 20,
-		packets / (cfg_runtime_ms / 1000),
-		(bytes >> 20) / (cfg_runtime_ms / 1000));
-
+	if (!tsum) {
+		printf("The run is too short, can't gather stats\n");
+	} else {
+		printf("packets=%llu (MB=%llu), rps=%llu (MB/s=%llu)\n",
+			packets, bytes >> 20,
+			packets * 1000 / tsum,
+			(bytes >> 20) * 1000 / tsum);
+	}
 	pthread_barrier_destroy(&barrier);
 	return 0;
 }

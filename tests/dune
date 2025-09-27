@@ -39,6 +39,11 @@
  (modules poll_add)
  (libraries unix uring logs logs.fmt))
 
+(executable
+ (name socket_ops)
+ (modules socket_ops)
+ (libraries unix uring))
+
 (rule
  (alias runtest)
  (package uring)
