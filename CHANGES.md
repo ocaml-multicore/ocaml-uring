@@ -1,8 +1,22 @@
+## v2.7.0
+
+- Fix use-after-free data race in CQE handlers (@avsm #124, reported #123 by @polytypic).
+
+- Add socket bind and listen operations (@avsm #118).
+
+- Update liburing to 2.7 (@avsm #118).
+
+- Add `Uring.Setup_flags` module (@talex5 #122).
+
+- Clean up configurator code and update primitives.h (@talex5 #121).
+
+- Add `mkdirat` operation (@patricoferris #120).
+
 ## v0.9
 
 - Fix statx constant fallback values, and fix with musl 1.2.5 (@alyssais #114).
 
-- Add Uring.sqe_ready (@talex5 #115).
+- Add `Uring.sqe_ready` (@talex5 #115).
 
 ## v0.8
 
