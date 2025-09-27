@@ -972,8 +972,9 @@ value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
     if (!cqe)
       CAMLreturn(Val_cqe_none);
     id = (long)io_uring_cqe_get_data(cqe);
+    int cqe_res = cqe->res;
     io_uring_cqe_seen(ring, cqe);
-    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe->res)));
+    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe_res)));
   }
 }
 
@@ -996,8 +997,9 @@ value ocaml_uring_wait_cqe(value v_uring)
     }
   } else {
     id = (long)io_uring_cqe_get_data(cqe);
+    int cqe_res = cqe->res;
     io_uring_cqe_seen(ring, cqe);
-    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe->res)));
+    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe_res)));
   }
 }
 
@@ -1018,8 +1020,9 @@ value ocaml_uring_peek_cqe(value v_uring)
     }
   } else {
     id = (long)io_uring_cqe_get_data(cqe);
+    int cqe_res = cqe->res;
     io_uring_cqe_seen(ring, cqe);
-    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe->res)));
+    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe_res)));
   }
 }
 
