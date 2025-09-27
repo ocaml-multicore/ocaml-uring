@@ -84,15 +84,27 @@ type 'a job
 val create : ?flags:Setup_flags.t -> ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
 (** [create ~queue_depth] will return a fresh Io_uring structure [t].
     Initially, [t] has no fixed buffer. Use {!set_fixed_buffer} if you want one.
+
+    The [queue_depth] determines the size of the submission queue (SQ) and completion
+    queue (CQ) rings. The kernel may round this up to the next power of 2. The actual
+    size allocated can be checked with {!queue_depth}.
+
+    @param flags Setup flags to configure ring behavior (see {!Setup_flags})
     @param polling_timeout If given, use polling mode with the given idle timeout (in ms).
-                           This requires privileges. *)
+                           This requires elevated privileges and enables {!Setup_flags.iopoll}.
+    @raise Unix.Unix_error if the io_uring_setup system call fails *)
 
 val queue_depth : 'a t -> int
 (** [queue_depth t] returns the total number of submission slots for the uring [t] *)
 
 val exit : 'a t -> unit
 (** [exit t] will shut down the uring [t]. Any subsequent requests will fail.
-    @raise Invalid_argument if there are any requests in progress *)
+
+    This closes the io_uring file descriptor and unmaps the memory rings.
+    After calling this, the ring cannot be used again.
+
+    @raise Invalid_argument if there are any requests in progress. Check with
+           {!active_ops} to ensure all operations have completed. *)
 
 (** {2 Fixed buffers}
 
@@ -103,14 +115,17 @@ val exit : 'a t -> unit
 val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
 (** [set_fixed_buffer t buf] sets [buf] as the fixed buffer for [t].
 
-    You will normally want to wrap this with {!Region.alloc} or similar
-    to divide the buffer into chunks.
+    Fixed buffers allow zero-copy I/O operations using {!read_fixed} and {!write_fixed}.
+    The kernel pins the buffer in memory, avoiding the need to map user pages for each I/O.
+    You will normally want to wrap this with {!Region.alloc} or similar to divide the
+    buffer into chunks.
 
     If [t] already has a buffer set, the old one will be removed.
 
-    Returns [`ENOMEM] if insufficient kernel resources are available
-    or the caller's RLIMIT_MEMLOCK resource limit would be exceeded.
-
+    @return [Ok ()] on success, or [Error `ENOMEM] if:
+            - Insufficient kernel resources are available
+            - The caller's RLIMIT_MEMLOCK resource limit would be exceeded
+            - The buffer is too large to pin in memory
     @raise Invalid_argument if there are any requests in progress *)
 
 val buf : 'a t -> Cstruct.buffer
@@ -121,7 +136,13 @@ val buf : 'a t -> Cstruct.buffer
 
 val noop : 'a t -> 'a -> 'a job option
 (** [noop t d] submits a no-op operation to uring [t]. The user data [d] will be
-    returned by {!wait} or {!peek} upon completion. *)
+    returned by {!wait} or {!get_cqe_nonblocking} upon completion.
+
+    This operation does nothing but can be useful for testing the ring, waking up
+    a thread waiting on completions, or as a barrier when used with IO_LINK.
+    The completion will have [result = 0] on success.
+
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 (** {2 Timeout} *)
 
@@ -133,9 +154,15 @@ type clock =
 val timeout: ?absolute:bool -> 'a t -> clock -> int64 -> 'a -> 'a job option
 (** [timeout t clock ns d] submits a timeout request to uring [t].
 
-    [absolute] denotes how [clock] and [ns] relate to one another. Default value is [false]
+    The timeout will trigger after the specified time has elapsed. When the timeout
+    expires, the completion's [result] will be negative with an [ETIME] error indicating
+    timeout.  The timeout can be cancelled using {!cancel} before it triggers.
 
-    [ns] is the timeout time in nanoseconds *)
+    @param absolute If [false] (default), [ns] is relative to the current time.
+                    If [true], [ns] is an absolute time value according to [clock]
+    @param clock The clock source: {!Boottime} (suspend-aware) or {!Realtime} (wall-clock)
+    @param ns The timeout duration in nanoseconds (relative) or absolute time
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 (** Flags that can be passed to {!openat2}. *)
 module Open_flags : sig
@@ -336,7 +363,17 @@ end
 
 val poll_add : 'a t -> Unix.file_descr -> Poll_mask.t -> 'a -> 'a job option
 (** [poll_add t fd mask d] will submit a [poll(2)] request to uring [t].
-    It completes and returns [d] when an event in [mask] is ready on [fd]. *)
+    It completes and returns [d] when an event in [mask] is ready on [fd].
+    This is an asynchronous version of poll(2). The operation will complete when
+    any of the requested events occur on the file descriptor.
+
+    The completion's [result] field contains:
+    - On success: The bitwise OR of events that occurred (always a subset of [mask])
+    - On error: A negative error code
+
+    @param fd File descriptor to monitor
+    @param mask Bitwise OR of events to monitor (see {!Poll_mask})
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 type offset := Optint.Int63.t
 (** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
@@ -346,32 +383,61 @@ val read : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> '
 (** [read t ~file_offset fd buf d] will submit a [read(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [buf].  The user data [d] will
-    be returned by {!wait} or {!peek} upon completion. *)
+    be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
+
+    The completion's [result] field contains the number of bytes read on success,
+    0 for end-of-file, or a negative error code on failure.
+
+    @param file_offset Use {!Optint.Int63.minus_one} for current file position,
+                       or a specific offset for files. For sockets, use {!Optint.Int63.zero}
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val write : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
 (** [write t ~file_offset fd buf d] will submit a [write(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [buf].  The user data [d] will be returned by
-    {!wait} or {!peek} upon completion. *)
+    {!wait} or {!get_cqe_nonblocking} upon completion.
+
+    The completion's [result] field contains the number of bytes written on success,
+    or a negative error code on failure. Note that a short write (less than the
+    buffer size) is not an error.
+
+    @param file_offset Use {!Optint.Int63.minus_one} for current file position,
+                       or a specific offset for files. For sockets, use {!Optint.Int63.zero}
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val iov_max : int
-(** The maximum length of the list that can be passed to [readv] and similar. *)
+(** The maximum length of the list that can be passed to {!readv} and {!writev}. *)
 
 val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [iov].  The user data [d] will
-    be returned by {!wait} or {!peek} upon completion.
+    be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
 
-    Requires [List.length iov <= Uring.iov_max] *)
+    This performs a vectored read, reading data into multiple buffers in a single
+    operation. The completion's [result] field contains the total number of bytes
+    read across all buffers, or a negative error code.
+
+    @param file_offset File offset (see {!type:offset} for special values)
+    @param iov List of buffers to read into
+    @return [None] if the submission queue is full; otherwise [Some job]
+    @raise Invalid_argument if [List.length iov > Uring.iov_max] *)
 
 val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by
-    {!wait} or {!peek} upon completion.
+    {!wait} or {!get_cqe_nonblocking} upon completion.
 
-    Requires [List.length iov <= Uring.iov_max] *)
+    This performs a vectored write, writing data from multiple buffers in a single
+    operation. The completion's [result] field contains the total number of bytes
+    written from all buffers, or a negative error code.
+
+    @param file_offset File offset (see {!type:offset} for special values)
+    @param iov List of buffers to write from
+    @return [None] if the submission queue is full; otherwise [Some job]
+    @raise Invalid_argument if [List.length iov > Uring.iov_max] *)
 
 val read_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
 (** [read t ~file_offset fd ~off ~len d] will submit a [read(2)] request to uring [t].
@@ -395,8 +461,17 @@ val write_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> R
 
 val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a -> 'a job option
 (** [splice t ~src ~dst ~len d] will submit a request to copy [len] bytes from [src] to [dst].
-    The operation returns the number of bytes transferred, or 0 for end-of-input.
-    The result is [EINVAL] if the file descriptors don't support splicing. *)
+
+    This is a zero-copy data transfer between two file descriptors. At least one
+    must be a pipe. Data is moved without copying between kernel and user space.
+
+    The completion's [result] field contains the number of bytes transferred on success,
+    0 for end-of-input, or a negative error code.
+
+    @param src Source file descriptor (can be a regular file or pipe)
+    @param dst Destination file descriptor (can be a regular file or pipe)
+    @param len Maximum number of bytes to transfer
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 module Statx : sig
   type t
@@ -596,13 +671,37 @@ val statx : 'a t -> ?fd:Unix.file_descr -> mask:Statx.Mask.t -> string -> Statx.
     (or the current directory if [fd] is not given). *)
 
 val bind : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> 'a job option
-(** [bind t fd addr d] will submit a request to bind [fd] to [addr]. *)
+(** [bind t fd addr d] will submit a request to bind socket [fd] to network address [addr].
+
+    This is an asynchronous version of bind(2). The socket should typically be created
+    with [Unix.SOCK_NONBLOCK] to work well with io_uring. The completion will have
+    [result = 0] on success, or a negative error code on failure.
+
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val listen : 'a t -> Unix.file_descr -> int -> 'a -> 'a job option
-(** [listen t fd backlog d] will submit a request to listen on [fd] with [backlog] maximum pending connections. *)
+(** [listen t fd backlog d] will submit a request to mark socket [fd] as passive,
+    ready to accept incoming connections.
+
+    This is an asynchronous version of listen(2). The [backlog] parameter defines
+    the maximum length of the queue of pending connections. If a connection request
+    arrives when the queue is full, the client may receive an ECONNREFUSED error.
+    The completion will have [result = 0] on success.
+
+    @param fd Socket file descriptor (must be already bound with {!bind})
+    @param backlog Maximum number of pending connections (often capped by system limits)
+    @return [None] if the submission queue is full; otherwise [Some job]
+    @raise Invalid_argument if [fd] is not a socket *)
 
 val connect : 'a t -> Unix.file_descr -> Unix.sockaddr -> 'a -> 'a job option
-(** [connect t fd addr d] will submit a request to connect [fd] to [addr]. *)
+(** [connect t fd addr d] will submit a request to connect socket [fd] to [addr].
+
+    This is an asynchronous version of connect(2). For non-blocking sockets,
+    the operation may initially return an error indicating the connection is
+    in progress, then completes with [result = 0] when established or a
+    negative error code on failure.
+
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 (** Holder for the peer's address in {!accept}. *)
 module Sockaddr : sig
@@ -615,15 +714,38 @@ end
 val accept : 'a t -> Unix.file_descr -> Sockaddr.t -> 'a -> 'a job option
 (** [accept t fd addr d] will submit a request to accept a new connection on [fd].
     The new FD will be configured with [SOCK_CLOEXEC].
-    The remote address will be stored in [addr]. *)
+    The remote address will be stored in [addr].
+
+    This is an asynchronous version of accept4(2) with SOCK_CLOEXEC flag.
+    The completion's [result] field contains the new file descriptor on success,
+    or a negative error code on failure.
+
+    @param fd Listening socket (must have called {!listen} first)
+    @param addr Pre-allocated storage for the peer address (create with {!Sockaddr.create})
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val close : 'a t -> Unix.file_descr -> 'a -> 'a job option
+(** [close t fd d] will submit a request to close file descriptor [fd].
+
+    This is an asynchronous version of close(2). The completion's [result]
+    field will be 0 on success or a negative error code.
+
+    Note: Even on error, the file descriptor is considered closed and should
+    not be used again. The descriptor will not be reused until the operation
+    completes.
+
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val cancel : 'a t -> 'a job -> 'a -> 'a job option
 (** [cancel t job d] submits a request to cancel [job].
-    The cancel job itself returns 0 on success, or [ENOTFOUND]
-    if [job] had already completed by the time the kernel processed the cancellation request.
-    @raise Invalid_argument if the job has already been returned by e.g. {!wait}. *)
+
+    Cancellation is asynchronous - the original operation may still complete
+    before the cancellation takes effect. Both the original operation and the
+    cancel operation will generate completion events.
+
+    @param job The job handle returned when the operation was submitted
+    @return [None] if the submission queue is full; otherwise [Some cancel_job]
+    @raise Invalid_argument if the job has already been collected by {!wait} or {!get_cqe_nonblocking} *)
 
 module Msghdr : sig
   type t
@@ -645,24 +767,60 @@ val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.f
 (** [send_msg t fd buffs d] will submit a [sendmsg(2)] request. The [Msghdr] will be constructed
     from the FDs ([fds]), address ([dst]) and buffers ([buffs]).
 
-    Requires [List.length buffs <= Uring.iov_max]
+    This is useful for:
+    - Sending to unconnected sockets (UDP) with [dst]
+    - Sending file descriptors over Unix domain sockets with [fds]
+    - Scatter-gather I/O with multiple buffers
 
-    @param dst Destination address.
-    @param fds Extra file descriptors to attach to the message. *)
+    The completion's [result] field contains the number of bytes sent on success,
+    or a negative error code.
+
+    @param dst Destination address for unconnected sockets
+    @param fds File descriptors to send via SCM_RIGHTS (Unix domain sockets only)
+    @return [None] if the submission queue is full; otherwise [Some job]
+    @raise Invalid_argument if [List.length buffs > Uring.iov_max] *)
 
 val recv_msg : 'a t -> Unix.file_descr -> Msghdr.t -> 'a -> 'a job option
 (** [recv_msg t fd msghdr d] will submit a [recvmsg(2)] request. If the request is
-    successful then the [msghdr] will contain the sender address and the data received. *)
+    successful then the [msghdr] will contain the sender address and the data received.
+
+    This is useful for:
+    - Receiving from unconnected sockets (UDP) - sender address is stored
+    - Receiving file descriptors over Unix domain sockets
+    - Scatter-gather I/O with multiple buffers
+
+    The completion's [result] field contains the number of bytes received on success,
+    or a negative error code. Use {!Msghdr.get_fds} to retrieve any received file
+    descriptors.
+
+    @param msghdr Pre-allocated message header created with {!Msghdr.create}
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val fsync : 'a t -> ?off:int64 -> ?len:int -> Unix.file_descr -> 'a -> 'a job option
 (** [fsync t ?off ?len fd d] will submit an [fsync(2)] request, with the optional
     offset [off] and length [len] specifying the subset of the file to perform the
-    synchronisation on. *)
+    synchronisation on.
+
+    This ensures that all file data and metadata are durably stored on disk.
+    The completion's [result] field will be 0 on success or a negative error code.
+
+    @param off Starting offset for sync range (requires kernel 5.2+)
+    @param len Length of range to sync; if both [off] and [len] are given,
+               only that range is synced (requires kernel 5.2+)
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val fdatasync : 'a t -> ?off:int64 -> ?len:int -> Unix.file_descr -> 'a -> 'a job option
 (** [fdatasync t ?off ?len fd d] will submit an [fdatasync(2)] request, with the optional
     offset [off] and length [len] specifying the subset of the file to perform the
-    synchronisation on. *)
+    synchronisation on.
+
+    Like {!fsync} but only ensures file data (not metadata) is durably stored.
+    This can be more efficient when file metadata (permissions, timestamps) hasn't changed.
+    The completion's [result] field will be 0 on success or a negative error code.
+
+    @param off Starting offset for sync range (requires kernel 5.2+)
+    @param len Length of range to sync
+    @return [None] if the submission queue is full; otherwise [Some job] *)
 
 (** {2 Probing}
 
@@ -704,14 +862,31 @@ val peek : 'a t -> 'a completion_option
 
 val register_eventfd : 'a t -> Unix.file_descr -> unit
 (** [register_eventfd t fd] will register an eventfd to the the uring [t].
-    See documentation for io_uring_register_eventfd *)
+
+    When a completion event is posted to the CQ ring, the eventfd will be signaled.
+    This allows integration with event loops like epoll/select. The eventfd should
+    be created with [Unix.eventfd] or similar.
+
+    Only one eventfd can be registered per ring. Registering a new one replaces
+    the previous registration.
+
+    @param fd An eventfd file descriptor
+    @raise Unix.Unix_error on registration failure *)
 
 val error_of_errno : int -> Unix.error
 (** [error_of_errno e] converts the error code [abs e] to a Unix error type. *)
 
 val active_ops : _ t -> int
 (** [active_ops t] returns the number of operations added to the ring (whether submitted or not)
-    for which the completion event has not yet been collected. *)
+    for which the completion event has not yet been collected.
+
+    This is useful for:
+    - Ensuring all operations complete before calling {!exit}
+    - Monitoring ring utilization
+    - Detecting potential ring overflow conditions
+
+    The count includes operations that are queued but not submitted, submitted
+    but not completed, and completed but not collected via {!wait} or {!get_cqe_nonblocking}. *)
 
 val sqe_ready : _ t -> int
 (** [sqe_ready t] is the number of unconsumed (if SQPOLL) or unsubmitted entries in the SQ ring. *)
