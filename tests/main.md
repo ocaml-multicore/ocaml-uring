@@ -877,8 +877,8 @@ val t : [ `Mkdir of int ] Uring.t = <abstr>
 # Uring.wait t;;
 - : [ `Mkdir of int ] Uring.completion_option =
 Uring.Some {Uring.result = 0; data = `Mkdir 0}
-# (Unix.stat "mkdir").st_perm;;
-- : int = 448
+# Printf.sprintf "0o%o" ((Unix.stat "mkdir").st_perm land 0o777);;
+- : string = "0o700"
 # let v = Uring.mkdirat t ~mode:0o755 "mkdir" (`Mkdir 1);;
 val v : [ `Mkdir of int ] Uring.job option = Some <abstr>
 # Uring.submit t;;
