@@ -137,7 +137,7 @@ val t : [ `Open ] Uring.t = <abstr>
 # let token, fd =
     let token, fd = consume t in
     assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+    token, Unix.fdopen fd;;
 val token : [ `Open ] = `Open
 val fd : Unix.file_descr = <abstr>
 
@@ -173,7 +173,7 @@ val t : [ `Create ] Uring.t = <abstr>
 # let token, fd =
     let token, fd = consume t in
     assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+    token, Unix.fdopen fd;;
 val token : [ `Create ] = `Create
 val fd : Unix.file_descr = <abstr>
 
@@ -255,7 +255,7 @@ Now using `~fd`:
 # let token, fd =
     let token, fd = consume t in
     assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+    token, Unix.fdopen fd;;
 val token : [ `Open_path | `Statx ] = `Open_path
 val fd : Unix.file_descr = <abstr>
 
@@ -303,7 +303,7 @@ val t : [ `Get_path ] Uring.t = <abstr>
     traceln "Submitted %d" (Uring.submit t);
     let `Get_path, fd = consume t in
     if fd >= 0 then (
-      let fd : Unix.file_descr = Obj.magic fd in
+      let fd = Unix.fdopen fd in
       Unix.close fd;
       traceln "Opened %S OK" path
     ) else (

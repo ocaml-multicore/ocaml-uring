@@ -78,7 +78,7 @@ with the same meaning as the return code from the corresponding system call (`op
 ```ocaml
 # let fd =
     if result < 0 then failwith ("Error: " ^ string_of_int result);
-    (Obj.magic result : Unix.file_descr);;
+    Unix.fdopen result;;
 val fd : Unix.file_descr = <abstr>
 ```
 
