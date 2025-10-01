@@ -16,28 +16,27 @@ module Test_data = struct
     close_out oc
 end
 
-let rec consume_exn name path t =
-  match Uring.wait ~timeout:1. t with
-  | None -> consume_exn name path t
-  | Some { data; kind = Uring.Error; result } ->
-      raise (Unix.Unix_error ((result : Unix.error), name, path))
-  | Some { data; kind = Uring.FD; result } -> data, (result : Unix.file_descr)
-  | Some _ -> assert false
-
 let rec consume t =
   match Uring.wait ~timeout:1. t with
-  | Some { data; kind = Uring.Int; result } -> (data, (result : int))
-  | Some _ ->
-      assert false
+  | Int { data; result } -> (data, result)
+  | Unit { data; result = _ } -> (data, 0)
+  | FD _ | Error _ -> failwith "Unexpected return from syscall"
   | None -> consume t
 
-let rec consume_fd t =
+let rec consume_result t =
   match Uring.wait ~timeout:1. t with
-  | None -> consume_fd t
-  | Some { data; kind = Uring.FD; result } ->
-      data, (result : Unix.file_descr)
-  | Some _ ->
-      assert false
+  | Error { data; result } -> (data, Error result)
+  | Unit { data; result = () } -> (data, Ok 0)
+  | Int { data; result } -> (data, Ok result)
+  | FD _ -> failwith "Unexpected return from syscall"
+  | None -> consume_result t
+
+let rec consume_fd path t =
+  match Uring.wait ~timeout:1. t with
+  | FD { data; result } -> data, result
+  | Error { data = _; result } -> raise (Unix.Unix_error (result, "openat2", path))
+  | Int _ | Unit _ -> failwith "Unexpected return from syscall"
+  | None -> consume_fd path t
 
 let traceln fmt =
   Format.printf (fmt ^^ "@.")
@@ -152,7 +151,7 @@ val t : [ `Open ] Uring.t = <abstr>
 # Uring.submit t;;;
 - : int = 1
 
-# let token, fd = consume_fd t;;
+# let token, fd = consume_fd "/dev/null" t;;
 val token : [ `Open ] = `Open
 val fd : Unix.file_descr = <abstr>
 
@@ -185,7 +184,7 @@ val t : [ `Create ] Uring.t = <abstr>
 # Uring.submit t;;
 - : int = 1
 
-# let token, fd = consume_fd t;;
+# let token, fd = consume_fd "test-openat" t;;
 val token : [ `Create ] = `Create
 val fd : Unix.file_descr = <abstr>
 
@@ -264,7 +263,7 @@ Now using `~fd`:
 # Uring.submit t;;
 - : int = 1
 
-# let token, fd = consume_fd t;;
+# let token, fd = consume_fd "test-openat" t;;
 val token : [ `Open_path | `Statx ] = `Open_path
 val fd : Unix.file_descr = <abstr>
 
@@ -310,7 +309,7 @@ val t : [ `Get_path ] Uring.t = <abstr>
                             path
                             `Get_path));
     traceln "Submitted %d" (Uring.submit t);
-    let `Get_path, fd = consume_exn "openat2" path t in
+    let `Get_path, fd = consume_fd path t in
     Unix.close fd;
     traceln "Opened %S OK" path;;
 val get : resolve:Uring.Resolve.t -> string -> unit = <fun>
@@ -556,8 +555,8 @@ val fd : unit = ()
 Ask to read from a pipe (with no data available), then cancel it.
 
 ```ocaml
-# exception Multiple of Unix.error list;;
-exception Multiple of Unix.error list
+# exception Multiple of (int, Unix.error) result list;;
+exception Multiple of (int, Unix.error) result list
 
 # let t : [ `Cancel | `Read ] Uring.t = Uring.create ~queue_depth:5 ();;
 val t : [ `Cancel | `Read ] Uring.t = <abstr>
@@ -575,19 +574,19 @@ val read : [ `Cancel | `Read ] Uring.job = <abstr>
 - : [ `Cancel | `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 2
-# let t1, r1 = consume t in
-  let t2, r2 = consume t in
+# let t1, r1 = consume_result t in
+  let t2, r2 = consume_result t in
   let r_read, r_cancel =
     match t1, t2 with
     | `Read, `Cancel -> r1, r2
     | `Cancel, `Read -> r2, r1
     | _ -> assert false
   in
-  begin match Uring.error_of_errno r_read, Uring.error_of_errno r_cancel with
-    | EINTR, EALREADY
+  begin match r_read, r_cancel with
+    | Error EINTR, Error EALREADY
       (* Occasionally, the read is actually busy just as we try to cancel.
          In that case it gets interrupted and the cancel returns EALREADY. *)
-    | EUNKNOWNERR 125 (* ECANCELLED *), EUNKNOWNERR 0 ->
+    | Error (EUNKNOWNERR 125) (* ECANCELLED *), Ok 0 ->
       (* This is the common case. The read is blocked and can just be removed. *)
       ()
     | e1, e2 -> raise (Multiple [e1; e2])
@@ -621,21 +620,22 @@ val read : [ `Cancel | `Read ] Uring.job = <abstr>
 - : [ `Cancel | `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
-# let t1, r1 = consume t in
-  let t2, r2 = consume t in
+# let t1, r1 = consume_result t in
+  let t2, r2 = consume_result t in
   let r_read, r_cancel =
     match t1, t2 with
     | `Read, `Cancel -> r1, r2
     | `Cancel, `Read -> r2, r1
     | _ -> assert false
   in
-  if r_read = 1 then (
-    match Uring.error_of_errno r_cancel with
-    | ENOENT -> ()
-    | e -> raise (Unix.Unix_error (e, "cancel", ""))
+  if r_read = Ok 1 then (
+    match r_cancel with
+    | Ok _
+    | Error ENOENT -> ()
+    | Error e -> raise (Unix.Unix_error (e, "cancel", ""))
   ) else (
-    match Uring.error_of_errno r_read, Uring.error_of_errno r_cancel with
-    | EUNKNOWNERR 125 (* ECANCELLED *), EUNKNOWNERR 0 ->
+    match r_read, r_cancel with
+    | Error (EUNKNOWNERR 125) (* ECANCELLED *), Ok 0 ->
       (* This isn't the case we want to test, but it can happen sometimes. *)
       ()
     | e1, e2 -> raise (Multiple [e1; e2])
@@ -818,12 +818,10 @@ val check : unit -> bool * bool = <fun>
 - : unit Uring.job option = Some <abstr>
 
 # Uring.wait t;;
-- : unit Uring.completion_option =
-Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = ()}
+- : unit Uring.completion_option = Uring.Unit {Uring.result = (); data = ()}
 
 # Uring.wait t;;
-- : unit Uring.completion_option =
-Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = ()}
+- : unit Uring.completion_option = Uring.Unit {Uring.result = (); data = ()}
 
 # check ();;
 - : bool * bool = (false, false)
@@ -846,8 +844,7 @@ val t : unit Uring.t = <abstr>
 # Uring.submit t;;
 - : int = 1
 # Uring.wait t;;
-- : unit Uring.completion_option =
-Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = ()}
+- : unit Uring.completion_option = Uring.Unit {Uring.result = (); data = ()}
 # (Unix.lstat "new-symlink").st_kind;;
 - : Unix.file_kind = Unix.S_LNK
 ```
@@ -859,7 +856,7 @@ This currently doesn't work due to https://github.com/axboe/liburing/issues/955:
     # Uring.submit t;;
     - : int = 1
     # Uring.wait t;;
-    - : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+    - : unit Uring.completion_option = Uring.Unit {Uring.result = (); data = ()}
     # (Unix.lstat "new-file").st_kind;;
     - : Unix.file_kind = Unix.S_REG
 
@@ -883,7 +880,7 @@ val t : [ `Mkdir of int ] Uring.t = <abstr>
 - : int = 1
 # Uring.wait t;;
 - : [ `Mkdir of int ] Uring.completion_option =
-Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = `Mkdir 0}
+Uring.Unit {Uring.result = (); data = `Mkdir 0}
 # Printf.sprintf "0o%o" ((Unix.stat "mkdir").st_perm land 0o777);;
 - : string = "0o700"
 # let v = Uring.mkdirat t ~mode:0o755 "mkdir" (`Mkdir 1);;
@@ -892,7 +889,7 @@ val v : [ `Mkdir of int ] Uring.job option = Some <abstr>
 - : int = 1
 # Uring.wait t;;
 - : [ `Mkdir of int ] Uring.completion_option =
-Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = `Mkdir 1}
+Uring.Error {Uring.result = Unix.EEXIST; data = `Mkdir 1}
 # Uring.exit t;;
 - : unit = ()
 ```
@@ -912,8 +909,8 @@ val t : [ `Timeout ] Uring.t = <abstr>
 # Uring.submit t;;
 - : int = 1
 
-# let `Timeout, timeout = consume t;;
-val timeout : int = -62
+# let `Timeout, timeout = consume_result t;;
+val timeout : (int, Unix.error) result = Error (Unix.EUNKNOWNERR 62)
 
 # let ns = 
     ((Unix.gettimeofday () +. 0.01) *. 1e9)
@@ -922,15 +919,15 @@ val timeout : int = -62
   Uring.(timeout ~absolute:true t Realtime ns `Timeout);;
 - : [ `Timeout ] Uring.job option = Some <abstr>
 
-# let `Timeout, timeout = consume t;;
-val timeout : int = -62
+# let `Timeout, timeout = consume_result t;;
+val timeout : (int, Unix.error) result = Error (Unix.EUNKNOWNERR 62)
 
 # let ns1 = Int64.(mul 10L 1_000_000L) in
   Uring.(timeout ~absolute:true t Boottime ns1 `Timeout);;
 - : [ `Timeout ] Uring.job option = Some <abstr>
 
-# let `Timeout, timeout = consume t;;
-val timeout : int = -62
+# let `Timeout, timeout = consume_result t;;
+val timeout : (int, Unix.error) result = Error (Unix.EUNKNOWNERR 62)
 
 # Uring.exit t;;
 - : unit = ()

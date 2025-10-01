@@ -13,49 +13,43 @@ let () =
   let addr = Unix.ADDR_INET (Unix.inet_addr_loopback, 0) in
 
   (* Use io_uring for bind operation *)
-  let bind_result =
+  let () =
     match Uring.bind t server_sock addr () with
     | None -> failwith "Failed to submit bind operation"
     | Some _job ->
         let _submitted = Uring.submit t in
         match Uring.wait t with
         | Uring.None -> failwith "No completion for bind"
-        | Uring.Some { result; kind = Uring.Int; data = _ } ->
-            let result = (result : int) in
-            if result < 0 then begin
-              Uring.close t server_sock () |> ignore;
-              Uring.submit t |> ignore;
-              Uring.exit t;
-              let err = Uring.error_of_errno (-result) in
-              failwith (sprintf "Bind failed: %s" (Unix.error_message err))
-            end else
-              result
-        | Uring.Some _ -> assert false
+        | Uring.Unit _ ->
+            print_endline "Bind completed successfully:"
+        | Uring.Error { result; data = _ } ->
+            Uring.close t server_sock () |> ignore;
+            Uring.submit t |> ignore;
+            Uring.exit t;
+            failwith (sprintf "Bind failed: %s" (Unix.error_message result))
+        | Uring.Int _ | Uring.FD _ ->
+            failwith "Unexpected return from bind operation"
   in
-  printf "Bind completed with result: %d\n" bind_result;
 
   (* Use io_uring for listen operation *)
   let backlog = 10 in
-  let listen_result =
+  let () =
     match Uring.listen t server_sock backlog () with
     | None -> failwith "Failed to submit listen operation"
     | Some _job ->
         let _submitted = Uring.submit t in
         match Uring.wait t with
         | Uring.None -> failwith "No completion for listen"
-        | Uring.Some { result; kind = Uring.Int; data = _ } ->
-            let result = (result : int) in
-            if result < 0 then begin
-              Uring.close t server_sock () |> ignore;
-              Uring.submit t |> ignore;
-              Uring.exit t;
-              let err = Uring.error_of_errno (-result) in
-              failwith (sprintf "Listen failed: %s" (Unix.error_message err))
-            end else
-              result
-        | Uring.Some _ -> assert false
+        | Uring.Unit _ ->
+            print_endline "Listen completed successfully"
+        | Uring.Error { result; data = _ } ->
+            Uring.close t server_sock () |> ignore;
+            Uring.submit t |> ignore;
+            Uring.exit t;
+            failwith (sprintf "Listen failed: %s" (Unix.error_message result))
+        | Uring.Int _ | Uring.FD _ ->
+            failwith "Unexpected return from listen operation"
   in
-  printf "Listen completed with result: %d\n" listen_result;
 
   (* Get the actual bound port - Unix.getsockname is necessary for socket introspection *)
   let actual_addr = Unix.getsockname server_sock in
@@ -75,32 +69,28 @@ let () =
 
   (* Use io_uring for connect operation *)
   let connect_addr = Unix.ADDR_INET (Unix.inet_addr_loopback, port) in
-  let connect_result =
+  let () =
     match Uring.connect t client_sock connect_addr () with
     | None -> failwith "Failed to submit connect operation"
     | Some _job ->
         let _submitted = Uring.submit t in
         match Uring.wait t with
         | Uring.None -> failwith "No completion for connect"
-        | Uring.Some { result; kind = Uring.Int; data = _ } ->
-            let result = (result : int) in
+        | Uring.Unit _ ->
+            print_endline "Connect initiated successfully\n"
+        | Uring.Error { result = Unix.EINPROGRESS; data = _ } ->
             (* Connect may return -EINPROGRESS for non-blocking sockets, which is normal *)
-            if result < 0 && result <> (-115) (* -EINPROGRESS *) then begin
-              Uring.close t client_sock () |> ignore;
-              Uring.close t server_sock () |> ignore;
-              Uring.submit t |> ignore;
-              Uring.exit t;
-              let err = Uring.error_of_errno (-result) in
-              failwith (sprintf "Connect failed: %s (errno: %d)" (Unix.error_message err) (-result))
-            end else
-              result
-        | Uring.Some _ -> assert false
+            print_endline "Connect initiated successfully (result: EINPROGRESS)"
+        | Uring.Error { result; data = _ } ->
+            Uring.close t client_sock () |> ignore;
+            Uring.close t server_sock () |> ignore;
+            Uring.submit t |> ignore;
+            Uring.exit t;
+            failwith (sprintf "Connect failed: %s" (Unix.error_message result))
+        | Uring.Int _ | Uring.FD _ ->
+            failwith "Unexpected return from connect operation"
   in
 
-  if connect_result = 0 || connect_result = (-115) then
-    printf "Connect initiated successfully (result: %d)\n" connect_result
-  else
-    printf "Connect completed with result: %d\n" connect_result;
 
   (* Get the client socket's local port - Unix.getsockname is necessary for socket introspection *)
   let client_addr = Unix.getsockname client_sock in
@@ -128,11 +118,13 @@ let () =
     if pending > 0 then
       match Uring.wait t with
       | Uring.None -> failwith "No completion for close"
-      | Uring.Some { result; kind = Uring.Int; data = _ } ->
-          if result < 0 then
-            printf "Close warning: %s\n" (Unix.error_message (Uring.error_of_errno (-result)));
+      | Uring.Unit _ ->
           wait_closes (pending - 1)
-      | Uring.Some _ -> assert false
+      | Uring.Error { result; data = _ } ->
+          printf "Close warning: %s\n" (Unix.error_message result);
+          wait_closes (pending - 1)
+      | Uring.Int _ | Uring.FD _ ->
+          failwith "Unexpected return from close operation"
   in
   wait_closes 2;
 

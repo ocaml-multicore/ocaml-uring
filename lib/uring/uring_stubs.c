@@ -145,14 +145,21 @@ value ocaml_uring_exit(value v_uring) {
   CAMLreturn(Val_unit);
 }
 
+#define Data_val(v_id, kind) ((void *)(Long_val(v_id) | ((intnat)kind << (8 * sizeof(value) - 4))))
+#define DATA_MASK (~((intnat)((intnat)3 << (8 * sizeof(value) - 4))))
+#define RES_UNIT 0
+#define RES_INT 1
+#define RES_FD 2
+
 value /* noalloc */
 ocaml_uring_submit_nop(value v_uring, value v_id) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_nop(sqe);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -193,10 +200,11 @@ ocaml_uring_submit_timeout(value v_uring, value v_id, value v_sketch_ptr, value 
     flags |= IORING_TIMEOUT_ABS;
 
   sqe = io_uring_get_sqe(ring);
-  if (!sqe) return Val_false;
+  if (!sqe) return Val_long(-1);
   io_uring_prep_timeout(sqe, t, 0, flags);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return Val_true;
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return Val_long((intnat)id);
 }
 
 struct open_how_data {
@@ -255,22 +263,24 @@ value /* noalloc */
 ocaml_uring_submit_openat2(value v_uring, value v_id, value v_fd, value v_open_how) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   struct open_how_data *data = Open_how_val(v_open_how);
   io_uring_prep_openat2(sqe, with_at_fdcwd(v_fd), data->path, &data->how);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_FD);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
 ocaml_uring_submit_close(value v_uring, value v_fd, value v_id) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   dprintf("submit_close: fd:%d\n", Int_val(v_fd));
   io_uring_prep_close(sqe, Int_val(v_fd));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -278,11 +288,12 @@ ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_
   int poll_mask = Int_val(v_poll_mask);
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   dprintf("submit_poll_add: fd:%d mask:%x\n", Int_val(v_fd), poll_mask);
   io_uring_prep_poll_add(sqe, Int_val(v_fd), poll_mask);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -314,11 +325,12 @@ ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_sketch_p
   size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
 
   if (sqe == NULL)
-    return (Val_false);
+    return (Val_long(-1));
   dprintf("submit_readv: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
   io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 // Caller must ensure the buffers pointed to by v_sketch_ptr are not GC'd until the job is finished.
@@ -330,11 +342,12 @@ ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_sketch_
   size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
 
   if (sqe == NULL)
-    return (Val_false);
+    return (Val_long(-1));
   dprintf("submit_writev: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
   io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 // Caller must ensure the buffers are not released until this job completes.
@@ -343,11 +356,12 @@ ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, val
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   dprintf("submit_readv_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value
@@ -369,11 +383,12 @@ ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, va
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe)
-    return (Val_false);
+    return (Val_long(-1));
   dprintf("submit_writev_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value
@@ -396,12 +411,13 @@ ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_cstruct, 
   value v_off = Field(v_cstruct, 1);
   value v_len = Field(v_cstruct, 2);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   dprintf("submit_read: fd %d buff %p len %zd fileoff %d\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -412,25 +428,27 @@ ocaml_uring_submit_write(value v_uring, value v_fd, value v_id, value v_cstruct,
   value v_off = Field(v_cstruct, 1);
   value v_len = Field(v_cstruct, 2);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   dprintf("submit_write: fd %d buff %p len %zd fileoff %d\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_write(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
 ocaml_uring_submit_splice(value v_uring, value v_id, value v_fd_in, value v_fd_out, value v_nbytes) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_splice(sqe,
 		       Int_val(v_fd_in), (int64_t) -1,
 		       Int_val(v_fd_out), (int64_t) -1,
 		       Int_val(v_nbytes), 0);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 #define Statx_val(v) (*((struct statx **) Data_custom_val(v)))
@@ -489,11 +507,12 @@ value
 ocaml_uring_submit_statx_native(value v_uring, value v_id, value v_fd, value v_statx, value v_sketch_ptr, value v_flags, value v_mask) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   char *path = Sketch_ptr_val(v_sketch_ptr);
   io_uring_prep_statx(sqe, with_at_fdcwd(v_fd), path, Int_val(v_flags), Int_val(v_mask), Statx_val(v_statx));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value
@@ -791,10 +810,11 @@ ocaml_uring_submit_bind(value v_uring, value v_id, value v_fd, value v_sockaddr)
   struct io_uring_sqe *sqe;
   struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
   sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_bind(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), addr->sock_addr_len);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -802,10 +822,11 @@ ocaml_uring_submit_listen(value v_uring, value v_id, value v_fd, value v_backlog
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe;
   sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_listen(sqe, Int_val(v_fd), Int_val(v_backlog));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 // v_sockaddr must not be GC'd while the call is in progress
@@ -815,10 +836,11 @@ ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockad
   struct io_uring_sqe *sqe;
   struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
   sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_connect(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), addr->sock_addr_len);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 // v_msghdr must not be GC'd while the call is in progress
@@ -827,13 +849,14 @@ ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghd
   struct io_uring *ring = Ring_val(v_uring);
   struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (sqe == NULL) return (Val_false);
+  if (sqe == NULL) return (Val_long(-1));
   msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
   msg->msg_iovlen = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(struct iovec);
   dprintf("submit_sendmsg\n");
   io_uring_prep_sendmsg(sqe, Int_val(v_fd), msg, 0);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 // v_msghdr must not be GC'd while the call is in progress
@@ -842,13 +865,14 @@ ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghd
   struct io_uring *ring = Ring_val(v_uring);
   struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (sqe == NULL) return (Val_false);
+  if (sqe == NULL) return (Val_long(-1));
   msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
   msg->msg_iovlen = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(struct iovec);
   dprintf("submit_recvmsg:msghdr %p: registering iobuf base %p len %lu\n", msg, msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
   io_uring_prep_recvmsg(sqe, Int_val(v_fd), msg, 0);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_INT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 // v_sockaddr must not be GC'd while the call is in progress
@@ -859,10 +883,11 @@ ocaml_uring_submit_accept(value v_uring, value v_id, value v_fd, value v_sockadd
   struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
   addr->sock_addr_len = sizeof(union sock_addr_union);
   sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_accept(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), &addr->sock_addr_len, SOCK_CLOEXEC);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_FD);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -880,10 +905,11 @@ ocaml_uring_submit_unlinkat(value v_uring, value v_id, value v_fd, value v_sketc
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   int flags = Bool_val(v_rmdir) ? AT_REMOVEDIR : 0;
   char *path = Sketch_ptr_val(v_sketch_ptr);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_unlinkat(sqe, with_at_fdcwd(v_fd), path, flags);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -891,10 +917,11 @@ ocaml_uring_submit_mkdirat(value v_uring, value v_id, value v_fd, value v_sketch
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   char *path = Sketch_ptr_val(v_sketch_ptr);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_mkdirat(sqe, with_at_fdcwd(v_fd), path, Int_val(v_mode));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -902,12 +929,13 @@ ocaml_uring_submit_fsync(value v_uring, value v_id, value v_fd, value v_off, val
 {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_fsync(sqe, Int_val(v_fd), 0);
   sqe->off = Int64_val(v_off);
   sqe->len = Int_val(v_len);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -915,12 +943,13 @@ ocaml_uring_submit_fdatasync(value v_uring, value v_id, value v_fd, value v_off,
 {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_fsync(sqe, Int_val(v_fd), IORING_FSYNC_DATASYNC);
   sqe->off = Int64_val(v_off);
   sqe->len = Int_val(v_len);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value /* noalloc */
@@ -928,10 +957,12 @@ ocaml_uring_submit_cancel(value v_uring, value v_id, value v_target) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe;
   sqe = io_uring_get_sqe(ring);
-  if (!sqe) return (Val_false);
+  if (!sqe) return (Val_long(-1));
   io_uring_prep_cancel(sqe, (void *)Long_val(v_target), 0);
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
-  return (Val_true);
+  /* RES_UNIT, since flags == 0 */
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
+  return (Val_long((intnat)id));
 }
 
 value ocaml_uring_submit(value v_uring)
@@ -946,13 +977,26 @@ value ocaml_uring_submit(value v_uring)
 
 #define Val_cqe_none Val_int(0)
 
-static value Val_cqe_some(value id, value res) {
-  CAMLparam2(id, res);
-  CAMLlocal1(some);
-  some = caml_alloc(2, 0);
-  Store_field(some, 0, id);
-  Store_field(some, 1, res);
+static value cqe_error(intnat id, int res) {
+  CAMLparam0();
+  CAMLlocal1(err);
+  err = unix_error_of_code(-res);
+  value some = caml_alloc_small(2, 3);
+  Field(some, 0) = Val_long(id & DATA_MASK);
+  Field(some, 1) = err;
   CAMLreturn(some);
+}
+
+static value Val_cqe_some(intnat id, int res) {
+  value some;
+  if (res < 0) {
+    some = cqe_error(id, res);
+  } else {
+    some = caml_alloc_small(2, (id >> (8 * sizeof(value) - 4)));
+    Field(some, 1) = Val_int(res);
+  }
+  Field(some, 0) = Val_long(id & DATA_MASK);
+  return some;
 }
 
 value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
@@ -960,7 +1004,7 @@ value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
   CAMLparam2(v_uring, v_timeout);
   double timeout = Double_val(v_timeout);
   struct __kernel_timespec t;
-  long id;
+  intnat id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
   int res;
@@ -979,17 +1023,17 @@ value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
   } else {
     if (!cqe)
       CAMLreturn(Val_cqe_none);
-    id = (long)io_uring_cqe_get_data(cqe);
+    id = (intnat)io_uring_cqe_get_data(cqe);
     int cqe_res = cqe->res;
     io_uring_cqe_seen(ring, cqe);
-    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe_res)));
+    CAMLreturn(Val_cqe_some(id, cqe_res));
   }
 }
 
 value ocaml_uring_wait_cqe(value v_uring)
 {
   CAMLparam1(v_uring);
-  long id;
+  intnat id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
   int res;
@@ -1004,17 +1048,17 @@ value ocaml_uring_wait_cqe(value v_uring)
       unix_error(-res, "io_uring_wait_cqe", Nothing);
     }
   } else {
-    id = (long)io_uring_cqe_get_data(cqe);
+    id = (intnat)io_uring_cqe_get_data(cqe);
     int cqe_res = cqe->res;
     io_uring_cqe_seen(ring, cqe);
-    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe_res)));
+    CAMLreturn(Val_cqe_some(id, cqe_res));
   }
 }
 
 value ocaml_uring_peek_cqe(value v_uring)
 {
   CAMLparam1(v_uring);
-  long id;
+  intnat id;
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_cqe *cqe;
   int res;
@@ -1027,42 +1071,16 @@ value ocaml_uring_peek_cqe(value v_uring)
       unix_error(-res, "io_uring_peek_cqe", Nothing);
     }
   } else {
-    id = (long)io_uring_cqe_get_data(cqe);
+    id = (intnat)io_uring_cqe_get_data(cqe);
     int cqe_res = cqe->res;
     io_uring_cqe_seen(ring, cqe);
-    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe_res)));
+    CAMLreturn(Val_cqe_some(id, cqe_res));
   }
 }
 
 // Allocates
 value ocaml_uring_error_of_errno(value v_errno) {
   return unix_error_of_code(Int_val(v_errno));
-}
-
-#ifndef CAML_UNIX_FILE_DESCR_API
-#ifdef _WIN32
-#error "Unix-specific treatment of Unix.file_descr"
-#else
-#define caml_unix_file_descr_of_fd(fd) Val_int(fd)
-#endif /* #ifdef _WIN32 */
-#endif /* #ifndef CAML_UNIX_FILE_DESCR_API */
-
-value ocaml_uring_completion_of_result(value v_data, value v_result)
-{
-  CAMLparam0();
-  CAMLlocal2(result, val);
-  if (Int_val(v_result) < 0) {
-    val = unix_error_of_code(-Int_val(v_result));
-    result = caml_alloc_small(3, 0);
-    Field(result, 1) = Val_int(1);
-  } else {
-    val = caml_unix_file_descr_of_fd(Int_val(v_result));
-    result = caml_alloc_small(3, 0);
-    Field(result, 1) = Val_int(0);
-  }
-  Field(result, 0) = val;
-  Field(result, 2) = v_data;
-  CAMLreturn(result);
 }
 
 #define Probe_val(v) (*((struct io_uring_probe **) Data_custom_val(v)))
@@ -1129,12 +1147,13 @@ ocaml_uring_submit_linkat_native(value v_uring, value v_id,
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
 
   if (!sqe)
-    return Val_false;
+    return Val_long(-1);
 
   io_uring_prep_linkat(sqe, with_at_fdcwd(v_old_dir), old_path, with_at_fdcwd(v_new_dir), new_path, Int_val(v_flags));
-  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  void *id = Data_val(v_id, RES_UNIT);
+  io_uring_sqe_set_data(sqe, id);
 
-  return Val_true;
+  return Val_long((intnat)id);
 }
 
 value

@@ -13,8 +13,8 @@ let () =
   let rec retry () =
     match Uring.wait t with
     | None -> retry ()
-    | Some { result; kind = Uring.Int; _ } -> (result : int)
-    | Some _ -> assert false
+    | Int { result; _ } -> result
+    | FD _ | Error _ | Unit _ -> failwith "Unexpected return from poll"
   in
   let res = retry () in
   Printf.eprintf "poll_add: %x\n%!" res;

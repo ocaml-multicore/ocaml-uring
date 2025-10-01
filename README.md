@@ -59,16 +59,16 @@ We can now ask Linux to suspend the process until a result (Completion Queue Ent
 let rec wait_with_retry uring =
   match Uring.wait uring with
   | None -> wait_with_retry uring        (* Interrupted *)
-  | Some { result; kind = Uring.Int; data } -> None, (result : int), data
-  | Some { result; kind = Uring.FD; data } -> Some (result : Unix.file_descr), 0, data
-  | Some { result; kind = Uring.Error; data } -> failwith (Unix.error_message result)
+  | Unit { result = (); data } -> Either.Left 0, data
+  | Int { result; data } -> Either.Left result, data
+  | FD { result; data } -> Either.Right result, data
+  | Error { result; data } -> failwith ("Unexpected error: " ^ Unix.error_message result);;
 ```
 
 <!-- $MDX non-deterministic=output -->
 ```ocaml
-# let fd, result, data = wait_with_retry uring;;
-val fd : Unix.file_descr option = Some <abstr>
-val result : int = 0
+# let result, data = wait_with_retry uring;;
+val result : (int, Unix.file_descr) Either.t = Right <abstr>
 val data : _[> `Open_log ] = `Open_log
 ```
 
@@ -78,10 +78,14 @@ The `data` field is the data we passed in when submitting the request, allowing 
 The `result` field is the return code,
 with the same meaning as the return code from the corresponding system call (`openat2` in this case).
 
+```ocaml
+# let fd = Either.fold ~left:(fun _ -> assert false) ~right:Fun.id result
+val fd : Unix.file_descr = <abstr>
+```
+
 We can now submit further requests. e.g.
 
 ```ocaml
-let fd = Option.get fd
 let rec write_all fd = function
   | [] -> ()
   | bufs ->
@@ -94,11 +98,12 @@ let rec write_all fd = function
       |> Option.get               (* We know we have enough space here *)
     in
     assert (Uring.submit uring = 1);
-    let _, result, data = wait_with_retry uring in
-    assert (data = `Write_all);  (* There aren't any other requests pending *)
-    assert (result > 0);         (* Check for error return *)
-    let bufs = Cstruct.shiftv bufs result in
-    write_all fd bufs
+    match wait_with_retry uring with
+    | Either.Left result, `Write_all ->
+        let bufs = Cstruct.shiftv bufs result in
+        write_all fd bufs
+    | _ ->
+        assert false (* There aren't any other requests pending *)
 ```
 
 ```ocaml
@@ -121,9 +126,9 @@ Some <abstr>
 - : int = 1
 
 # wait_with_retry uring;;
-- : Unix.file_descr option * int *
+- : (int, Unix.file_descr) Either.t *
     ([> `Close_log | `Open_log | `Write_all ] as '_weak3)
-= (None, 0, `Close_log)
+= (Either.Left 0, `Close_log)
 ```
 
 The file has now been written:

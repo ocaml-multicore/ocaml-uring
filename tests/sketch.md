@@ -11,8 +11,8 @@ let ldup n x = List.init n (Fun.const x)
 
 let rec consume t =
   match Uring.wait t with
-  | Some { data; kind = Uring.Int; result } -> (data, (result : int))
-  | Some _ -> assert false
+  | Int { data; result } -> (data, result)
+  | FD _ | Unit _ | Error _ -> failwith "Unexpected return from readv"
   | None -> consume t
 ```
 
