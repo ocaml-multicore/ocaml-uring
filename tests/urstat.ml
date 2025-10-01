@@ -11,9 +11,9 @@ let pp_time f (sec, nsec) =
     nsec
 
 let get_completion_and_print uring =
-  let (fname, buf), _ =
+  let fname, buf =
     match Uring.wait uring with
-    | Some { data; result } -> (data, result)
+    | Some { data; _ } -> data
     | None -> failwith "retry"
   in
   let kind = S.kind buf in

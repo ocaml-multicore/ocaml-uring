@@ -35,13 +35,13 @@ Test normal usage:
     match attempt_alloc with
     | true ->
       let data = Random.int 5000 in
-      let ptr = Heap.ptr (Heap.alloc t data) in
+      let ptr = Heap.ptr (Heap.alloc t Heap.Kind_Int data) in
       assert (not (Hashtbl.mem reference ptr));
       Hashtbl.add reference ptr data;
       incr currently_allocated
     | false ->
       let (k, v) = random_hashtbl_elt reference in
-      let v' = Heap.free t k in
+      let v', _ = Heap.free t k in
       Hashtbl.remove reference k;
       assert (v = v');
       decr currently_allocated
@@ -62,7 +62,7 @@ let shuffle_list l =
 # let t = Heap.create 0 in
   let add_l = List.init 1024 (fun i -> i) |> shuffle_list in
   assert (Heap.in_use t = 0);
-  let free_l = List.map (fun i -> Heap.alloc t i |> Heap.ptr) add_l |>
+  let free_l = List.map (fun i -> Heap.alloc t Heap.Kind_Int i |> Heap.ptr) add_l |>
     shuffle_list
   in
   assert (Heap.in_use t = 1024);
@@ -77,10 +77,10 @@ Double free in an empty heap:
 ```ocaml
 # let t : int Heap.t = Heap.create 1;;
 val t : int Heap.t = <abstr>
-# let p = Heap.ptr @@ Heap.alloc t 1;;
+# let p = Heap.ptr @@ Heap.alloc t Heap.Kind_Int 1;;
 val p : Heap.ptr = 0
 # Heap.free t p;;
-- : int = 1
+- : int * Heap.result_kind = (1, Heap.Kind_Int)
 # Heap.free t p;;
 Exception: Invalid_argument "Heap.free: pointer already freed".
 # let t : unit = Heap.release t;;
@@ -92,16 +92,16 @@ Double free in a non-empty heap:
 ```ocaml
 # let t : int Heap.t = Heap.create 2;;;
 val t : int Heap.t = <abstr>
-# let p1 = Heap.ptr @@ Heap.alloc t 1;;;
+# let p1 = Heap.ptr @@ Heap.alloc t Heap.Kind_Int 1;;;
 val p1 : Heap.ptr = 0
-# let p2 = Heap.ptr @@ Heap.alloc t 2;;;
+# let p2 = Heap.ptr @@ Heap.alloc t Heap.Kind_Int 2;;;
 val p2 : Heap.ptr = 1
 # Heap.free t p1;;
-- : int = 1
+- : int * Heap.result_kind = (1, Heap.Kind_Int)
 # Heap.free t p1;;
 Exception: Invalid_argument "Heap.free: pointer already freed".
 # Heap.free t p2;;
-- : int = 2
+- : int * Heap.result_kind = (2, Heap.Kind_Int)
 # let t : unit = Heap.release t;;
 val t : unit = ()
 ```

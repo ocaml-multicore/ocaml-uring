@@ -20,7 +20,8 @@ let () =
         let _submitted = Uring.submit t in
         match Uring.wait t with
         | Uring.None -> failwith "No completion for bind"
-        | Uring.Some { result; data = _ } ->
+        | Uring.Some { result; kind = Uring.Int; data = _ } ->
+            let result = (result : int) in
             if result < 0 then begin
               Uring.close t server_sock () |> ignore;
               Uring.submit t |> ignore;
@@ -29,6 +30,7 @@ let () =
               failwith (sprintf "Bind failed: %s" (Unix.error_message err))
             end else
               result
+        | Uring.Some _ -> assert false
   in
   printf "Bind completed with result: %d\n" bind_result;
 
@@ -41,7 +43,8 @@ let () =
         let _submitted = Uring.submit t in
         match Uring.wait t with
         | Uring.None -> failwith "No completion for listen"
-        | Uring.Some { result; data = _ } ->
+        | Uring.Some { result; kind = Uring.Int; data = _ } ->
+            let result = (result : int) in
             if result < 0 then begin
               Uring.close t server_sock () |> ignore;
               Uring.submit t |> ignore;
@@ -50,6 +53,7 @@ let () =
               failwith (sprintf "Listen failed: %s" (Unix.error_message err))
             end else
               result
+        | Uring.Some _ -> assert false
   in
   printf "Listen completed with result: %d\n" listen_result;
 
@@ -78,7 +82,8 @@ let () =
         let _submitted = Uring.submit t in
         match Uring.wait t with
         | Uring.None -> failwith "No completion for connect"
-        | Uring.Some { result; data = _ } ->
+        | Uring.Some { result; kind = Uring.Int; data = _ } ->
+            let result = (result : int) in
             (* Connect may return -EINPROGRESS for non-blocking sockets, which is normal *)
             if result < 0 && result <> (-115) (* -EINPROGRESS *) then begin
               Uring.close t client_sock () |> ignore;
@@ -89,6 +94,7 @@ let () =
               failwith (sprintf "Connect failed: %s (errno: %d)" (Unix.error_message err) (-result))
             end else
               result
+        | Uring.Some _ -> assert false
   in
 
   if connect_result = 0 || connect_result = (-115) then
@@ -122,10 +128,11 @@ let () =
     if pending > 0 then
       match Uring.wait t with
       | Uring.None -> failwith "No completion for close"
-      | Uring.Some { result; data = _ } ->
+      | Uring.Some { result; kind = Uring.Int; data = _ } ->
           if result < 0 then
             printf "Close warning: %s\n" (Unix.error_message (Uring.error_of_errno (-result)));
           wait_closes (pending - 1)
+      | Uring.Some _ -> assert false
   in
   wait_closes 2;
 

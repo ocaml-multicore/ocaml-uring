@@ -242,6 +242,14 @@ ocaml_uring_make_open_how(value v_flags, value v_mode, value v_resolve, value v_
   CAMLreturn(v);
 }
 
+static int with_at_fdcwd(value v_fd)
+{
+  if (Is_none(v_fd))
+    return AT_FDCWD;
+  else
+    return Int_val(Some_val(v_fd));
+}
+
 // Caller must ensure v_open_how is not GC'd until the job is finished.
 value /* noalloc */
 ocaml_uring_submit_openat2(value v_uring, value v_id, value v_fd, value v_open_how) {
@@ -249,7 +257,7 @@ ocaml_uring_submit_openat2(value v_uring, value v_id, value v_fd, value v_open_h
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe) return (Val_false);
   struct open_how_data *data = Open_how_val(v_open_how);
-  io_uring_prep_openat2(sqe, Int_val(v_fd), data->path, &data->how);
+  io_uring_prep_openat2(sqe, with_at_fdcwd(v_fd), data->path, &data->how);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -483,7 +491,7 @@ ocaml_uring_submit_statx_native(value v_uring, value v_id, value v_fd, value v_s
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe) return (Val_false);
   char *path = Sketch_ptr_val(v_sketch_ptr);
-  io_uring_prep_statx(sqe, Int_val(v_fd), path, Int_val(v_flags), Int_val(v_mask), Statx_val(v_statx));
+  io_uring_prep_statx(sqe, with_at_fdcwd(v_fd), path, Int_val(v_flags), Int_val(v_mask), Statx_val(v_statx));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -873,7 +881,7 @@ ocaml_uring_submit_unlinkat(value v_uring, value v_id, value v_fd, value v_sketc
   int flags = Bool_val(v_rmdir) ? AT_REMOVEDIR : 0;
   char *path = Sketch_ptr_val(v_sketch_ptr);
   if (!sqe) return (Val_false);
-  io_uring_prep_unlinkat(sqe, Int_val(v_fd), path, flags);
+  io_uring_prep_unlinkat(sqe, with_at_fdcwd(v_fd), path, flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -884,7 +892,7 @@ ocaml_uring_submit_mkdirat(value v_uring, value v_id, value v_fd, value v_sketch
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   char *path = Sketch_ptr_val(v_sketch_ptr);
   if (!sqe) return (Val_false);
-  io_uring_prep_mkdirat(sqe, Int_val(v_fd), path, Int_val(v_mode));
+  io_uring_prep_mkdirat(sqe, with_at_fdcwd(v_fd), path, Int_val(v_mode));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -1031,6 +1039,32 @@ value ocaml_uring_error_of_errno(value v_errno) {
   return unix_error_of_code(Int_val(v_errno));
 }
 
+#ifndef CAML_UNIX_FILE_DESCR_API
+#ifdef _WIN32
+#error "Unix-specific treatment of Unix.file_descr"
+#else
+#define caml_unix_file_descr_of_fd(fd) Val_int(fd)
+#endif /* #ifdef _WIN32 */
+#endif /* #ifndef CAML_UNIX_FILE_DESCR_API */
+
+value ocaml_uring_completion_of_result(value v_data, value v_result)
+{
+  CAMLparam0();
+  CAMLlocal2(result, val);
+  if (Int_val(v_result) < 0) {
+    val = unix_error_of_code(-Int_val(v_result));
+    result = caml_alloc_small(3, 0);
+    Field(result, 1) = Val_int(1);
+  } else {
+    val = caml_unix_file_descr_of_fd(Int_val(v_result));
+    result = caml_alloc_small(3, 0);
+    Field(result, 1) = Val_int(0);
+  }
+  Field(result, 0) = val;
+  Field(result, 2) = v_data;
+  CAMLreturn(result);
+}
+
 #define Probe_val(v) (*((struct io_uring_probe **) Data_custom_val(v)))
 
 static void finalize_probe(value v) {
@@ -1097,7 +1131,7 @@ ocaml_uring_submit_linkat_native(value v_uring, value v_id,
   if (!sqe)
     return Val_false;
 
-  io_uring_prep_linkat(sqe, Int_val(v_old_dir), old_path, Int_val(v_new_dir), new_path, Int_val(v_flags));
+  io_uring_prep_linkat(sqe, with_at_fdcwd(v_old_dir), old_path, with_at_fdcwd(v_new_dir), new_path, Int_val(v_flags));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
 
   return Val_true;

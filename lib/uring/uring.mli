@@ -840,9 +840,14 @@ val submit : 'a t -> int
     to the kernel. Their results can subsequently be retrieved using {!wait}
     or {!peek}. *)
 
+type _ return_kind =
+  | FD : Unix.file_descr return_kind
+  | Error : Unix.error return_kind
+  | Int : int return_kind
+
 type 'a completion_option =
-  | None
-  | Some of { result: int; data: 'a } (**)
+  | None : 'a completion_option
+  | Some : { result: 'b; kind: 'b return_kind; data: 'a } -> 'a completion_option (**)
 (** The type of results of calling {!wait} and {!peek}. [None] denotes that
     either there were no completions in the queue or an interrupt / timeout
     occurred. [Some] contains both the user data attached to the completed

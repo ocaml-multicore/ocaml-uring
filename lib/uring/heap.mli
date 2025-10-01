@@ -17,6 +17,8 @@
 type 'a t
 (** A bounded heap of values of type ['a]. *)
 
+type result_kind = Kind_FD | Kind_Int
+
 val create : int -> _ t
 (** [create n] is a heap that holds at most [n] elements. *)
 
@@ -30,13 +32,13 @@ val ptr : 'a entry -> ptr
 (** [ptr e] is the index of [e].
     @raise Invalid_argument if [e] has already been freed. *)
 
-val alloc : 'a t -> 'a -> extra_data:'b -> 'a entry
+val alloc : 'a t -> result_kind -> 'a -> extra_data:'b -> 'a entry
 (** [alloc t a ~extra_data] adds the value [a] to [t] and returns a
     pointer to that value, or raises [Invalid_argument] if no extra space
     can be created for [t], or [t] has already been [release]d.
     @param extra_data Prevent this from being GC'd until [free] is called. *)
 
-val free : 'a t -> ptr -> 'a
+val free : 'a t -> ptr -> 'a * result_kind
 (** [free t p] returns the element referenced by [p] and removes it from the
     heap. Has undefined behaviour if [p] has already been freed. *)
 

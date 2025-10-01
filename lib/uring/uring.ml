@@ -301,6 +301,15 @@ type clock = Boottime | Realtime
 
 type probe
 
+type _ return_kind =
+  | FD : Unix.file_descr return_kind
+  | Error : Unix.error return_kind
+  | Int : int return_kind
+
+type 'a completion_option =
+  | None : 'a completion_option
+  | Some : { result: 'b; kind: 'b return_kind; data: 'a } -> 'a completion_option
+
 module Uring = struct
   type t
 
@@ -328,17 +337,17 @@ module Uring = struct
   external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
-  external submit_statx : t -> id -> Unix.file_descr -> Statx.t -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
+  external submit_statx : t -> id -> Unix.file_descr option -> Statx.t -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
   external submit_bind : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_bind" [@@noalloc]
   external submit_listen : t -> id -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_listen" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
-  external submit_openat2 : t -> id -> Unix.file_descr -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
-  external submit_linkat : t -> id -> Unix.file_descr -> Sketch.ptr -> Unix.file_descr -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
-  external submit_unlinkat : t -> id -> Unix.file_descr -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
-  external submit_mkdirat : t -> id -> Unix.file_descr -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_mkdirat" [@@noalloc]
+  external submit_openat2 : t -> id -> Unix.file_descr option -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
+  external submit_linkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
+  external submit_unlinkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
+  external submit_mkdirat : t -> id -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_mkdirat" [@@noalloc]
   external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
   external submit_fsync : t -> id -> Unix.file_descr -> int64 -> int -> bool = "ocaml_uring_submit_fsync" [@@noalloc]
@@ -352,6 +361,7 @@ module Uring = struct
   external wait_cqe : t -> cqe_option = "ocaml_uring_wait_cqe"
   external wait_cqe_timeout : float -> t -> cqe_option = "ocaml_uring_wait_cqe_timeout"
   external peek_cqe : t -> cqe_option = "ocaml_uring_peek_cqe"
+  external completion_of_result : 'a -> int -> 'a completion_option = "ocaml_uring_completion_of_result"
 
   external error_of_errno : int -> Unix.error = "ocaml_uring_error_of_errno"
   external register_eventfd : t -> Unix.file_descr -> unit = "ocaml_uring_register_eventfd"
@@ -439,9 +449,9 @@ let exit t =
   Uring.exit t.uring;
   unregister_gc_root t
 
-let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a job option =
- fun t fn datum ~extra_data ->
-   match Heap.alloc t.data datum ~extra_data with
+let with_id_full : type a. a t -> (Heap.ptr -> bool) -> Heap.result_kind -> a -> extra_data:'b -> a job option =
+ fun t fn result_kind datum ~extra_data ->
+   match Heap.alloc t.data result_kind datum ~extra_data with
   | exception (Invalid_argument _ as ex) -> check t; raise ex
   | entry ->
  let ptr = Heap.ptr entry in
@@ -449,32 +459,31 @@ let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a 
  if has_space then
    Some entry
  else (
-   ignore (Heap.free t.data ptr : a);
+   ignore (Heap.free t.data ptr : a * Heap.result_kind);
    None
  )
 
-let with_id t fn a = with_id_full t fn a ~extra_data:()
+let with_id t fn result_kind a = with_id_full t fn result_kind a ~extra_data:()
 
 let noop t user_data =
-  with_id t (fun id -> Uring.submit_nop t.uring id) user_data
+  with_id t (fun id -> Uring.submit_nop t.uring id) Heap.Kind_Int user_data
 
 external set_timespec: Sketch.ptr -> int64 -> unit = "ocaml_uring_set_timespec" [@@noalloc]
 
 let timeout ?(absolute = false) t clock timeout_ns user_data =
   let timespec_ptr = Sketch.alloc t.sketch Config.sizeof_kernel_timespec in
   set_timespec timespec_ptr timeout_ns;
-  with_id t (fun id -> Uring.submit_timeout t.uring id timespec_ptr clock absolute) user_data
+(* XXX Kind_Error? *)
+  with_id t (fun id -> Uring.submit_timeout t.uring id timespec_ptr clock absolute) Heap.Kind_Int user_data
 
-let at_fdcwd : Unix.file_descr = Obj.magic Config.at_fdcwd
-
-let openat2 t ~access ~flags ~perm ~resolve ?(fd=at_fdcwd) path user_data =
+let openat2 t ~access ~flags ~perm ~resolve ?fd path user_data =
   let open_flags = flags lor match access with
     | `R  -> Open_flags.rdonly
     | `W  -> Open_flags.wronly
     | `RW -> Open_flags.rdwr
   in
   let open_how = Open_how.v ~open_flags ~perm ~resolve path in
-  with_id_full t (fun id -> Uring.submit_openat2 t.uring id fd open_how) user_data ~extra_data:open_how
+  with_id_full t (fun id -> Uring.submit_openat2 t.uring id fd open_how) Kind_FD user_data ~extra_data:open_how
 
 module Linkat_flags = struct
   include Flags
@@ -482,85 +491,88 @@ module Linkat_flags = struct
   let symlink_follow  = Config.At.symlink_follow
 end
 
-let linkat t ?(old_dir_fd=at_fdcwd) ?(new_dir_fd=at_fdcwd) ~flags ~old_path ~new_path user_data =
+let linkat t ?old_dir_fd ?new_dir_fd ~flags ~old_path ~new_path user_data =
   with_id t (fun id ->
     let old_path_buf = Sketch.String.alloc t.sketch old_path in
     let new_path_buf = Sketch.String.alloc t.sketch new_path in
     Uring.submit_linkat t.uring id old_dir_fd old_path_buf new_dir_fd new_path_buf flags
-  ) user_data
+  (* XXX Kind_Error? *)
+  ) Heap.Kind_Int user_data
 
-let unlink t ~dir ?(fd=at_fdcwd) path user_data =
+let unlink t ~dir ?fd path user_data =
   with_id t (fun id ->
       let buf = Sketch.String.alloc t.sketch path in
       Uring.submit_unlinkat t.uring id fd buf dir
-    ) user_data
+  (* XXX Kind_Error? *)
+    ) Heap.Kind_Int user_data
 
-let mkdirat t ~mode ?(fd=at_fdcwd) path user_data =
+let mkdirat t ~mode ?fd path user_data =
   with_id t (fun id ->
       let buf = Sketch.String.alloc t.sketch path in
       Uring.submit_mkdirat t.uring id fd buf mode
-    ) user_data
+  (* XXX Kind_Error? *)
+    ) Heap.Kind_Int user_data
 
 let read t ~file_offset fd (buf : Cstruct.t) user_data =
-  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset) user_data ~extra_data:buf
+  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset) Heap.Kind_Int user_data ~extra_data:buf
 
 let write t ~file_offset fd (buf : Cstruct.t) user_data =
-  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset) user_data ~extra_data:buf
+  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset) Heap.Kind_Int user_data ~extra_data:buf
 
 let iov_max = Config.iov_max
 
 let readv t ~file_offset fd buffers user_data =
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
-      Uring.submit_readv t.uring fd id iovec file_offset) user_data ~extra_data:buffers
+      Uring.submit_readv t.uring fd id iovec file_offset) Heap.Kind_Int user_data ~extra_data:buffers
 
 let read_fixed t ~file_offset fd ~off ~len user_data =
-  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) Heap.Kind_Int user_data
 
 let read_chunk ?len t ~file_offset fd chunk user_data =
   let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
   if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
-  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) Heap.Kind_Int user_data
 
 let write_fixed t ~file_offset fd ~off ~len user_data =
-  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) Heap.Kind_Int user_data
 
 let write_chunk ?len t ~file_offset fd chunk user_data =
   let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
   if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
-  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) Heap.Kind_Int user_data
 
 let writev t ~file_offset fd buffers user_data =
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
-      Uring.submit_writev t.uring fd id iovec file_offset) user_data ~extra_data:buffers
+      Uring.submit_writev t.uring fd id iovec file_offset) Heap.Kind_Int user_data ~extra_data:buffers
 
 let poll_add t fd poll_mask user_data =
-  with_id t (fun id -> Uring.submit_poll_add t.uring fd id poll_mask) user_data
+  with_id t (fun id -> Uring.submit_poll_add t.uring fd id poll_mask) Heap.Kind_Int user_data
 
 let close t fd user_data =
-  with_id t (fun id -> Uring.submit_close t.uring fd id) user_data
+  with_id t (fun id -> Uring.submit_close t.uring fd id) Heap.Kind_Int user_data
 
-let statx t ?(fd=at_fdcwd) ~mask path statx flags user_data =
+let statx t ?fd ~mask path statx flags user_data =
   let spath = Sketch.String.alloc t.sketch path in
-  with_id_full t (fun id -> Uring.submit_statx t.uring id fd statx spath flags mask) user_data ~extra_data:statx
+  with_id_full t (fun id -> Uring.submit_statx t.uring id fd statx spath flags mask) Heap.Kind_Int user_data ~extra_data:statx
 
 let splice t ~src ~dst ~len user_data =
-  with_id t (fun id -> Uring.submit_splice t.uring id src dst len) user_data
+  with_id t (fun id -> Uring.submit_splice t.uring id src dst len) Heap.Kind_Int user_data
 
 let bind t fd addr user_data =
   let addr = Sockaddr.of_unix addr in
-  with_id_full t (fun id -> Uring.submit_bind t.uring id fd addr) user_data ~extra_data:addr
+  with_id_full t (fun id -> Uring.submit_bind t.uring id fd addr) Heap.Kind_Int user_data ~extra_data:addr
 
 let listen t fd backlog user_data =
-  with_id t (fun id -> Uring.submit_listen t.uring id fd backlog) user_data
+  with_id t (fun id -> Uring.submit_listen t.uring id fd backlog) Heap.Kind_Int user_data
 
 let connect t fd addr user_data =
   let addr = Sockaddr.of_unix addr in
-  with_id_full t (fun id -> Uring.submit_connect t.uring id fd addr) user_data ~extra_data:addr
+  with_id_full t (fun id -> Uring.submit_connect t.uring id fd addr) Heap.Kind_Int user_data ~extra_data:addr
 
 let accept t fd addr user_data =
-  with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) user_data ~extra_data:addr
+  with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) Heap.Kind_FD user_data ~extra_data:addr
 
 let send_msg ?(fds=[]) ?dst t fd buffers user_data =
   let addr = Option.map Sockaddr.of_unix dst in
@@ -569,24 +581,24 @@ let send_msg ?(fds=[]) ?dst t fd buffers user_data =
   (* NOTE: `msghdr` references `buffers`, so it's enough for `extra_data` *)
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
-      Uring.submit_send_msg t.uring id fd msghdr iovec) user_data ~extra_data:msghdr
+      Uring.submit_send_msg t.uring id fd msghdr iovec) Heap.Kind_Int user_data ~extra_data:msghdr
 
 let recv_msg t fd msghdr user_data =
   let _, _, buffers = msghdr in
   (* NOTE: `msghdr` references `buffers`, so it's enough for `extra_data` *)
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
-      Uring.submit_recv_msg t.uring id fd msghdr iovec) user_data ~extra_data:msghdr
+      Uring.submit_recv_msg t.uring id fd msghdr iovec) Heap.Kind_Int user_data ~extra_data:msghdr
 
 let fsync t ?(off=0L) ?(len=0) fd user_data =
-  with_id t (fun id -> Uring.submit_fsync t.uring id fd off len) user_data
+  with_id t (fun id -> Uring.submit_fsync t.uring id fd off len) Heap.Kind_Int user_data
 
 let fdatasync t ?(off=0L) ?(len=0) fd user_data =
-  with_id t (fun id -> Uring.submit_fdatasync t.uring id fd off len) user_data
+  with_id t (fun id -> Uring.submit_fdatasync t.uring id fd off len) Heap.Kind_Int user_data
 
 let cancel t job user_data =
   ignore (Heap.ptr job : Uring.id);  (* Check it's still valid *)
-  with_id t (fun id -> Uring.submit_cancel t.uring id (Heap.ptr job)) user_data
+  with_id t (fun id -> Uring.submit_cancel t.uring id (Heap.ptr job)) Heap.Kind_Int user_data
 
 let sqe_ready t = Uring.sq_ready t.uring
 
@@ -611,16 +623,16 @@ let submit t =
   gc_sketch t;
   v
 
-type 'a completion_option =
-  | None
-  | Some of { result: int; data: 'a }
-
 let fn_on_ring fn t =
   match fn t.uring with
   | Uring.Cqe_none -> None
   | Uring.Cqe_some { user_data_id; res } ->
-    let data = Heap.free t.data user_data_id in
-    Some { result = res; data }
+    let (data, kind) = Heap.free t.data user_data_id in
+    match kind with
+    | Heap.Kind_FD ->
+        Uring.completion_of_result data res
+    | Heap.Kind_Int ->
+        Some { result = res; kind = Int; data }
 
 let get_cqe_nonblocking t =
   check t;

@@ -7,11 +7,13 @@ let n_iters = 1_000_000 (* How many times to accept and resubmit *)
 
 let rec wait t handle =
   match Uring.get_cqe_nonblocking t with
-  | Some { result; data = buf } -> handle result buf
+  | Some { result; kind = Uring.Int; data = buf } -> handle (result : int) buf
+  | Some _ -> assert false
   | None ->
     match Uring.wait t with
     | None -> wait t handle
-    | Some { result; data = buf } -> handle result buf
+    | Some { result; kind = Uring.Int; data = buf } -> handle (result : int) buf
+    | Some _ -> assert false
 
 let run_bechmark ~polling_timeout fd =
   let got = ref 0 in

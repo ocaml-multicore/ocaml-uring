@@ -11,7 +11,8 @@ let ldup n x = List.init n (Fun.const x)
 
 let rec consume t =
   match Uring.wait t with
-  | Some { data; result } -> (data, result)
+  | Some { data; kind = Uring.Int; result } -> (data, (result : int))
+  | Some _ -> assert false
   | None -> consume t
 ```
 

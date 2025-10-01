@@ -16,10 +16,28 @@ module Test_data = struct
     close_out oc
 end
 
+let rec consume_exn name path t =
+  match Uring.wait ~timeout:1. t with
+  | None -> consume_exn name path t
+  | Some { data; kind = Uring.Error; result } ->
+      raise (Unix.Unix_error ((result : Unix.error), name, path))
+  | Some { data; kind = Uring.FD; result } -> data, (result : Unix.file_descr)
+  | Some _ -> assert false
+
 let rec consume t =
   match Uring.wait ~timeout:1. t with
-  | Some { data; result } -> (data, result)
+  | Some { data; kind = Uring.Int; result } -> (data, (result : int))
+  | Some _ ->
+      assert false
   | None -> consume t
+
+let rec consume_fd t =
+  match Uring.wait ~timeout:1. t with
+  | None -> consume_fd t
+  | Some { data; kind = Uring.FD; result } ->
+      data, (result : Unix.file_descr)
+  | Some _ ->
+      assert false
 
 let traceln fmt =
   Format.printf (fmt ^^ "@.")
@@ -134,10 +152,7 @@ val t : [ `Open ] Uring.t = <abstr>
 # Uring.submit t;;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Open ] = `Open
 val fd : Unix.file_descr = <abstr>
 
@@ -170,10 +185,7 @@ val t : [ `Create ] Uring.t = <abstr>
 # Uring.submit t;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Create ] = `Create
 val fd : Unix.file_descr = <abstr>
 
@@ -252,10 +264,7 @@ Now using `~fd`:
 # Uring.submit t;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Open_path | `Statx ] = `Open_path
 val fd : Unix.file_descr = <abstr>
 
@@ -301,14 +310,9 @@ val t : [ `Get_path ] Uring.t = <abstr>
                             path
                             `Get_path));
     traceln "Submitted %d" (Uring.submit t);
-    let `Get_path, fd = consume t in
-    if fd >= 0 then (
-      let fd : Unix.file_descr = Obj.magic fd in
-      Unix.close fd;
-      traceln "Opened %S OK" path
-    ) else (
-      raise (Unix.Unix_error (Uring.error_of_errno fd, "openat2", path))
-    );;
+    let `Get_path, fd = consume_exn "openat2" path t in
+    Unix.close fd;
+    traceln "Opened %S OK" path;;
 val get : resolve:Uring.Resolve.t -> string -> unit = <fun>
 
 # get ~resolve:Uring.Resolve.empty ".";;
@@ -814,10 +818,12 @@ val check : unit -> bool * bool = <fun>
 - : unit Uring.job option = Some <abstr>
 
 # Uring.wait t;;
-- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+- : unit Uring.completion_option =
+Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = ()}
 
 # Uring.wait t;;
-- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+- : unit Uring.completion_option =
+Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = ()}
 
 # check ();;
 - : bool * bool = (false, false)
@@ -840,7 +846,8 @@ val t : unit Uring.t = <abstr>
 # Uring.submit t;;
 - : int = 1
 # Uring.wait t;;
-- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+- : unit Uring.completion_option =
+Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = ()}
 # (Unix.lstat "new-symlink").st_kind;;
 - : Unix.file_kind = Unix.S_LNK
 ```
@@ -876,7 +883,7 @@ val t : [ `Mkdir of int ] Uring.t = <abstr>
 - : int = 1
 # Uring.wait t;;
 - : [ `Mkdir of int ] Uring.completion_option =
-Uring.Some {Uring.result = 0; data = `Mkdir 0}
+Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = `Mkdir 0}
 # Printf.sprintf "0o%o" ((Unix.stat "mkdir").st_perm land 0o777);;
 - : string = "0o700"
 # let v = Uring.mkdirat t ~mode:0o755 "mkdir" (`Mkdir 1);;
@@ -885,7 +892,7 @@ val v : [ `Mkdir of int ] Uring.job option = Some <abstr>
 - : int = 1
 # Uring.wait t;;
 - : [ `Mkdir of int ] Uring.completion_option =
-Uring.Some {Uring.result = -17; data = `Mkdir 1}
+Uring.Some {Uring.result = <poly>; kind = Uring.Int; data = `Mkdir 1}
 # Uring.exit t;;
 - : unit = ()
 ```

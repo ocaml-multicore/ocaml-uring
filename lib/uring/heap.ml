@@ -21,10 +21,12 @@ type ptr = int
 let slot_taken = -1
 let free_list_nil = -2
 
+type result_kind = Kind_FD | Kind_Int
+
 (* [extra_data] is for keeping pointers passed to C alive. *)
 type 'a entry =
   | Empty : 'a entry
-  | Entry : { data : 'a; extra_data : 'b; mutable ptr : int } -> 'a entry
+  | Entry : { data : 'a; kind: result_kind; extra_data : 'b; mutable ptr : int } -> 'a entry
 
 (* Free-list allocator *)
 type 'a t =
@@ -113,10 +115,10 @@ let grow t =
   t.free_head <- new_free_head;
   t.data <- new_data
 
-let alloc t data ~extra_data =
+let alloc t kind data ~extra_data =
   if t.free_head = free_list_nil then grow t;
   let ptr = t.free_head in
-  let entry = Entry { data; extra_data; ptr } in
+  let entry = Entry { data; kind; extra_data; ptr } in
   t.data.(ptr) <- entry;
   (* Drop [ptr] from the free list. *)
   let tail = t.free_tail_relation.(ptr) in
@@ -137,7 +139,7 @@ let free t ptr =
     | Empty -> assert false
     | Entry p ->
       p.ptr <- -1;
-      p.data
+      p.data, p.kind
   in
 
   (* Cons [ptr] to the free-list. *)

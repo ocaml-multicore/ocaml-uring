@@ -142,11 +142,13 @@ let copy_file uring t =
       if t.write_left > 0 then begin
         let check_q = if !got_completion then Uring.get_cqe_nonblocking uring else Uring.wait uring  in
         match check_q with
-        |None -> Logs.debug (fun l -> l "completions: retry so finishing loop")
-        |Some { data; result } ->
-          handle_completion uring data result;
-          got_completion := true;
-          handle_completions ();
+        | None -> Logs.debug (fun l -> l "completions: retry so finishing loop")
+        | Some { data; kind = Int; result } ->
+            handle_completion uring data result;
+            got_completion := true;
+            handle_completions ()
+        | Some _ ->
+            assert false
       end
     in
     handle_completions ();

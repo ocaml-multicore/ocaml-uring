@@ -59,13 +59,16 @@ We can now ask Linux to suspend the process until a result (Completion Queue Ent
 let rec wait_with_retry uring =
   match Uring.wait uring with
   | None -> wait_with_retry uring        (* Interrupted *)
-  | Some { result; data } -> result, data;;
+  | Some { result; kind = Uring.Int; data } -> None, (result : int), data
+  | Some { result; kind = Uring.FD; data } -> Some (result : Unix.file_descr), 0, data
+  | Some { result; kind = Uring.Error; data } -> failwith (Unix.error_message result)
 ```
 
 <!-- $MDX non-deterministic=output -->
 ```ocaml
-# let result, data = wait_with_retry uring;;
-val result : int = 8
+# let fd, result, data = wait_with_retry uring;;
+val fd : Unix.file_descr option = Some <abstr>
+val result : int = 0
 val data : _[> `Open_log ] = `Open_log
 ```
 
@@ -75,16 +78,10 @@ The `data` field is the data we passed in when submitting the request, allowing 
 The `result` field is the return code,
 with the same meaning as the return code from the corresponding system call (`openat2` in this case).
 
-```ocaml
-# let fd =
-    if result < 0 then failwith ("Error: " ^ string_of_int result);
-    (Obj.magic result : Unix.file_descr);;
-val fd : Unix.file_descr = <abstr>
-```
-
 We can now submit further requests. e.g.
 
 ```ocaml
+let fd = Option.get fd
 let rec write_all fd = function
   | [] -> ()
   | bufs ->
@@ -97,7 +94,7 @@ let rec write_all fd = function
       |> Option.get               (* We know we have enough space here *)
     in
     assert (Uring.submit uring = 1);
-    let result, data = wait_with_retry uring in
+    let _, result, data = wait_with_retry uring in
     assert (data = `Write_all);  (* There aren't any other requests pending *)
     assert (result > 0);         (* Check for error return *)
     let bufs = Cstruct.shiftv bufs result in
@@ -124,8 +121,9 @@ Some <abstr>
 - : int = 1
 
 # wait_with_retry uring;;
-- : int * ([> `Close_log | `Open_log | `Write_all ] as '_weak3) =
-(0, `Close_log)
+- : Unix.file_descr option * int *
+    ([> `Close_log | `Open_log | `Write_all ] as '_weak3)
+= (None, 0, `Close_log)
 ```
 
 The file has now been written:
