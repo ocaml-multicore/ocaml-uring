@@ -842,11 +842,14 @@ val submit : 'a t -> int
 
 type 'a completion_option =
   | None
-  | Some of { result: int; data: 'a } (**)
+  | Unit of { result: unit; data: 'a }
+  | Int of { result: int; data: 'a }
+  | FD of { result: Unix.file_descr; data: 'a }
+  | Error of { result: Unix.error; data: 'a } (**)
 (** The type of results of calling {!wait} and {!peek}. [None] denotes that
     either there were no completions in the queue or an interrupt / timeout
-    occurred. [Some] contains both the user data attached to the completed
-    request and the integer syscall result. *)
+    occurred. The other constructors contain both the user data attached to the
+    completed request and syscall result. *)
 
 val wait : ?timeout:float -> 'a t -> 'a completion_option
 (** [wait ?timeout t] will block indefinitely (the default) or for [timeout]

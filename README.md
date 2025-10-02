@@ -59,13 +59,16 @@ We can now ask Linux to suspend the process until a result (Completion Queue Ent
 let rec wait_with_retry uring =
   match Uring.wait uring with
   | None -> wait_with_retry uring        (* Interrupted *)
-  | Some { result; data } -> result, data;;
+  | Unit { result = (); data } -> Either.Left 0, data
+  | Int { result; data } -> Either.Left result, data
+  | FD { result; data } -> Either.Right result, data
+  | Error { result; data } -> failwith ("Unexpected error: " ^ Unix.error_message result);;
 ```
 
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # let result, data = wait_with_retry uring;;
-val result : int = 8
+val result : (int, Unix.file_descr) Either.t = Right <abstr>
 val data : _[> `Open_log ] = `Open_log
 ```
 
@@ -76,9 +79,7 @@ The `result` field is the return code,
 with the same meaning as the return code from the corresponding system call (`openat2` in this case).
 
 ```ocaml
-# let fd =
-    if result < 0 then failwith ("Error: " ^ string_of_int result);
-    (Obj.magic result : Unix.file_descr);;
+# let fd = Either.fold ~left:(fun _ -> assert false) ~right:Fun.id result
 val fd : Unix.file_descr = <abstr>
 ```
 
@@ -97,11 +98,12 @@ let rec write_all fd = function
       |> Option.get               (* We know we have enough space here *)
     in
     assert (Uring.submit uring = 1);
-    let result, data = wait_with_retry uring in
-    assert (data = `Write_all);  (* There aren't any other requests pending *)
-    assert (result > 0);         (* Check for error return *)
-    let bufs = Cstruct.shiftv bufs result in
-    write_all fd bufs
+    match wait_with_retry uring with
+    | Either.Left result, `Write_all ->
+        let bufs = Cstruct.shiftv bufs result in
+        write_all fd bufs
+    | _ ->
+        assert false (* There aren't any other requests pending *)
 ```
 
 ```ocaml
@@ -124,8 +126,9 @@ Some <abstr>
 - : int = 1
 
 # wait_with_retry uring;;
-- : int * ([> `Close_log | `Open_log | `Write_all ] as '_weak3) =
-(0, `Close_log)
+- : (int, Unix.file_descr) Either.t *
+    ([> `Close_log | `Open_log | `Write_all ] as '_weak3)
+= (Either.Left 0, `Close_log)
 ```
 
 The file has now been written:

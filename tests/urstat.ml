@@ -13,7 +13,8 @@ let pp_time f (sec, nsec) =
 let get_completion_and_print uring =
   let (fname, buf), _ =
     match Uring.wait uring with
-    | Some { data; result } -> (data, result)
+    | Unit { data; result } -> (data, result)
+    | Int _ | FD _ | Error _ -> failwith "Unexpected return from statx"
     | None -> failwith "retry"
   in
   let kind = S.kind buf in

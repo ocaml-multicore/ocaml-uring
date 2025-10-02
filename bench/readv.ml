@@ -5,13 +5,14 @@ let buffer_size = 100   (* Use a small buffer to stress the system more *)
 let n_concurrent = 16   (* How many requests to have active at once *)
 let n_iters = 1_000_000 (* How many times to accept and resubmit *)
 
-let rec wait t handle =
-  match Uring.get_cqe_nonblocking t with
-  | Some { result; data = buf } -> handle result buf
-  | None ->
-    match Uring.wait t with
-    | None -> wait t handle
-    | Some { result; data = buf } -> handle result buf
+let rec process wait t handle = function
+  | Uring.Int { result; data = buf } -> handle result buf
+  | Error { result; data = _ } ->
+      raise (Unix.Unix_error (result, "readv", ""))
+  | FD _ | Unit _ -> failwith "Unexpected return from readv"
+  | None -> process wait t handle (wait t)
+
+let wait t handle = process Uring.wait t handle (Uring.get_cqe_nonblocking t)
 
 let run_bechmark ~polling_timeout fd =
   let got = ref 0 in
@@ -29,13 +30,9 @@ let run_bechmark ~polling_timeout fd =
   let t0 = Unix.gettimeofday () in
   for _ = 1 to n_iters do
     wait t (fun result bufs ->
-        if result < 0 then (
-          raise (Unix.Unix_error (Uring.error_of_errno result, "readv", ""))
-        ) else (
-          got := !got + result;
-          let _job : _ Uring.job = Uring.readv t fd bufs ~file_offset:Optint.Int63.zero bufs |> Option.get in
-          ()
-        )
+        got := !got + result;
+        let _job : _ Uring.job = Uring.readv t fd bufs ~file_offset:Optint.Int63.zero bufs |> Option.get in
+        ()
       )
   done;
   (* Get a snapshot of the stats before letting things finish. *)

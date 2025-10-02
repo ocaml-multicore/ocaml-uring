@@ -11,7 +11,8 @@ let get_file_size fd =
 let get_completion_and_print uring =
   let iov, len =
     match Uring.wait uring with
-    | Some { data; result } -> (data, result)
+    | Int { data; result } -> (data, result)
+    | FD _ | Error _ | Unit _ -> failwith "Unexpected return from read"
     | None -> failwith "retry"
   in
   let remaining = ref len in

@@ -54,10 +54,6 @@ let queue_read uring t len =
   t.read_left <- t.read_left - len;
   t.reads <- t.reads + 1
 
-(* TODO compile time check *)
-let eagain = -11
-let eintr = -4
-
 (* Check that a read has completely finished, and if not
  * queue it up for completing the remaining amount *)
 let handle_read_completion uring req res =
@@ -66,13 +62,6 @@ let handle_read_completion uring req res =
   match res with
   | 0 ->
     Logs.debug (fun l -> l "eof %a" pp_req req);
-  | n when n = eagain || n = eintr ->
-    (* requeue the request *)
-    let r = Uring.readv ~file_offset:req.fileoff uring req.t.infd req.iov.next req in
-    assert(r <> None);
-    Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
-  | n when n < 0 ->
-    raise (Failure ("unix errorno " ^ (string_of_int n)))
   | n when n < bytes_to_read ->
     (* handle short read so new iovec and resubmit *)
     req.iov.next <- Cstruct.shiftv req.iov.next n;
@@ -97,11 +86,6 @@ let handle_write_completion uring req res =
   let bytes_to_write = req.len - req.off in
   match res with
   | 0 -> raise End_of_file
-  | n when n = eagain || n = eintr ->
-    (* requeue the request *)
-    let r = Uring.writev ~file_offset:req.fileoff uring req.t.infd req.iov.next req in
-    assert(r <> None);
-    Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req);
   | n when n < bytes_to_write ->
     (* handle short write so new iovec and resubmit *)
     req.iov.next <- Cstruct.shiftv req.iov.next n;
@@ -119,6 +103,19 @@ let handle_completion uring req res =
   match req.op with
   |`R -> handle_read_completion uring req res
   |`W -> handle_write_completion uring req res
+
+let handle_retry uring req =
+  match req.op with
+  |`R ->
+    (* requeue the request *)
+    let r = Uring.writev ~file_offset:req.fileoff uring req.t.infd req.iov.next req in
+    assert(r <> None);
+    Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req)
+  |`W ->
+    (* requeue the request *)
+    let r = Uring.readv ~file_offset:req.fileoff uring req.t.infd req.iov.next req in
+    assert(r <> None);
+    Logs.debug (fun l -> l "requeued eintr read: %a" pp_req req)
 
 let copy_file uring t =
   (* Create a set of read requests that we will turn into write requests
@@ -142,11 +139,16 @@ let copy_file uring t =
       if t.write_left > 0 then begin
         let check_q = if !got_completion then Uring.get_cqe_nonblocking uring else Uring.wait uring  in
         match check_q with
-        |None -> Logs.debug (fun l -> l "completions: retry so finishing loop")
-        |Some { data; result } ->
+        | None -> Logs.debug (fun l -> l "completions: retry so finishing loop")
+        | Int { data; result } ->
           handle_completion uring data result;
           got_completion := true;
-          handle_completions ();
+          handle_completions ()
+        | Error { data; result = (Unix.EAGAIN | Unix.EINTR) } ->
+            handle_retry uring data
+        | Error { data = _; result } ->
+            failwith ("Unexpected error: " ^ Unix.error_message result)
+        | FD _ | Unit _ -> failwith "Unexpected return from syscall"
       end
     in
     handle_completions ();
