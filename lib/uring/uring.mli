@@ -860,6 +860,10 @@ val get_cqe_nonblocking : 'a t -> 'a completion_option
 val peek : 'a t -> 'a completion_option
 [@@deprecated "Renamed to Uring.get_cqe_nonblocking"]
 
+val file_descr_of_result : int -> (Unix.file_descr, Unix.error) result
+(** Converts the result of syscalls which return either a file_descriptor or
+    -errno to either a file descriptor or a result. *)
+
 val register_eventfd : 'a t -> Unix.file_descr -> unit
 (** [register_eventfd t fd] will register an eventfd to the the uring [t].
 

@@ -1031,6 +1031,29 @@ value ocaml_uring_error_of_errno(value v_errno) {
   return unix_error_of_code(Int_val(v_errno));
 }
 
+#ifndef CAML_UNIX_FILE_DESCR_API
+#ifdef _WIN32
+#error "Unix-specific treatment of Unix.file_descr"
+#else
+#define caml_unix_file_descr_of_fd(fd) Val_int(fd)
+#endif /* #ifdef _WIN32 */
+#endif /* #ifndef CAML_UNIX_FILE_DESCR_API */
+
+value ocaml_uring_file_descr_of_result(value v_result)
+{
+  CAMLparam0();
+  CAMLlocal2(result, val);
+  if (Int_val(v_result) < 0) {
+    val = unix_error_of_code(-Int_val(v_result));
+    result = caml_alloc_small(1, 1);
+  } else {
+    val = caml_unix_file_descr_of_fd(Int_val(v_result));
+    result = caml_alloc_small(1, 0);
+  }
+  Field(result, 0) = val;
+  CAMLreturn(result);
+}
+
 #define Probe_val(v) (*((struct io_uring_probe **) Data_custom_val(v)))
 
 static void finalize_probe(value v) {

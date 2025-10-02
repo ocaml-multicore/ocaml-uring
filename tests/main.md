@@ -21,6 +21,14 @@ let rec consume t =
   | Some { data; result } -> (data, result)
   | None -> consume t
 
+let rec consume_fd t =
+  match Uring.wait ~timeout:1. t with
+  | None -> consume_fd t
+  | Some { data; result } ->
+      match Uring.file_descr_of_result result with
+      | Ok fd -> data, fd
+      | Error _ -> assert false
+
 let traceln fmt =
   Format.printf (fmt ^^ "@.")
 ```
@@ -134,10 +142,7 @@ val t : [ `Open ] Uring.t = <abstr>
 # Uring.submit t;;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Open ] = `Open
 val fd : Unix.file_descr = <abstr>
 
@@ -170,10 +175,7 @@ val t : [ `Create ] Uring.t = <abstr>
 # Uring.submit t;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Create ] = `Create
 val fd : Unix.file_descr = <abstr>
 
@@ -252,10 +254,7 @@ Now using `~fd`:
 # Uring.submit t;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Open_path | `Statx ] = `Open_path
 val fd : Unix.file_descr = <abstr>
 
@@ -301,14 +300,13 @@ val t : [ `Get_path ] Uring.t = <abstr>
                             path
                             `Get_path));
     traceln "Submitted %d" (Uring.submit t);
-    let `Get_path, fd = consume t in
-    if fd >= 0 then (
-      let fd : Unix.file_descr = Obj.magic fd in
-      Unix.close fd;
-      traceln "Opened %S OK" path
-    ) else (
-      raise (Unix.Unix_error (Uring.error_of_errno fd, "openat2", path))
-    );;
+    let `Get_path, result = consume t in
+    match Uring.file_descr_of_result result with
+    | Ok fd ->
+        Unix.close fd;
+        traceln "Opened %S OK" path
+    | Error errno ->
+        raise (Unix.Unix_error (errno, "openat2", path));;
 val get : resolve:Uring.Resolve.t -> string -> unit = <fun>
 
 # get ~resolve:Uring.Resolve.empty ".";;
