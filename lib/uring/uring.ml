@@ -328,17 +328,17 @@ module Uring = struct
   external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
-  external submit_statx : t -> id -> Unix.file_descr -> Statx.t -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
+  external submit_statx : t -> id -> Unix.file_descr option -> Statx.t -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
   external submit_bind : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_bind" [@@noalloc]
   external submit_listen : t -> id -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_listen" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
-  external submit_openat2 : t -> id -> Unix.file_descr -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
-  external submit_linkat : t -> id -> Unix.file_descr -> Sketch.ptr -> Unix.file_descr -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
-  external submit_unlinkat : t -> id -> Unix.file_descr -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
-  external submit_mkdirat : t -> id -> Unix.file_descr -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_mkdirat" [@@noalloc]
+  external submit_openat2 : t -> id -> Unix.file_descr option -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
+  external submit_linkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
+  external submit_unlinkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
+  external submit_mkdirat : t -> id -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_mkdirat" [@@noalloc]
   external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
   external submit_fsync : t -> id -> Unix.file_descr -> int64 -> int -> bool = "ocaml_uring_submit_fsync" [@@noalloc]
@@ -465,9 +465,7 @@ let timeout ?(absolute = false) t clock timeout_ns user_data =
   set_timespec timespec_ptr timeout_ns;
   with_id t (fun id -> Uring.submit_timeout t.uring id timespec_ptr clock absolute) user_data
 
-let at_fdcwd : Unix.file_descr = Obj.magic Config.at_fdcwd
-
-let openat2 t ~access ~flags ~perm ~resolve ?(fd=at_fdcwd) path user_data =
+let openat2 t ~access ~flags ~perm ~resolve ?fd path user_data =
   let open_flags = flags lor match access with
     | `R  -> Open_flags.rdonly
     | `W  -> Open_flags.wronly
@@ -482,20 +480,20 @@ module Linkat_flags = struct
   let symlink_follow  = Config.At.symlink_follow
 end
 
-let linkat t ?(old_dir_fd=at_fdcwd) ?(new_dir_fd=at_fdcwd) ~flags ~old_path ~new_path user_data =
+let linkat t ?old_dir_fd ?new_dir_fd ~flags ~old_path ~new_path user_data =
   with_id t (fun id ->
     let old_path_buf = Sketch.String.alloc t.sketch old_path in
     let new_path_buf = Sketch.String.alloc t.sketch new_path in
     Uring.submit_linkat t.uring id old_dir_fd old_path_buf new_dir_fd new_path_buf flags
   ) user_data
 
-let unlink t ~dir ?(fd=at_fdcwd) path user_data =
+let unlink t ~dir ?fd path user_data =
   with_id t (fun id ->
       let buf = Sketch.String.alloc t.sketch path in
       Uring.submit_unlinkat t.uring id fd buf dir
     ) user_data
 
-let mkdirat t ~mode ?(fd=at_fdcwd) path user_data =
+let mkdirat t ~mode ?fd path user_data =
   with_id t (fun id ->
       let buf = Sketch.String.alloc t.sketch path in
       Uring.submit_mkdirat t.uring id fd buf mode
@@ -541,7 +539,7 @@ let poll_add t fd poll_mask user_data =
 let close t fd user_data =
   with_id t (fun id -> Uring.submit_close t.uring fd id) user_data
 
-let statx t ?(fd=at_fdcwd) ~mask path statx flags user_data =
+let statx t ?fd ~mask path statx flags user_data =
   let spath = Sketch.String.alloc t.sketch path in
   with_id_full t (fun id -> Uring.submit_statx t.uring id fd statx spath flags mask) user_data ~extra_data:statx
 
