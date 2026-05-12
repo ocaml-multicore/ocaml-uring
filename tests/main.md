@@ -1,5 +1,6 @@
 ```ocaml
 # #require "uring";;
+# #install_printer Uring.Res.pp;;
 ```
 
 # Uring tests
@@ -20,6 +21,14 @@ let rec consume t =
   match Uring.wait ~timeout:1. t with
   | Some { data; result } -> (data, result)
   | None -> consume t
+
+let consume_int ?(fn="consume_int") ?(arg="") t =
+  let data, result = consume t in
+  data, Uring.Res.int_exn result fn arg
+
+let consume_fd ?(fn="consume_fd") ?(arg="") t =
+  let data, result = consume t in
+  data, Uring.Res.fd_exn result fn arg
 
 let traceln fmt =
   Format.printf (fmt ^^ "@.")
@@ -53,9 +62,9 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : [ `Read ] * int = (`Read, 1)
+- : [ `Read ] * Uring.Res.t = (`Read, 1)
 # consume t;;
-- : [ `Read ] * int = (`Read, 1)
+- : [ `Read ] * Uring.Res.t = (`Read, 1)
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
 # Uring.exit t;;
@@ -99,7 +108,7 @@ Sketch buffer: 0/0 (plus 0 old buffers)
 
 # for i = 1 to queue_depth do
     let tkn, res = consume t in
-    traceln "%d returned %d" tkn res;
+    traceln "%d returned %a" tkn Uring.Res.pp res;
   done;;
 1 returned 0
 2 returned 0
@@ -134,10 +143,7 @@ val t : [ `Open ] Uring.t = <abstr>
 # Uring.submit t;;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Open ] = `Open
 val fd : Unix.file_descr = <abstr>
 
@@ -170,10 +176,7 @@ val t : [ `Create ] Uring.t = <abstr>
 # Uring.submit t;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Create ] = `Create
 val fd : Unix.file_descr = <abstr>
 
@@ -190,7 +193,7 @@ val fd : Unix.file_descr = <abstr>
 - : int = 1
 # let v, read = consume t;;
 val v : [ `Create ] = `Create
-val read : int = 0
+val read : Uring.Res.t = 0
 
 # Uring.fdatasync t ~off:1L ~len:5 fd `Create;;
 - : [ `Create ] Uring.job option = Some <abstr>
@@ -198,7 +201,7 @@ val read : int = 0
 - : int = 1
 # let v, read = consume t;;
 val v : [ `Create ] = `Create
-val read : int = 0
+val read : Uring.Res.t = 0
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
@@ -228,7 +231,7 @@ val statx : Uring.Statx.t = <abstr>
 
 # let token, retval = consume t;;
 val token : [ `Open_path | `Statx ] = `Statx
-val retval : int = 0
+val retval : Uring.Res.t = 0
 
 #  Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), (Uring.Statx.size statx);;
 - : Uring.Statx.kind * string * int64 = (`Regular_file, "0o600", 9L)
@@ -252,10 +255,7 @@ Now using `~fd`:
 # Uring.submit t;;
 - : int = 1
 
-# let token, fd =
-    let token, fd = consume t in
-    assert (fd >= 0);
-    token, (Obj.magic fd : Unix.file_descr);;
+# let token, fd = consume_fd t;;
 val token : [ `Open_path | `Statx ] = `Open_path
 val fd : Unix.file_descr = <abstr>
 
@@ -275,7 +275,7 @@ val statx : Uring.Statx.t = <abstr>
 
 # let token, retval = consume t;;
 val token : [ `Open_path | `Statx ] = `Statx
-val retval : int = 0
+val retval : Uring.Res.t = 0
 
 # Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), (Uring.Statx.size statx);;
 - : Uring.Statx.kind * string * int64 = (`Regular_file, "0o600", 9L)
@@ -301,14 +301,9 @@ val t : [ `Get_path ] Uring.t = <abstr>
                             path
                             `Get_path));
     traceln "Submitted %d" (Uring.submit t);
-    let `Get_path, fd = consume t in
-    if fd >= 0 then (
-      let fd : Unix.file_descr = Obj.magic fd in
-      Unix.close fd;
-      traceln "Opened %S OK" path
-    ) else (
-      raise (Unix.Unix_error (Uring.error_of_errno fd, "openat2", path))
-    );;
+    let `Get_path, fd = consume_fd t ~fn:"openat2" ~arg:path in
+    Unix.close fd;
+    traceln "Opened %S OK" path;;
 val get : resolve:Uring.Resolve.t -> string -> unit = <fun>
 
 # get ~resolve:Uring.Resolve.empty ".";;
@@ -362,7 +357,7 @@ val fd : Unix.file_descr = <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : [ `Read ] * int = (`Read, 5)
+- : [ `Read ] * Uring.Res.t = (`Read, 5)
 # Cstruct.of_bigarray fbuf ~off ~len |> Cstruct.to_string;;
 - : string = "test "
 
@@ -392,7 +387,7 @@ val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
 # Uring.submit t;;
 - : int = 1
 # let `Read, read = consume t;;
-val read : int = 3
+val read : Uring.Res.t = 3
 # Cstruct.to_string b1;;
 - : string = "A t"
 
@@ -401,7 +396,7 @@ val read : int = 3
 # Uring.submit t;;
 - : int = 1
 # let `Read, read = consume t;;
-val read : int = 7
+val read : Uring.Res.t = 7
 # Cstruct.to_string b2;;
 - : string = "est fil"
 
@@ -428,7 +423,7 @@ val w : Unix.file_descr = <abstr>
 - : int = 1
 # let v, read = consume t;;
 val v : [ `Read | `Write ] = `Write
-val read : int = 5
+val read : Uring.Res.t = 5
 
 # Uring.read t r rb `Read ~file_offset:Int63.minus_one;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
@@ -436,7 +431,7 @@ val read : int = 5
 - : int = 1
 # let v, read = consume t;;
 val v : [ `Read | `Write ] = `Read
-val read : int = 5
+val read : Uring.Res.t = 5
 
 # let rb = Cstruct.sub rb 0 5;;
 val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
@@ -471,7 +466,7 @@ val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
 - : int = 1
 
 # let `Readv, read = consume t;;
-val read : int = 10
+val read : Uring.Res.t = 10
 # Cstruct.to_string b1;;
 - : string = "A t"
 # Cstruct.to_string b2;;
@@ -495,7 +490,7 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 25}
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : [ `Readv ] * int = (`Readv, 7)
+- : [ `Readv ] * Uring.Res.t = (`Readv, 7)
 # Cstruct.to_string b;;
 - : string = "Gathered [A te] and [st ]"
 
@@ -524,7 +519,7 @@ val chunk : Uring.Region.chunk = <abstr>
 val fd : Unix.file_descr = <abstr>
 # Uring.read_chunk t fd chunk `Read ~file_offset:Int63.zero;;
 - : [ `Read ] Uring.job option = Some <abstr>
-# let `Read, read = consume t;;
+# let `Read, read = consume_int t;;
 val read : int = 11
 # Uring.Region.to_string ~len:read chunk;;
 - : string = "A test file"
@@ -552,8 +547,8 @@ val fd : unit = ()
 Ask to read from a pipe (with no data available), then cancel it.
 
 ```ocaml
-# exception Multiple of Unix.error list;;
-exception Multiple of Unix.error list
+# exception Multiple of Uring.Res.t list;;
+exception Multiple of Uring.Res.t list
 
 # let t : [ `Cancel | `Read ] Uring.t = Uring.create ~queue_depth:5 ();;
 val t : [ `Cancel | `Read ] Uring.t = <abstr>
@@ -579,14 +574,14 @@ val read : [ `Cancel | `Read ] Uring.job = <abstr>
     | `Cancel, `Read -> r2, r1
     | _ -> assert false
   in
-  begin match Uring.error_of_errno r_read, Uring.error_of_errno r_cancel with
-    | EINTR, EALREADY
+  begin match Uring.Res.int_result r_read, Uring.Res.int_result r_cancel with
+    | Error EINTR, Error EALREADY
       (* Occasionally, the read is actually busy just as we try to cancel.
          In that case it gets interrupted and the cancel returns EALREADY. *)
-    | EUNKNOWNERR 125 (* ECANCELLED *), EUNKNOWNERR 0 ->
+    | Error (EUNKNOWNERR 125) (* ECANCELLED *), Ok 0 ->
       (* This is the common case. The read is blocked and can just be removed. *)
       ()
-    | e1, e2 -> raise (Multiple [e1; e2])
+    | e1, e2 -> raise (Multiple [r_read; r_cancel])
   end;;
 - : unit = ()
 # let r : unit = Unix.close r;;
@@ -625,17 +620,13 @@ val read : [ `Cancel | `Read ] Uring.job = <abstr>
     | `Cancel, `Read -> r2, r1
     | _ -> assert false
   in
-  if r_read = 1 then (
-    match Uring.error_of_errno r_cancel with
-    | ENOENT -> ()
-    | e -> raise (Unix.Unix_error (e, "cancel", ""))
-  ) else (
-    match Uring.error_of_errno r_read, Uring.error_of_errno r_cancel with
-    | EUNKNOWNERR 125 (* ECANCELLED *), EUNKNOWNERR 0 ->
-      (* This isn't the case we want to test, but it can happen sometimes. *)
-      ()
-    | e1, e2 -> raise (Multiple [e1; e2])
-  );;
+  match Uring.Res.int_result r_read, Uring.Res.int_result r_cancel with
+  | Ok 1, Error ENOENT -> ()
+  | Ok 1, Error e -> raise (Unix.Unix_error (e, "cancel", ""))
+  | Error (EUNKNOWNERR 125 (* ECANCELLED *)), Ok 0 ->
+    (* This isn't the case we want to test, but it can happen sometimes. *)
+    ()
+  | _ -> raise (Multiple [r_read; r_cancel]);;
 - : unit = ()
 # let r : unit = Unix.close r;;
 val r : unit = ()
@@ -658,7 +649,7 @@ val r : Unix.file_descr = <abstr>
 val read : [ `Cancel | `Read ] Uring.job = <abstr>
 # let token, r_read = consume t;;
 val token : [ `Cancel | `Read ] = `Read
-val r_read : int = 1
+val r_read : Uring.Res.t = 1
 # let r : unit = Unix.close r;;
 val r : unit = ()
 ```
@@ -699,7 +690,7 @@ But we can once it's complete:
 # let w : unit = Unix.close w;;
 val w : unit = ()
 # consume t;;
-- : [ `Mkdir | `Read ] * int = (`Read, 0)
+- : [ `Mkdir | `Read ] * Uring.Res.t = (`Read, 0)
 # Uring.exit t;;
 - : unit = ()
 # let r : unit = Unix.close r;;
@@ -752,7 +743,7 @@ val bufs : Cstruct.t list = [{Cstruct.buffer = <abstr>; off = 0; len = 2}]
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : [ `Recv | `Send ] * int = (`Send, 2)
+- : [ `Recv | `Send ] * Uring.Res.t = (`Send, 2)
 # let recv_buf = Cstruct.of_string "XX";;
 val recv_buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 2}
 # let recv = Uring.Msghdr.create ~n_fds:2 [recv_buf];;
@@ -764,7 +755,7 @@ val recv : Uring.Msghdr.t = <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : [ `Recv | `Send ] * int = (`Recv, 2)
+- : [ `Recv | `Send ] * Uring.Res.t = (`Recv, 2)
 # Cstruct.to_string recv_buf;;
 - : string = "hi"
 # let r2, w2 =
@@ -885,7 +876,7 @@ val v : [ `Mkdir of int ] Uring.job option = Some <abstr>
 - : int = 1
 # Uring.wait t;;
 - : [ `Mkdir of int ] Uring.completion_option =
-Uring.Some {Uring.result = -17; data = `Mkdir 1}
+Uring.Some {Uring.result = EEXIST; data = `Mkdir 1}
 # Uring.exit t;;
 - : unit = ()
 ```
@@ -906,7 +897,7 @@ val t : [ `Timeout ] Uring.t = <abstr>
 - : int = 1
 
 # let `Timeout, timeout = consume t;;
-val timeout : int = -62
+val timeout : Uring.Res.t = ETIME
 
 # let ns = 
     ((Unix.gettimeofday () +. 0.01) *. 1e9)
@@ -916,14 +907,14 @@ val timeout : int = -62
 - : [ `Timeout ] Uring.job option = Some <abstr>
 
 # let `Timeout, timeout = consume t;;
-val timeout : int = -62
+val timeout : Uring.Res.t = ETIME
 
 # let ns1 = Int64.(mul 10L 1_000_000L) in
   Uring.(timeout ~absolute:true t Boottime ns1 `Timeout);;
 - : [ `Timeout ] Uring.job option = Some <abstr>
 
 # let `Timeout, timeout = consume t;;
-val timeout : int = -62
+val timeout : Uring.Res.t = ETIME
 
 # Uring.exit t;;
 - : unit = ()

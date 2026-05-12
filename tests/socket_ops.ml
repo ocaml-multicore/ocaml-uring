@@ -21,14 +21,13 @@ let () =
         match Uring.wait t with
         | Uring.None -> failwith "No completion for bind"
         | Uring.Some { result; data = _ } ->
-            if result < 0 then begin
-              Uring.close t server_sock () |> ignore;
-              Uring.submit t |> ignore;
-              Uring.exit t;
-              let err = Uring.error_of_errno (-result) in
-              failwith (sprintf "Bind failed: %s" (Unix.error_message err))
-            end else
-              result
+          match Uring.Res.int_result result with
+          | Ok result -> result
+          | Error err ->
+            Uring.close t server_sock () |> ignore;
+            Uring.submit t |> ignore;
+            Uring.exit t;
+            Fmt.failwith "Bind failed: %s" (Unix.error_message err)
   in
   printf "Bind completed with result: %d\n" bind_result;
 
@@ -42,14 +41,13 @@ let () =
         match Uring.wait t with
         | Uring.None -> failwith "No completion for listen"
         | Uring.Some { result; data = _ } ->
-            if result < 0 then begin
-              Uring.close t server_sock () |> ignore;
-              Uring.submit t |> ignore;
-              Uring.exit t;
-              let err = Uring.error_of_errno (-result) in
-              failwith (sprintf "Listen failed: %s" (Unix.error_message err))
-            end else
-              result
+          match Uring.Res.int_result result with
+          | Ok result -> result
+          | Error err ->
+            Uring.close t server_sock () |> ignore;
+            Uring.submit t |> ignore;
+            Uring.exit t;
+            Fmt.failwith "Listen failed: %s" (Unix.error_message err)
   in
   printf "Listen completed with result: %d\n" listen_result;
 
@@ -71,7 +69,7 @@ let () =
 
   (* Use io_uring for connect operation *)
   let connect_addr = Unix.ADDR_INET (Unix.inet_addr_loopback, port) in
-  let connect_result =
+  begin
     match Uring.connect t client_sock connect_addr () with
     | None -> failwith "Failed to submit connect operation"
     | Some _job ->
@@ -79,22 +77,17 @@ let () =
         match Uring.wait t with
         | Uring.None -> failwith "No completion for connect"
         | Uring.Some { result; data = _ } ->
+          match Uring.Res.fd_result result with
+          | Ok _ | Error EINPROGRESS -> 
             (* Connect may return -EINPROGRESS for non-blocking sockets, which is normal *)
-            if result < 0 && result <> (-115) (* -EINPROGRESS *) then begin
-              Uring.close t client_sock () |> ignore;
-              Uring.close t server_sock () |> ignore;
-              Uring.submit t |> ignore;
-              Uring.exit t;
-              let err = Uring.error_of_errno (-result) in
-              failwith (sprintf "Connect failed: %s (errno: %d)" (Unix.error_message err) (-result))
-            end else
-              result
-  in
-
-  if connect_result = 0 || connect_result = (-115) then
-    printf "Connect initiated successfully (result: %d)\n" connect_result
-  else
-    printf "Connect completed with result: %d\n" connect_result;
+            printf "Connect initiated successfully (result: %d)\n" (result :> int)
+          | Error err ->
+            Uring.close t client_sock () |> ignore;
+            Uring.close t server_sock () |> ignore;
+            Uring.submit t |> ignore;
+            Uring.exit t;
+            Fmt.failwith "Connect failed: %s (errno: %d)" (Unix.error_message err) (-(result :> int))
+  end;
 
   (* Get the client socket's local port - Unix.getsockname is necessary for socket introspection *)
   let client_addr = Unix.getsockname client_sock in
@@ -123,8 +116,9 @@ let () =
       match Uring.wait t with
       | Uring.None -> failwith "No completion for close"
       | Uring.Some { result; data = _ } ->
-          if result < 0 then
-            printf "Close warning: %s\n" (Unix.error_message (Uring.error_of_errno (-result)));
+          Uring.Res.int_result result |> Result.iter_error (fun e ->
+            printf "Close warning: %s\n" (Unix.error_message e);
+          );
           wait_closes (pending - 1)
   in
   wait_closes 2;

@@ -357,6 +357,109 @@ module Uring = struct
   external register_eventfd : t -> Unix.file_descr -> unit = "ocaml_uring_register_eventfd"
 end
 
+let error_of_errno e =
+  Uring.error_of_errno (abs e)
+
+module Res = struct
+  type t = int
+
+  let int_result t =
+    if t >= 0 then Ok t
+    else Error (error_of_errno t)
+
+  let int_exn t fn arg =
+    if t >= 0 then t
+    else raise (Unix.Unix_error (error_of_errno t, fn, arg))
+
+  let fd_of_int x : Unix.file_descr = Obj.magic (x : int)
+
+  let fd_result t =
+    if t >= 0 then Ok (fd_of_int t)
+    else Error (error_of_errno t)
+
+  let fd_exn t fn arg =
+    if t >= 0 then fd_of_int t
+    else raise (Unix.Unix_error (error_of_errno t, fn, arg))
+
+  let pp f t =
+    if t >= 0 then Fmt.int f t
+    else
+      Fmt.string f @@ match error_of_errno t with
+      | E2BIG -> "E2BIG"
+      | EACCES -> "EACCES"
+      | EAGAIN -> "EAGAIN"
+      | EBADF -> "EBADF"
+      | EBUSY -> "EBUSY"
+      | ECHILD -> "ECHILD"
+      | EDEADLK -> "EDEADLK"
+      | EDOM -> "EDOM"
+      | EEXIST -> "EEXIST"
+      | EFAULT -> "EFAULT"
+      | EFBIG -> "EFBIG"
+      | EINTR -> "EINTR"
+      | EINVAL -> "EINVAL"
+      | EIO -> "EIO"
+      | EISDIR -> "EISDIR"
+      | EMFILE -> "EMFILE"
+      | EMLINK -> "EMLINK"
+      | ENAMETOOLONG -> "ENAMETOOLONG"
+      | ENFILE -> "ENFILE"
+      | ENODEV -> "ENODEV"
+      | ENOENT -> "ENOENT"
+      | ENOEXEC -> "ENOEXEC"
+      | ENOLCK -> "ENOLCK"
+      | ENOMEM -> "ENOMEM"
+      | ENOSPC -> "ENOSPC"
+      | ENOSYS -> "ENOSYS"
+      | ENOTDIR -> "ENOTDIR"
+      | ENOTEMPTY -> "ENOTEMPTY"
+      | ENOTTY -> "ENOTTY"
+      | ENXIO -> "ENXIO"
+      | EPERM -> "EPERM"
+      | EPIPE -> "EPIPE"
+      | ERANGE -> "ERANGE"
+      | EROFS -> "EROFS"
+      | ESPIPE -> "ESPIPE"
+      | ESRCH -> "ESRCH"
+      | EXDEV -> "EXDEV"
+      | EWOULDBLOCK -> "EWOULDBLOCK"
+      | EINPROGRESS -> "EINPROGRESS"
+      | EALREADY -> "EALREADY"
+      | ENOTSOCK -> "ENOTSOCK"
+      | EDESTADDRREQ -> "EDESTADDRREQ"
+      | EMSGSIZE -> "EMSGSIZE"
+      | EPROTOTYPE -> "EPROTOTYPE"
+      | ENOPROTOOPT -> "ENOPROTOOPT"
+      | EPROTONOSUPPORT -> "EPROTONOSUPPORT"
+      | ESOCKTNOSUPPORT -> "ESOCKTNOSUPPORT"
+      | EOPNOTSUPP -> "EOPNOTSUPP"
+      | EPFNOSUPPORT -> "EPFNOSUPPORT"
+      | EAFNOSUPPORT -> "EAFNOSUPPORT"
+      | EADDRINUSE -> "EADDRINUSE"
+      | EADDRNOTAVAIL -> "EADDRNOTAVAIL"
+      | ENETDOWN -> "ENETDOWN"
+      | ENETUNREACH -> "ENETUNREACH"
+      | ENETRESET -> "ENETRESET"
+      | ECONNABORTED -> "ECONNABORTED"
+      | ECONNRESET -> "ECONNRESET"
+      | ENOBUFS -> "ENOBUFS"
+      | EISCONN -> "EISCONN"
+      | ENOTCONN -> "ENOTCONN"
+      | ESHUTDOWN -> "ESHUTDOWN"
+      | ETOOMANYREFS -> "ETOOMANYREFS"
+      | ETIMEDOUT -> "ETIMEDOUT"
+      | ECONNREFUSED -> "ECONNREFUSED"
+      | EHOSTDOWN -> "EHOSTDOWN"
+      | EHOSTUNREACH -> "EHOSTUNREACH"
+      | ELOOP -> "ELOOP"
+      | EOVERFLOW -> "EOVERFLOW"
+      | _ ->
+        match t with
+        | -62 -> "ETIME"
+        | -125 -> "ECANCELED"
+        | _ -> string_of_int t
+end
+
 type 'a t = {
   id : < >;
   uring: Uring.t;
@@ -647,9 +750,6 @@ let wait ?timeout t =
 
 let queue_depth {queue_depth;_} = queue_depth
 let buf {fixed_iobuf;_} = fixed_iobuf
-
-let error_of_errno e =
-  Uring.error_of_errno (abs e)
 
 let get_probe t =
   check t;

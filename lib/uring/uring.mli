@@ -74,6 +74,27 @@ module Setup_flags : sig
   (** Defer running task work to get events *)
 end
 
+module Res : sig
+  (** The result of a uring operation (typically the same as the return value of the corresponding syscall). *)
+
+  type t = private int
+  (** The return value. If negative, it is the negative errno value giving the error. *)
+
+  val int_result : t -> (int, Unix.error) result
+  (** [int_result t] is [Error _] if [t] is negative, or [Ok t] otherwise. *)
+
+  val int_exn : t -> string -> string -> int
+  (** [int_exn t fn arg] raises {!Unix.Unix_error} if [t] is negative, and returns [t] otherwise. *)
+
+  val fd_result : t -> (Unix.file_descr, Unix.error) result
+  (** [fd_result t] is like [int_result t], but returns [t] as a file descriptor. *)
+
+  val fd_exn : t -> string -> string -> Unix.file_descr
+  (** [fd_exn t] is like [int_exn t], but returns [t] as a file descriptor. *)
+
+  val pp : t Fmt.t [@@ocaml.toplevel_printer]
+end
+
 type 'a t
 (** ['a t] is a reference to an Io_uring structure. *)
 
@@ -842,7 +863,7 @@ val submit : 'a t -> int
 
 type 'a completion_option =
   | None
-  | Some of { result: int; data: 'a } (**)
+  | Some of { result: Res.t; data: 'a } (**)
 (** The type of results of calling {!wait} and {!peek}. [None] denotes that
     either there were no completions in the queue or an interrupt / timeout
     occurred. [Some] contains both the user data attached to the completed

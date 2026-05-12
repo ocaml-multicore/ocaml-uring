@@ -76,9 +76,7 @@ The `result` field is the return code,
 with the same meaning as the return code from the corresponding system call (`openat2` in this case).
 
 ```ocaml
-# let fd =
-    if result < 0 then failwith ("Error: " ^ string_of_int result);
-    (Obj.magic result : Unix.file_descr);;
+# let fd = Uring.Res.fd_exn result "openat2" "test.log";;
 val fd : Unix.file_descr = <abstr>
 ```
 
@@ -99,7 +97,7 @@ let rec write_all fd = function
     assert (Uring.submit uring = 1);
     let result, data = wait_with_retry uring in
     assert (data = `Write_all);  (* There aren't any other requests pending *)
-    assert (result > 0);         (* Check for error return *)
+    let result = Uring.Res.int_exn result "writev" "" in
     let bufs = Cstruct.shiftv bufs result in
     write_all fd bufs
 ```
@@ -124,7 +122,7 @@ Some <abstr>
 - : int = 1
 
 # wait_with_retry uring;;
-- : int * ([> `Close_log | `Open_log | `Write_all ] as '_weak3) =
+- : Uring.Res.t * ([> `Close_log | `Open_log | `Write_all ] as '_weak3) =
 (0, `Close_log)
 ```
 

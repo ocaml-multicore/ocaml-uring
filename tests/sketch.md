@@ -29,21 +29,21 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
 - : int = 1
 
 # consume t;;
-- : unit * int = ((), 1)
+- : unit * Uring.Res.t = ((), 1)
 
 # Uring.readv t fd (ldup 7 b) () ~file_offset:Int63.zero;;
 - : unit Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : unit * int = ((), 7)
+- : unit * Uring.Res.t = ((), 7)
 
 # Uring.readv t fd (ldup 1000 b) () ~file_offset:Int63.zero;;
 - : unit Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume t;;
-- : unit * int = ((), 1000)
+- : unit * Uring.Res.t = ((), 1000)
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()

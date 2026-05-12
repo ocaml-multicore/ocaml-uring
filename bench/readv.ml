@@ -29,13 +29,10 @@ let run_bechmark ~polling_timeout fd =
   let t0 = Unix.gettimeofday () in
   for _ = 1 to n_iters do
     wait t (fun result bufs ->
-        if result < 0 then (
-          raise (Unix.Unix_error (Uring.error_of_errno result, "readv", ""))
-        ) else (
-          got := !got + result;
-          let _job : _ Uring.job = Uring.readv t fd bufs ~file_offset:Optint.Int63.zero bufs |> Option.get in
-          ()
-        )
+        let result = Uring.Res.int_exn result "readv" "" in
+        got := !got + result;
+        let _job : _ Uring.job = Uring.readv t fd bufs ~file_offset:Optint.Int63.zero bufs |> Option.get in
+        ()
       )
   done;
   (* Get a snapshot of the stats before letting things finish. *)
