@@ -61,9 +61,9 @@ let eintr = -4
 (* Check that a read has completely finished, and if not
  * queue it up for completing the remaining amount *)
 let handle_read_completion uring req res =
-  Logs.debug (fun l -> l "read_completion: res=%d %a" res pp_req req);
+  Logs.debug (fun l -> l "read_completion: res=%a %a" Uring.Res.pp res pp_req req);
   let bytes_to_read = req.len - req.off in
-  match res with
+  match (res :> int) with
   | 0 ->
     Logs.debug (fun l -> l "eof %a" pp_req req);
   | n when n = eagain || n = eintr ->
@@ -93,9 +93,9 @@ let handle_read_completion uring req res =
   | n -> raise (Failure (Printf.sprintf "unexpected readv result %d > %d " bytes_to_read n))
 
 let handle_write_completion uring req res =
-  Logs.debug (fun l -> l "write_completion: res=%d %a" res pp_req req);
+  Logs.debug (fun l -> l "write_completion: res=%a %a" Uring.Res.pp res pp_req req);
   let bytes_to_write = req.len - req.off in
-  match res with
+  match (res :> int) with
   | 0 -> raise End_of_file
   | n when n = eagain || n = eintr ->
     (* requeue the request *)
