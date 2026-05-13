@@ -838,7 +838,7 @@ ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghd
   msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
   msg->msg_iovlen = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(struct iovec);
   dprintf("submit_recvmsg:msghdr %p: registering iobuf base %p len %lu\n", msg, msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
-  io_uring_prep_recvmsg(sqe, Int_val(v_fd), msg, 0);
+  io_uring_prep_recvmsg(sqe, Int_val(v_fd), msg, MSG_CMSG_CLOEXEC);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
