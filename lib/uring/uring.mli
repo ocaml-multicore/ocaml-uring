@@ -471,10 +471,13 @@ val read_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> Re
     @param len Restrict the read to the first [len] bytes of [chunk]. *)
 
 val write_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
-(** [write t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
+(** [write_fixed t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
     It writes up to [len] bytes into absolute [file_offset] on the [fd] file descriptor
     from the fixed memory buffer associated with uring [t] at offset [off].
-    The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
+    The user data [d] will be returned by {!wait} or {!peek} upon completion.
+
+    Warning: this can cause old versions of ZFS to hang
+    (see {{:https://github.com/ocaml-multicore/ocaml-uring/issues/113)} issues/113}). *)
 
 val write_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
 (** [write_chunk] is like [write_fixed], but gets the offset from [chunk].
