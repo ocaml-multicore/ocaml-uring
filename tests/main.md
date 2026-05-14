@@ -742,8 +742,13 @@ val bufs : Cstruct.t list = [{Cstruct.buffer = <abstr>; off = 0; len = 2}]
 - : [ `Recv | `Send ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
-# consume t;;
-- : [ `Recv | `Send ] * Uring.Res.t = (`Send, 2)
+# let sent = consume t;;
+val sent : [ `Recv | `Send ] * Uring.Res.t = (`Send, 2)
+# let really_input_string =
+    match Uring.Res.int_result (snd sent) with
+    | Ok 2 -> really_input_string
+    | _ -> fun _ _ -> failwith "Send failed";;
+val really_input_string : in_channel -> int -> string = <fun>
 # let recv_buf = Cstruct.of_string "XX";;
 val recv_buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 2}
 # let recv = Uring.Msghdr.create ~n_fds:2 [recv_buf];;
