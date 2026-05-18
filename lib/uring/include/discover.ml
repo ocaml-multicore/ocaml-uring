@@ -31,7 +31,6 @@ let toplevel_defs c =
       "O_PATH", Int;
       "O_TMPFILE", Int;
 
-      "AT_FDCWD", Int;
       "IOV_MAX", Int;
 
       "sizeof(struct iovec)", Int;
