@@ -78,7 +78,7 @@ static struct custom_operations ring_ops = {
 };
 
 value ocaml_uring_setup(value entries, value polling_timeout, value v_flags) {
-  CAMLparam1(entries);
+  CAMLparam2(entries, polling_timeout);
   CAMLlocal1(v_uring);
   struct io_uring_params params;
 
