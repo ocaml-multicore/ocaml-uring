@@ -65,8 +65,8 @@ let rec wait_with_retry uring =
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # let result, data = wait_with_retry uring;;
-val result : int = 8
-val data : _[> `Open_log ] = `Open_log
+val result : Uring.Res.t = 9
+val data : [> `Open_log ] = `Open_log
 ```
 
 The `data` field is the data we passed in when submitting the request, allowing us to recognise this result
@@ -141,6 +141,21 @@ When you're finished with uring, use `exit` to close it down:
 ```
 
 The `tests` directory contains some more examples.
+
+## Updating to new versions of liburing
+
+1. First, update the files in `vendor/liburing`:
+
+   <!-- $MDX skip -->
+   ```sh
+   git subtree pull --prefix vendor/liburing https://github.com/axboe/liburing.git v2.14 --squash
+   ```
+
+2. Edit `lib/uring/dune` to use the new version number.
+   You might also have to tell it about any header files added in the new version.
+
+3. Update `lib/uring/include/discover.ml`, extending `uring_ops` and `uring_setup_flags`
+   with any newly added values.
 
 ## License
 
