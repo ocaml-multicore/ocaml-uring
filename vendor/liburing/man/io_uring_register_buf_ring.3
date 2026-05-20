@@ -70,7 +70,19 @@ of the fields are reserved and must be cleared to zero.
 
 The
 .I flags
-argument is currently unused and must be set to zero.
+argument can be set to one of the following values:
+.TP
+.B IOU_PBUF_RING_INC
+The buffers in this ring can be incrementally consumed. With partial
+consumption, each completion of a given buffer ID will continue where the
+previous one left off, or from the start if no completions have been seen yet.
+When more completions should be expected for a given buffer ID, the CQE will
+have
+.B IORING_CQE_F_BUF_MORE
+set in the
+.I flags
+member. Available since 6.12.
+.PP
 
 A shared buffer ring looks as follows:
 .PP
@@ -78,13 +90,13 @@ A shared buffer ring looks as follows:
 .EX
 struct io_uring_buf_ring {
     union {
-	struct {
+        struct {
             __u64 resv1;
             __u32 resv2;
             __u16 resv3;
             __u16 tail;
-	};
-	struct io_uring_buf bufs[0];
+        };
+        struct io_uring_buf bufs[0];
     };
 };
 .EE

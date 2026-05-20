@@ -26,10 +26,17 @@
 /examples/proxy
 /examples/send-zerocopy
 /examples/rsrc-update-bench
+/examples/kdigest
+/examples/reg-wait
+/examples/zcrx
 
 /test/*.t
 /test/*.dmesg
 /test/output/
+
+# Clang's compilation database file and directory.
+/.cache
+/compile_commands.json
 
 config-host.h
 config-host.mak

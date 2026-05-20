@@ -3,7 +3,7 @@
 .\"
 .\" SPDX-License-Identifier: LGPL-2.0-or-later
 .\"
-.TH io_uring_enter 2 2019-01-22 "Linux" "Linux Programmer's Manual"
+.TH io_uring_enter 2 "January 22, 2019" "Linux" "Linux Programmer's Manual"
 .SH NAME
 io_uring_enter \- initiate and/or complete asynchronous I/O
 .SH SYNOPSIS
@@ -16,7 +16,7 @@ io_uring_enter \- initiate and/or complete asynchronous I/O
 .PP
 .BI "int io_uring_enter2(unsigned int " fd ", unsigned int " to_submit ,
 .BI "                    unsigned int " min_complete ", unsigned int " flags ,
-.BI "                    sigset_t *" sig ", size_t " sz );
+.BI "                    void *" arg ", size_t " sz );
 .fi
 .PP
 .SH DESCRIPTION
@@ -44,6 +44,17 @@ number of events in
 before returning. This flag can be set along with
 .I to_submit
 to both submit and complete events in a single system call.
+If this flag is set either the flag
+.B IORING_SETUP_DEFER_TASKRUN
+must not be set or the thread issuing the syscall must be the thread that
+created the io_uring associated with
+.I fd,
+or be the thread that enabled the ring originally created with
+.B IORING_SETUP_R_DISABLED
+via
+.BR io_uring_register (2)
+or
+.BR io_uring_enable_rings (3).
 .TP
 .B IORING_ENTER_SQ_WAKEUP
 If the ring has been created with
@@ -56,27 +67,22 @@ If the ring has been created with
 then the application has no real insight into when the SQ kernel thread has
 consumed entries from the SQ ring. This can lead to a situation where the
 application can no longer get a free SQE entry to submit, without knowing
-when it one becomes available as the SQ kernel thread consumes them. If
+when one will become available as the SQ kernel thread consumes them. If
 the system call is used with this flag set, then it will wait until at least
 one entry is free in the SQ ring.
 .TP
 .B IORING_ENTER_EXT_ARG
-Since kernel 5.11, the system calls arguments have been modified to look like
-the following:
-
-.nf
-.BI "int io_uring_enter2(unsigned int " fd ", unsigned int " to_submit ,
-.BI "                    unsigned int " min_complete ", unsigned int " flags ,
-.BI "                    const void *" arg ", size_t " argsz );
-.fi
-
-which behaves just like the original definition by default. However, if
-.B IORING_ENTER_EXT_ARG
-is set, then instead of a
+By default,
+.I arg
+is a
 .I sigset_t
-being passed in, a pointer to a
+pointer. If
+.B IORING_ENTER_EXT_ARG
+is set (supported since kernel 5.11), then
+.I arg
+is instead a pointer to a
 .I struct io_uring_getevents_arg
-is used instead and
+and
 .I argsz
 must be set to the size of this structure. The definition is as follows:
 
@@ -100,10 +106,49 @@ directly in version 5.11 and newer by using this feature.
 .TP
 .B IORING_ENTER_REGISTERED_RING
 If the ring file descriptor has been registered through use of
-.B IORING_REGISTER_RING_FDS,
+.BR IORING_REGISTER_RING_FDS ,
 then setting this flag will tell the kernel that the
 .I ring_fd
 passed in is the registered ring offset rather than a normal file descriptor.
+
+.TP
+.B IORING_ENTER_ABS_TIMER
+
+When this flag is set, the timeout argument passed in
+.I struct io_uring_getevents_arg
+will be interpreted as an absolute
+time of the registered clock (see
+.BR IORING_REGISTER_CLOCK)
+until which the waiting should end.
+
+Available since 6.12
+
+.TP
+.B IORING_ENTER_EXT_ARG_REG
+
+When this flag is set,
+.IR arg
+is not a pointer to a
+.IR struct io_uring_getevents_arg ,
+but merely an offset into an area of wait regions previously registered with
+.BR io_uring_register (2)
+using the
+.B IORING_REGISTER_MEM_REGION
+operation.
+
+Available since 6.13
+
+.TP
+.B IORING_ENTER_NO_IOWAIT
+When this flag is set, the system call will not mark the waiting task as being
+in iowait if it is sleeping waiting on events and there are pending requests.
+This is useful if iowait isn't expected when waiting for events. It can also
+prevent extra power usage by allowing the CPU to enter lower sleep states.
+This flag is only available if the kernel supports the
+.B IORING_FEAT_NO_IOWAIT
+feature.
+
+Available since 6.15.
 
 .PP
 .PP
@@ -182,56 +227,83 @@ structure:
  * IO submission data structure (Submission Queue Entry)
  */
 struct io_uring_sqe {
-    __u8    opcode;         /* type of operation for this sqe */
-    __u8    flags;          /* IOSQE_ flags */
-    __u16   ioprio;         /* ioprio for the request */
-    __s32   fd;             /* file descriptor to do IO on */
-    union {
-        __u64   off;            /* offset into file */
-        __u64   addr2;
-    };
-    union {
-        __u64   addr;       /* pointer to buffer or iovecs */
-        __u64   splice_off_in;
-    }
-    __u32   len;            /* buffer size or number of iovecs */
-    union {
-        __kernel_rwf_t  rw_flags;
-        __u32    fsync_flags;
-        __u16    poll_events;   /* compatibility */
-        __u32    poll32_events; /* word-reversed for BE */
-        __u32    sync_range_flags;
-        __u32    msg_flags;
-        __u32    timeout_flags;
-        __u32    accept_flags;
-        __u32    cancel_flags;
-        __u32    open_flags;
-        __u32    statx_flags;
-        __u32    fadvise_advice;
-        __u32    splice_flags;
-        __u32    rename_flags;
-        __u32    unlink_flags;
-        __u32    hardlink_flags;
-    };
-    __u64    user_data;     /* data to be passed back at completion time */
-    union {
-    struct {
-        /* index into fixed buffers, if used */
-            union {
-                /* index into fixed buffers, if used */
-                __u16    buf_index;
-                /* for grouped buffer selection */
-                __u16    buf_group;
-            }
-        /* personality to use, if used */
-        __u16    personality;
-        union {
-            __s32    splice_fd_in;
-            __u32    file_index;
+	__u8	opcode;		/* type of operation for this sqe */
+	__u8	flags;		/* IOSQE_ flags */
+	__u16	ioprio;		/* ioprio for the request */
+	__s32	fd;		/* file descriptor to do IO on */
+	union {
+		__u64	off;	/* offset into file */
+		__u64	addr2;
+		struct {
+			__u32	cmd_op;
+			__u32	__pad1;
+		};
 	};
-    };
-    __u64    __pad2[3];
-    };
+	union {
+		__u64	addr;	/* pointer to buffer or iovecs */
+		__u64	splice_off_in;
+		struct {
+			__u32	level;
+			__u32	optname;
+		};
+	};
+	__u32	len;		/* buffer size or number of iovecs */
+	union {
+		__kernel_rwf_t	rw_flags;
+		__u32		fsync_flags;
+		__u16		poll_events;	/* compatibility */
+		__u32		poll32_events;	/* word-reversed for BE */
+		__u32		sync_range_flags;
+		__u32		msg_flags;
+		__u32		timeout_flags;
+		__u32		accept_flags;
+		__u32		cancel_flags;
+		__u32		open_flags;
+		__u32		statx_flags;
+		__u32		fadvise_advice;
+		__u32		splice_flags;
+		__u32		rename_flags;
+		__u32		unlink_flags;
+		__u32		hardlink_flags;
+		__u32		xattr_flags;
+		__u32		msg_ring_flags;
+		__u32		uring_cmd_flags;
+		__u32		waitid_flags;
+		__u32		futex_flags;
+		__u32		install_fd_flags;
+		__u32		nop_flags;
+	};
+	__u64	user_data;	/* data to be passed back at completion time */
+	/* pack this to avoid bogus arm OABI complaints */
+	union {
+		/* index into fixed buffers, if used */
+		__u16	buf_index;
+		/* for grouped buffer selection */
+		__u16	buf_group;
+	} __attribute__((packed));
+	/* personality to use, if used */
+	__u16	personality;
+	union {
+		__s32	splice_fd_in;
+		__u32	file_index;
+		__u32	optlen;
+		struct {
+			__u16	addr_len;
+			__u16	__pad3[1];
+		};
+	};
+	union {
+		struct {
+			__u64	addr3;
+			__u64	__pad2[1];
+		};
+		__u64	optval;
+		/*
+		 * If the ring is initialized with IORING_SETUP_SQE128, then
+		 * this field is used for 80 bytes of arbitrary command data
+		 */
+		__u8	cmd[0];
+	};
 };
 .EE
 .in
@@ -267,6 +339,12 @@ for details on how to setup a context for fixed reads and writes.
 .B IORING_OP_FSYNC
 File sync.  See also
 .BR fsync (2).
+Optionally
+.I off
+and
+.I len
+can be used to specify a range within the file to be synced rather than
+syncing the entire file, which is the default behavior.
 Note that, while I/O is initiated in the order in which it appears in
 the submission queue, completions are unordered.  For example, an
 application which places a write I/O followed by an fsync in the
@@ -274,6 +352,10 @@ submission queue cannot expect the fsync to apply to the write.  The
 two operations execute in parallel, so the fsync may complete before
 the write is issued to the storage.  The same is also true for
 previously issued writes that have not completed prior to the fsync.
+To enforce ordering one may utilize linked SQEs,
+.B IOSQE_IO_DRAIN
+or wait for the arrival of CQEs of requests which have to be ordered
+before a given request before submitting its SQE.
 
 .TP
 .B IORING_OP_POLL_ADD
@@ -306,6 +388,17 @@ This command works like
 an async
 .BR poll(2)
 and the completion event result is the returned mask of events.
+
+Without
+.B IORING_POLL_ADD_MULTI
+and the initial poll operation with
+.B IORING_POLL_ADD_MULTI
+the operation is level triggered, i.e. if there is data ready or events
+pending etc. at the time of submission a corresponding CQE will be posted.
+Potential further completions beyond the first caused by a
+.B IORING_POLL_ADD_MULTI
+are edge triggered.
+
 .TP
 .B IORING_OP_POLL_REMOVE
 Remove or update an existing poll request.  If found, the
@@ -352,7 +445,11 @@ holds the file descriptor that represents the epoll instance,
 .I off
 holds the file descriptor to add, remove or modify,
 .I len
-holds the operation (EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD) to perform and,
+holds the operation (
+.BR EPOLL_CTL_ADD ,
+.BR EPOLL_CTL_DEL ,
+.BR EPOLL_CTL_MOD )
+to perform and,
 .I addr
 holds a pointer to the
 .I epoll_event
@@ -490,7 +587,8 @@ field must contain a pointer to a struct __kernel_timespec structure,
 .I len
 must contain 1 to signify one __kernel_timespec structure,
 .I timeout_flags
-may contain IORING_TIMEOUT_ABS
+may contain
+.B IORING_TIMEOUT_ABS
 for an absolute timeout value, or 0 for a relative timeout.
 .I off
 may contain a completion event count. A timeout
@@ -500,13 +598,13 @@ or the specified number of events have completed. Either condition will
 trigger the event. If set to 0, completed events are not counted, which
 effectively acts like a timer. io_uring timeouts use the
 .B CLOCK_MONOTONIC
-clock source. The request will complete with
-.I -ETIME
+as the default clock source. The request will complete with
+.B -ETIME
 if the timeout got completed through expiration of the timer, or
 .I 0
 if the timeout got completed through requests completing on their own. If
 the timeout was canceled before it expired, the request will complete with
-.I -ECANCELED.
+.B -ECANCELED.
 Available since 5.4.
 
 Since 5.15, this command also supports the following modifiers in
@@ -516,26 +614,62 @@ Since 5.15, this command also supports the following modifiers in
 .in +12
 .B IORING_TIMEOUT_BOOTTIME
 If set, then the clocksource used is
-.I CLOCK_BOOTTIME
+.B CLOCK_BOOTTIME
 instead of
-.I CLOCK_MONOTONIC.
+.BR CLOCK_MONOTONIC .
 This clocksource differs in that it includes time elapsed if the system was
 suspend while having a timeout request in-flight.
 
 .B IORING_TIMEOUT_REALTIME
 If set, then the clocksource used is
-.I CLOCK_REALTIME
+.B CLOCK_REALTIME
 instead of
-.I CLOCK_MONOTONIC.
+.BR CLOCK_MONOTONIC .
 .EE
+.in
+.PP
+
+.PP
+.in +7
+Since 5.16,
+.B IORING_TIMEOUT_ETIME_SUCCESS
+can be set in
+.IR timeout_flags ,
+which will result in the expiration of the timer and subsequent completion
+with
+.B -ETIME
+not being interpreted as an error. This is mostly relevant for linked SQEs, as
+subsequent requests in the chain would not get canceled by the timeout, if
+this flag is set. See
+.B IOSQE_IO_LINK
+for more details on linked SQEs.
+.in
+.PP
+
+.PP
+.in +7
+Since 6.4,
+.B IORING_TIMEOUT_MULTISHOT
+can be set in
+.IR timeout_flags ,
+which will result in the timer producing multiple consecutive completions
+like other multi shot operations e.g.
+.B IORING_OP_READ_MULTISHOT
+or
+.BR IORING_POLL_ADD_MULTI .
+.I off
+must be set to the amount of desired completions.
+.B IORING_TIMEOUT_MULTISHOT
+must not be used with
+.BR IORING_TIMEOUT_ABS .
 .in
 .PP
 
 .TP
 .B IORING_OP_TIMEOUT_REMOVE
 If
-.I timeout_flags are zero, then it attempts to remove an existing timeout
-operation.
+.I timeout_flags
+are zero, then it attempts to remove an existing timeout operation.
 .I addr
 must contain the
 .I user_data
@@ -545,16 +679,16 @@ with a result value of
 .I 0
 If the timeout request was found but expiration was already in progress,
 this request will terminate with a result value of
-.I -EBUSY
+.B -EBUSY
 If the timeout request wasn't found, the request will terminate with a result
 value of
-.I -ENOENT
+.B -ENOENT
 Available since 5.5.
 
 If
 .I timeout_flags
 contain
-.I IORING_TIMEOUT_UPDATE,
+.BR IORING_TIMEOUT_UPDATE ,
 instead of removing an existing operation, it updates it.
 .I addr
 and return values are same as before.
@@ -568,7 +702,7 @@ Available since 5.11.
 .TP
 .B IORING_OP_ACCEPT
 Issue the equivalent of an
-.BR accept4(2)
+.BR accept4 (2)
 system call.
 .I fd
 must be set to the socket file descriptor,
@@ -579,14 +713,15 @@ must contain a pointer to the socklen_t addrlen field. Flags can be passed using
 the
 .I accept_flags
 field. See also
-.BR accept4(2)
+.BR accept4 (2)
 for the general description of the related system call. Available since 5.5.
 
 If the
 .I file_index
 field is set to a positive number, the file won't be installed into the
 normal file table as usual but will be placed into the fixed file table at index
-.I file_index - 1.
+.I file_index
+- 1.
 In this case, instead of returning a file descriptor, the result will contain
 either 0 on success or an error. If the index points to a valid empty slot, the
 installation is guaranteed to not fail. If there is already a file in the slot,
@@ -596,7 +731,7 @@ Please note that only io_uring has access to such files and no other syscall
 can use them. See
 .B IOSQE_FIXED_FILE
 and
-.B IORING_REGISTER_FILES.
+.BR IORING_REGISTER_FILES .
 
 Available since 5.5.
 
@@ -611,9 +746,13 @@ complete with one of the following results codes. If found, the
 .I res
 field of the cqe will contain 0. If not found,
 .I res
-will contain -ENOENT. If found and attempted canceled, the
+will contain
+.BR -ENOENT .
+If found and attempted canceled, the
 .I res
-field will contain -EALREADY. In this case, the request may or may not
+field will contain
+.BR -EALREADY .
+In this case, the request may or may not
 terminate. In general, requests that are interruptible (like socket IO) will
 get canceled, while disk IO requests cannot be canceled if already started.
 Available since 5.5.
@@ -621,20 +760,20 @@ Available since 5.5.
 .TP
 .B IORING_OP_LINK_TIMEOUT
 This request must be linked with another request through
-.I IOSQE_IO_LINK
+.B IOSQE_IO_LINK
 which is described below. Unlike
-.I IORING_OP_TIMEOUT,
-.I IORING_OP_LINK_TIMEOUT
+.BR IORING_OP_TIMEOUT ,
+.B IORING_OP_LINK_TIMEOUT
 acts on the linked request, not the completion queue. The format of the command
 is otherwise like
-.I IORING_OP_TIMEOUT,
+.BR IORING_OP_TIMEOUT ,
 except there's no completion event count as it's tied to a specific request.
 If used, the timeout specified in the command will cancel the linked command,
 unless the linked command completes before the timeout. The timeout will
 complete with
-.I -ETIME
+.B -ETIME
 if the timer expired and the linked request was attempted canceled, or
-.I -ECANCELED
+.B -ECANCELED
 if the timer got canceled because of completion of the linked request. Like
 .B IORING_OP_TIMEOUT
 the clock source used is
@@ -645,7 +784,7 @@ Available since 5.5.
 .TP
 .B IORING_OP_CONNECT
 Issue the equivalent of a
-.BR connect(2)
+.BR connect (2)
 system call.
 .I fd
 must be set to the socket file descriptor,
@@ -653,13 +792,13 @@ must be set to the socket file descriptor,
 must contain the const pointer to the sockaddr structure, and
 .I off
 must contain the socklen_t addrlen field. See also
-.BR connect(2)
+.BR connect (2)
 for the general description of the related system call. Available since 5.5.
 
 .TP
 .B IORING_OP_FALLOCATE
 Issue the equivalent of a
-.BR fallocate(2)
+.BR fallocate (2)
 system call.
 .I fd
 must be set to the file descriptor,
@@ -669,13 +808,13 @@ must contain the mode associated with the operation,
 must contain the offset on which to operate, and
 .I addr
 must contain the length. See also
-.BR fallocate(2)
+.BR fallocate (2)
 for the general description of the related system call. Available since 5.6.
 
 .TP
 .B IORING_OP_FADVISE
 Issue the equivalent of a
-.BR posix_fadvise(2)
+.BR posix_fadvise (2)
 system call.
 .I fd
 must be set to the file descriptor,
@@ -685,13 +824,13 @@ must contain the offset on which to operate,
 must contain the length, and
 .I fadvise_advice
 must contain the advice associated with the operation. See also
-.BR posix_fadvise(2)
+.BR posix_fadvise (2)
 for the general description of the related system call. Available since 5.6.
 
 .TP
 .B IORING_OP_MADVISE
 Issue the equivalent of a
-.BR madvise(2)
+.BR madvise (2)
 system call.
 .I addr
 must contain the address to operate on,
@@ -700,13 +839,13 @@ must contain the length on which to operate,
 and
 .I fadvise_advice
 must contain the advice associated with the operation. See also
-.BR madvise(2)
+.BR madvise (2)
 for the general description of the related system call. Available since 5.6.
 
 .TP
 .B IORING_OP_OPENAT
 Issue the equivalent of a
-.BR openat(2)
+.BR openat (2)
 system call.
 .I fd
 is the
@@ -720,7 +859,7 @@ argument,
 should contain any flags passed in, and
 .I len
 is access mode of the file. See also
-.BR openat(2)
+.BR openat (2)
 for the general description of the related system call. Available since 5.6.
 
 If the
@@ -737,14 +876,14 @@ Please note that only io_uring has access to such files and no other syscall
 can use them. See
 .B IOSQE_FIXED_FILE
 and
-.B IORING_REGISTER_FILES.
+.BR IORING_REGISTER_FILES .
 
 Available since 5.15.
 
 .TP
 .B IORING_OP_OPENAT2
 Issue the equivalent of a
-.BR openat2(2)
+.BR openat2 (2)
 system call.
 .I fd
 is the
@@ -758,7 +897,7 @@ argument,
 should contain the size of the open_how structure, and
 .I off
 should be set to the address of the open_how structure. See also
-.BR openat2(2)
+.BR openat2 (2)
 for the general description of the related system call. Available since 5.6.
 
 If the
@@ -770,32 +909,31 @@ In this case, instead of returning a file descriptor, the result will contain
 either 0 on success or an error. If the index points to a valid empty slot, the
 installation is guaranteed to not fail. If there is already a file in the slot,
 it will be replaced, similar to
-.B IORING_OP_FILES_UPDATE.
+.BR IORING_OP_FILES_UPDATE .
 Please note that only io_uring has access to such files and no other syscall
 can use them. See
 .B IOSQE_FIXED_FILE
 and
-.B IORING_REGISTER_FILES.
+.BR IORING_REGISTER_FILES .
 
 Available since 5.15.
 
 .TP
 .B IORING_OP_CLOSE
 Issue the equivalent of a
-.BR close(2)
+.BR close (2)
 system call.
 .I fd
 is the file descriptor to be closed. See also
-.BR close(2)
+.BR close (2)
 for the general description of the related system call. Available since 5.6.
 If the
 .I file_index
 field is set to a positive number, this command can be used to close files
 that were direct opened through
-.B IORING_OP_OPENAT
-,
-.B IORING_OP_OPENAT2
-, or
+.BR IORING_OP_OPENAT ,
+.BR IORING_OP_OPENAT2 ,
+or
 .B IORING_OP_ACCEPT
 using the io_uring specific direct descriptors. Note that only one of the
 descriptor fields may be set. The direct close feature is available since
@@ -804,7 +942,7 @@ the 5.15 kernel, where direct descriptors were introduced.
 .TP
 .B IORING_OP_STATX
 Issue the equivalent of a
-.BR statx(2)
+.BR statx (2)
 system call.
 .I fd
 is the
@@ -826,7 +964,7 @@ argument, and
 must contain a pointer to the
 .I statxbuf
 to be filled in. See also
-.BR statx(2)
+.BR statx (2)
 for the general description of the related system call. Available since 5.6.
 
 .TP
@@ -834,9 +972,9 @@ for the general description of the related system call. Available since 5.6.
 .TP
 .B IORING_OP_WRITE
 Issue the equivalent of a
-.BR pread(2)
+.BR pread (2)
 or
-.BR pwrite(2)
+.BR pwrite (2)
 system call.
 .I fd
 is the file descriptor to be operated on,
@@ -854,23 +992,23 @@ must be set to zero or -1. If
 is set to
 .B -1
 , the offset will use (and advance) the file position, like the
-.BR read(2)
+.BR read (2)
 and
-.BR write(2)
+.BR write (2)
 system calls. These are non-vectored versions of the
 .B IORING_OP_READV
 and
 .B IORING_OP_WRITEV
 opcodes. See also
-.BR read(2)
+.BR read (2)
 and
-.BR write(2)
+.BR write (2)
 for the general description of the related system call. Available since 5.6.
 
 .TP
 .B IORING_OP_SPLICE
 Issue the equivalent of a
-.BR splice(2)
+.BR splice (2)
 system call.
 .I splice_fd_in
 is the file descriptor to read from,
@@ -882,20 +1020,20 @@ is the file descriptor to write to,
 is an offset from which to start writing to. A sentinel value of
 .B -1
 is used to pass the equivalent of a NULL for the offsets to
-.BR splice(2).
+.BR splice (2).
 .I len
 contains the number of bytes to copy.
 .I splice_flags
 contains a bit mask for the flag field associated with the system call.
 Please note that one of the file descriptors must refer to a pipe.
 See also
-.BR splice(2)
+.BR splice (2)
 for the general description of the related system call. Available since 5.7.
 
 .TP
 .B IORING_OP_TEE
 Issue the equivalent of a
-.BR tee(2)
+.BR tee (2)
 system call.
 .I splice_fd_in
 is the file descriptor to read from,
@@ -907,7 +1045,7 @@ contains the number of bytes to copy, and
 contains a bit mask for the flag field associated with the system call.
 Please note that both of the file descriptors must refer to a pipe.
 See also
-.BR tee(2)
+.BR tee (2)
 for the general description of the related system call. Available since 5.8.
 
 .TP
@@ -969,7 +1107,7 @@ from. Available since 5.7.
 .TP
 .B IORING_OP_REMOVE_BUFFERS
 Remove buffers previously registered with
-.B IORING_OP_PROVIDE_BUFFERS.
+.BR IORING_OP_PROVIDE_BUFFERS .
 .I fd
 must contain the number of buffers to remove, and
 .I buf_group
@@ -979,7 +1117,7 @@ since 5.7.
 .TP
 .B IORING_OP_SHUTDOWN
 Issue the equivalent of a
-.BR shutdown(2)
+.BR shutdown (2)
 system call.
 .I fd
 is the file descriptor to the socket being shutdown, and
@@ -991,77 +1129,77 @@ argument. No no other fields should be set. Available since 5.11.
 .TP
 .B IORING_OP_RENAMEAT
 Issue the equivalent of a
-.BR renameat2(2)
+.BR renameat2 (2)
 system call.
 .I fd
 should be set to the
-.I olddirfd,
+.IR olddirfd ,
 .I addr
 should be set to the
-.I oldpath,
+.IR oldpath ,
 .I len
 should be set to the
-.I newdirfd,
+.IR newdirfd ,
 .I addr
 should be set to the
-.I oldpath,
+.IR oldpath ,
 .I addr2
 should be set to the
-.I newpath,
+.IR newpath ,
 and finally
 .I rename_flags
 should be set to the
 .I flags
 passed in to
-.BR renameat2(2).
+.BR renameat2 (2).
 Available since 5.11.
 
 .TP
 .B IORING_OP_UNLINKAT
 Issue the equivalent of a
-.BR unlinkat2(2)
+.BR unlinkat (2)
 system call.
 .I fd
 should be set to the
-.I dirfd,
+.IR dirfd ,
 .I addr
 should be set to the
-.I pathname,
+.IR pathname ,
 and
 .I unlink_flags
 should be set to the
 .I flags
 being passed in to
-.BR unlinkat(2).
+.BR unlinkat (2).
 Available since 5.11.
 
 .TP
 .B IORING_OP_MKDIRAT
 Issue the equivalent of a
-.BR mkdirat2(2)
+.BR mkdirat (2)
 system call.
 .I fd
 should be set to the
-.I dirfd,
+.IR dirfd ,
 .I addr
 should be set to the
-.I pathname,
+.IR pathname ,
 and
 .I len
 should be set to the
 .I mode
 being passed in to
-.BR mkdirat(2).
+.BR mkdirat (2).
 Available since 5.15.
 
 .TP
 .B IORING_OP_SYMLINKAT
 Issue the equivalent of a
-.BR symlinkat2(2)
+.BR symlinkat (2)
 system call.
 .I fd
 should be set to the
-.I newdirfd,
+.IR newdirfd ,
 .I addr
 should be set to the
 .I target
@@ -1070,32 +1208,32 @@ and
 should be set to the
 .I linkpath
 being passed in to
-.BR symlinkat(2).
+.BR symlinkat (2).
 Available since 5.15.
 
 .TP
 .B IORING_OP_LINKAT
 Issue the equivalent of a
-.BR linkat2(2)
+.BR linkat (2)
 system call.
 .I fd
 should be set to the
-.I olddirfd,
+.IR olddirfd ,
 .I addr
 should be set to the
-.I oldpath,
+.IR oldpath ,
 .I len
 should be set to the
-.I newdirfd,
+.IR newdirfd ,
 .I addr2
 should be set to the
-.I newpath,
+.IR newpath ,
 and
 .I hardlink_flags
 should be set to the
 .I flags
 being passed in to
-.BR linkat(2).
+.BR linkat (2).
 Available since 5.15.
 
 .TP
@@ -1122,7 +1260,7 @@ to pass messages via the two fields. Available since 5.18.
 .TP
 .B IORING_OP_SOCKET
 Issue the equivalent of a
-.BR socket(2)
+.BR socket (2)
 system call.
 .I fd
 must contain the communication domain,
@@ -1132,24 +1270,34 @@ must contain the communication type,
 must contain the protocol, and
 .I rw_flags
 is currently unused and must be set to zero. See also
-.BR socket(2)
+.BR socket (2)
 for the general description of the related system call. Available since 5.19.
 
 If the
 .I file_index
 field is set to a positive number, the file won't be installed into the
 normal file table as usual but will be placed into the fixed file table at index
-.I file_index - 1.
+.I file_index
+- 1.
 In this case, instead of returning a file descriptor, the result will contain
 either 0 on success or an error. If the index points to a valid empty slot, the
 installation is guaranteed to not fail. If there is already a file in the slot,
 it will be replaced, similar to
-.B IORING_OP_FILES_UPDATE.
+.BR IORING_OP_FILES_UPDATE .
 Please note that only io_uring has access to such files and no other syscall
 can use them. See
 .B IOSQE_FIXED_FILE
 and
-.B IORING_REGISTER_FILES.
+.BR IORING_REGISTER_FILES .
+
+Available since 5.19.
+
+.TP
+.B IORING_OP_URING_CMD
+Issues an asynchronous, per-file private operation, similar to
+.BR ioctl (2).
+Further information may be found in the dedicated man page of
+.BR IORING_OP_URING_CMD .
 
 Available since 5.19.
 
@@ -1157,10 +1305,12 @@ Available since 5.19.
 .B IORING_OP_SEND_ZC
 Issue the zerocopy equivalent of a
 .BR send(2)
-system call. Similar to IORING_OP_SEND, but tries to avoid making intermediate
+system call. Similar to
+.BR IORING_OP_SEND ,
+but tries to avoid making intermediate
 copies of data. Zerocopy execution is not guaranteed and may fall back to
 copying. The request may also fail with
-.B -EOPNOTSUPP ,
+.BR -EOPNOTSUPP ,
 when a protocol doesn't support zerocopy, in which case users are recommended
 to use copying sends instead.
 
@@ -1169,7 +1319,7 @@ The
 field of the first
 .I "struct io_uring_cqe"
 may likely contain
-.B IORING_CQE_F_MORE ,
+.BR IORING_CQE_F_MORE ,
 which means that there will be a second completion event / notification for
 the request, with the
 .I user_data
@@ -1182,7 +1332,7 @@ notification's
 field will be set to zero and the
 .I flags
 field will contain
-.B IORING_CQE_F_NOTIF .
+.BR IORING_CQE_F_NOTIF .
 The two step model is needed because the kernel may hold on to buffers for a
 long time, e.g. waiting for a TCP ACK, and having a separate cqe for request
 completions allows userspace to push more data without extra delays. Note,
@@ -1205,7 +1355,7 @@ holds the flags associated with the system call. When
 is non-zero it points to the address of the target with
 .I addr_len
 specifying its size, turning the request into a
-.BR sendto(2)
+.BR sendto (2)
 system call equivalent.
 
 Available since 6.0.
@@ -1235,9 +1385,25 @@ for details on how to setup a context for fixed buffer I/O.
 .PP
 
 .TP
+.B IORING_OP_SENDMSG_ZC
+Issue the zerocopy equivalent of a
+.BR sendmsg (2)
+system call.
+Works just like
+.BR IORING_OP_SENDMSG ,
+but like
+.B IORING_OP_SEND_ZC
+supports
+.BR IORING_RECVSEND_FIXED_BUF .
+For additional notes regarding zero copy see
+.BR IORING_OP_SEND_ZC .
+
+Available since 6.1
+
+.TP
 .B IORING_OP_WAITID
 Issue the equivalent of a
-.BR waitid(2)
+.BR waitid (2)
 system call.
 .I len
 must contain the idtype being queried/waited for and
@@ -1247,8 +1413,305 @@ must contain the 'pid' (or id) being waited for.
 is the 'options' being set (the child state changes to wait for).
 .I addr2
 is a pointer to siginfo_t, if any, being filled in. See also
-.BR waitid(2)
+.BR waitid (2)
 for the general description of the related system call. Available since 6.5.
+
+.TP
+.B IORING_OP_SETXATTR
+.TP
+.B IORING_OP_GETXATTR
+.TP
+.B IORING_OP_FSETXATTR
+.TP
+.B IORING_OP_FGETXATTR
+Issue the equivalent of a
+.BR setxattr (2)
+or
+.BR getxattr (2)
+or
+.BR fsetxattr (2)
+or
+.BR fgetxattr (2)
+system call.
+.I addr
+must contain a pointer to a buffer containing the name of the extended
+attribute.
+.I addr2
+must contain a pointer to a buffer of maximum length
+.IR len ,
+in which the value of the extended attribute is to be placed or is read from.
+Additional flags maybe provided in
+.IR xattr_flags .
+For
+.BR setxattr (2)
+or
+.BR getxattr (2)
+.I addr3
+must contain a pointer to the path of the file.
+For
+.BR fsetxattr (2)
+or
+.BR fgetxattr (2)
+.I fd
+must contain the file descriptor of the file.
+
+Available since 5.19.
+
+.TP
+.B IORING_OP_BIND
+Issues the equivalent of the
+.BR bind (2)
+system call.
+.I fd
+must contain the file descriptor of the socket,
+.I addr
+must contain a pointer to the sockaddr struct containing the address to assign
+and
+.I addr2
+must contain the length of the address.
+
+Available since 6.11.
+
+.TP
+.B IORING_OP_LISTEN
+Issues the equivalent of the
+.BR listen (2)
+system call.
+.I fd
+must contain the file descriptor of the socket and
+.I len
+must contain the backlog parameter, i.e. the maximum amount of pending
+queued connections.
+
+Available since 6.11.
+
+.TP
+.B IORING_OP_FTRUNCATE
+Issues the equivalent of the
+.BR ftruncate (2)
+system call.
+.I fd
+must contain the file descriptor of the file to truncate and
+.I off
+must contain the length to which the file will be truncated.
+
+Available since 6.9.
+
+.TP
+.B IORING_OP_READ_MULTISHOT
+Like
+.BR IORING_OP_READ ,
+but similar to requests prepared with
+.IR io_uring_prep_multishot_accept (3)
+additional reads and thus CQEs will be performed based on this single SQE once
+there is more data available.
+Is restricted to pollable files and will fall back to single shot if the file
+does not support
+.BR NOWAIT .
+Like other multishot type requests, the application should look at the CQE
+flags and see if
+.B IORING_CQE_F_MORE
+is set on completion as an indication of whether or not the read request will
+generate further CQEs. Available since 6.7.
+
+.TP
+.B IORING_OP_FUTEX_WAIT
+Issues the equivalent of the
+.BR futex_wait (2)
+system call.
+.I addr
+must hold a pointer to the futex,
+.I addr2
+must hold the value to which the futex has to be changed so this caller to
+.BR futex_wait (2)
+can be woken by a call to
+.BR futex_wake (2),
+.I addr3
+must hold the bitmask of this
+.BR futex_wait (2)
+caller.
+For a caller of
+.BR futex_wake (2)
+to wake a waiter additionally the bitmask of the waiter and waker must have
+at least one set bit in common.
+.I fd
+must contain additional flags passed in.
+
+Available since 6.7.
+
+.TP
+.B IORING_OP_FUTEX_WAKE
+Issues the equivalent of the
+.BR futex_wake (2)
+system call.
+.I addr
+must hold a pointer to the futex,
+.I addr2
+must hold the maximum number of waiters waiting on this futex to wake,
+.I addr3
+must hold the bitmask of this
+.BR futex_wake (2)
+call.
+To wake a waiter additionally the bitmask of the waiter and waker must have
+at least one set bit in common.
+.I fd
+must contain additional flags passed in.
+
+Available since 6.7.
+
+.TP
+.B IORING_OP_FUTEX_WAITV
+Issues the equivalent of the
+.BR futex_waitv (2)
+system call.
+.I addr
+must hold a pointer to the futexv struct,
+.I len
+must hold the length of the futexv struct, which may not be 0 and must be
+smaller than
+.B FUTEX_WAITV_MAX
+(as of 6.11 == 128).
+
+Available since 6.7.
+
+.TP
+.B IORING_OP_FIXED_FD_INSTALL
+This operation is used to insert a registered file into the regular process
+file table.
+Consequently
+.I fd
+must contain the file index and
+.B IOSQE_FIXED_FILE
+must be set.
+The resulting regular fd is returned via cqe->res.
+Additional flags may be passed in via
+.IR install_fd_flags .
+Currently supported flags are:
+.BR IORING_FIXED_FD_NO_CLOEXEC ,
+which overrides a potentially set
+.B O_CLOEXEC
+flag set on the initial file.
+
+Available since 6.8.
+
+.TP
+.B IORING_OP_PIPE
+This operation is used to create a pipe, a set of file descriptors that can be
+used for communication. The pipe may either be created as a set of normal
+file descriptors, or it can be created as fixed/direct descriptors.
+.I addr
+must contain a pointer to an array of two integers, where upon successful
+completion of the request, index 0 will contain the read side and index 1 the
+write side of the pipe.
+.I pipe_flags
+may contain flags associated with pipe creation. Currently
+.B O_CLOEXEC | O_NONBLOCK | O_DIRECT | O_NOTIFICATION_PIPE
+are supported.
+.I file_index
+may contain the the desired starting point for a fixed descriptor pipe
+creation. If this is set to
+.B 0,
+then regular file descriptors are used. If set to
+.B IORING_FILE_INDEX_ALLOC,
+then the kernel will allocate descriptors from the previously registered
+direct descriptor table. If set to any non-zero value, then it sets the
+exact direct descriptor value for index 0 of the pipe, and index 1 will be
+the following integer value.
+
+If used with direct descriptors rather than normal file descriptors, a
+direct descriptor table must have been previously registered with the kernel.
+
+Available since 6.16.
+
+.TP
+.B IORING_OP_RECV_ZC
+Receive data from a socket using zero-copy techniques. Unlike
+.BR IORING_OP_RECV ,
+this operation does not use a user-provided buffer. Instead, data is delivered
+through a pre-registered zero-copy RX interface queue.
+.I fd
+must be set to the socket file descriptor.
+.I zcrx_ifq_idx
+specifies the index of the registered zero-copy RX interface queue.
+.I len
+specifies the maximum amount of data to receive.
+.I ioprio
+can contain flags such as
+.B IORING_RECVSEND_POLL_FIRST
+and
+.BR IORING_RECV_MULTISHOT .
+This operation requires multishot mode.
+
+Before using this command, a zero-copy RX interface queue must be registered via
+.BR io_uring_register (2)
+using
+.BR IORING_REGISTER_ZCRX_IFQ .
+Data completions are posted as auxiliary CQEs.
+
+Available since 6.15.
+
+.TP
+.B IORING_OP_EPOLL_WAIT
+Wait for events on an epoll instance. This is an async version of
+.BR epoll_wait (2).
+.I fd
+must be set to the epoll file descriptor,
+.I addr
+must point to an array of
+.I struct epoll_event
+to receive the events, and
+.I len
+must contain the maximum number of events to return.
+
+The primary use case is for legacy event loops that still use epoll for some
+file descriptors. By using io_uring to wait on epoll events, the application
+can unify its event handling through io_uring while maintaining backwards
+compatibility with epoll-based components.
+
+Available since 6.15.
+
+.TP
+.B IORING_OP_READV_FIXED
+.TP
+.B IORING_OP_WRITEV_FIXED
+Vectored read and write operations using pre-registered buffers, combining the
+functionality of
+.BR IORING_OP_READV / IORING_OP_WRITEV
+with
+.BR IORING_OP_READ_FIXED / IORING_OP_WRITE_FIXED .
+The
+.I buf_index
+field specifies the index into the registered buffer table. Unlike the
+non-fixed vectored operations, the iovec entries point into the registered
+buffer region. This allows vectored I/O while still benefiting from the
+reduced overhead of pre-registered buffers.
+
+Available since 6.15.
+
+.TP
+.B IORING_OP_NOP128
+No operation, similar to
+.BR IORING_OP_NOP ,
+but explicitly uses a 128-byte SQE. This can be useful for testing or
+alignment purposes when using mixed 64/128-byte SQE rings
+.RB ( IORING_SETUP_SQE_MIXED ).
+
+Available since 6.19.
+
+.TP
+.B IORING_OP_URING_CMD128
+Passthrough command to the underlying file, identical to
+.BR IORING_OP_URING_CMD ,
+but explicitly uses a 128-byte SQE. The extra 64 bytes provide additional
+space for command-specific data. This is useful with
+.B IORING_SETUP_SQE_MIXED
+rings where some commands need the larger SQE size while others do not.
+
+See
+.BR IORING_OP_URING_CMD
+for general usage details.
+
+Available since 6.19.
 
 .PP
 The
@@ -1264,7 +1727,7 @@ section of the
 .BR io_uring_register (2)
 man page). Note that this isn't always available for all commands. If used on
 a command that doesn't support fixed files, the SQE will error with
-.B -EBADF.
+.BR -EBADF .
 Available since 5.1.
 .TP
 .B IOSQE_IO_DRAIN
@@ -1294,7 +1757,10 @@ as the error code. Available since 5.3.
 Like IOSQE_IO_LINK, but it doesn't sever regardless of the completion result.
 Note that the link will still sever if we fail submitting the parent request,
 hard links are only resilient in the presence of completion results for
-requests that did submit correctly. IOSQE_IO_HARDLINK implies IOSQE_IO_LINK.
+requests that did submit correctly.
+.B IOSQE_IO_HARDLINK
+implies
+.BR IOSQE_IO_LINK .
 Available since 5.5.
 .TP
 .B IOSQE_ASYNC
@@ -1329,7 +1795,7 @@ fails, an appropriate CQE will be posted as usual and if there is no
 .B IOSQE_IO_HARDLINK,
 CQEs for all linked requests will be omitted. The notion of failure/success is
 opcode specific and is the same as with breaking chains of
-.B IOSQE_IO_LINK.
+.BR IOSQE_IO_LINK .
 One special case is when the request has a linked timeout, then the CQE
 generation for the linked timeout is decided solely by whether it has
 .B IOSQE_CQE_SKIP_SUCCESS
@@ -1344,10 +1810,10 @@ enough for userspace to know the state of the system. One such example would
 be writing to a synchronisation file.
 
 This flag is incompatible with
-.B IOSQE_IO_DRAIN.
+.BR IOSQE_IO_DRAIN .
 Using both of them in a single ring is undefined behavior, even when they are
 not used together in a single request. Currently, after the first request with
-.B IOSQE_CQE_SKIP_SUCCESS,
+.BR IOSQE_CQE_SKIP_SUCCESS ,
 all subsequent requests marked with drain will be failed at submission time.
 Note that the error reporting is best effort only, and restrictions may change
 in the future.
@@ -1414,7 +1880,7 @@ is an index into an array of fixed buffers, and is only valid if fixed
 buffers were registered.
 .I personality
 is the credentials id to use for this operation. See
-.BR io_uring_register(2)
+.BR io_uring_register (2)
 for how to register personalities with io_uring. If set to 0, the current
 personality of the submitting task is used.
 .PP
@@ -1450,13 +1916,14 @@ is used for certain commands, like
 or in conjunction with
 .B IOSQE_BUFFER_SELECT
 or
-.B IORING_OP_MSG_RING,
-, see those entries for details.
+.BR IORING_OP_MSG_RING ,
+see those entries for details.
 .I res
 is the operation-specific result, but io_uring-specific errors
 (e.g. flags or opcode invalid) are returned through this field.
 They are described in section
-.B CQE ERRORS.
+.B CQE
+.BR ERRORS .
 .PP
 For read and write opcodes, the
 return values match
@@ -1490,7 +1957,8 @@ as submission happens outside the context of the system call.
 
 The errors related to a submission queue entry will be returned through a
 completion queue entry (see section
-.B CQE ERRORS),
+.B CQE
+.BR ERRORS ),
 rather than through the system call itself.
 
 Errors that occur not on behalf of a submission queue entry are returned via the
@@ -1550,7 +2018,13 @@ the CQ ring, or if the application attempts to wait for more events without
 having reaped the ones already present in the CQ ring.
 .TP
 .B EEXIST
-The thread submitting the work is invalid.
+The thread submitting the work is invalid. This may occur if
+.B IORING_ENTER_GETEVENTS
+and
+.B IORING_SETUP_DEFER_TASKRUN
+is set, but the submitting thread is not the thread that initially created or
+enabled the io_uring associated with
+.I fd.
 .TP
 .B EINVAL
 Some bits in the
@@ -1572,9 +2046,14 @@ does not refer to an io_uring instance.
 .B EINTR
 The operation was interrupted by a delivery of a signal before it could
 complete; see
-.BR signal(7).
+.BR signal (7).
 Can happen while waiting for events with
 .B IORING_ENTER_GETEVENTS.
+.TP
+.B EOWNERDEAD
+The ring has been setup with
+.B IORING_SETUP_SQPOLL
+and the sq poll kernel thread has been killed.
 
 .SH CQE ERRORS
 These io_uring-specific errors are returned as a negative value in the
@@ -1709,3 +2188,12 @@ was set in the
 field of the submission queue entry, but the
 .I opcode
 doesn't support buffer selection.
+.TP
+.B EINVAL
+.B IORING_OP_TIMEOUT
+was specified, but
+.I timeout_flags
+specified more than one clock source or
+.B IORING_TIMEOUT_MULTISHOT
+was set alongside
+.BR IORING_TIMEOUT_ABS .

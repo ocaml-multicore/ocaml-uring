@@ -29,6 +29,7 @@
   include/liburing.h
   include/liburing/io_uring.h
   include/liburing/io_uring_version.h
+  include/liburing/io_uring/query.h
   include/liburing/barrier.h
   include/liburing/compat.h)
  (action
@@ -55,6 +56,7 @@
   compat.h
   io_uring.h
   liburing.h
+  query.h
   io_uring_version.h)
  (action
   (no-infer
@@ -68,20 +70,14 @@
        "%{ocaml-config:ocamlc_cflags}"
        (run make -j -C src))))
     (copy %{project_root}/vendor/liburing/src/liburing.a liburing.a)
-    (copy %{project_root}/vendor/liburing/src/liburing.so.2.7 dlluring.so)
+    (copy %{project_root}/vendor/liburing/src/liburing.so.2.14 dlluring.so)
     (copy %{project_root}/vendor/liburing/src/include/liburing.h liburing.h)
-    (copy
-     %{project_root}/vendor/liburing/src/include/liburing/io_uring.h
-     io_uring.h)
-    (copy
-     %{project_root}/vendor/liburing/src/include/liburing/barrier.h
-     barrier.h)
-    (copy
-     %{project_root}/vendor/liburing/src/include/liburing/compat.h
-     compat.h)
-    (copy
-     %{project_root}/vendor/liburing/src/include/liburing/io_uring.h
-     io_uring_version.h)))))
+    (copy %{project_root}/vendor/liburing/src/include/liburing/io_uring.h io_uring.h)
+    (copy %{project_root}/vendor/liburing/src/include/liburing/barrier.h barrier.h)
+    (copy %{project_root}/vendor/liburing/src/include/liburing/compat.h compat.h)
+    (copy %{project_root}/vendor/liburing/src/include/liburing/io_uring.h io_uring_version.h)
+    (copy %{project_root}/vendor/liburing/src/include/liburing/io_uring/query.h query.h)))))
 
 (subdir include (copy_files ../liburing.h))
 (subdir include/liburing (copy_files ../../{io_uring,io_uring_version,barrier,compat}.h))
+(subdir include/liburing/io_uring (copy_files ../../../{query}.h))

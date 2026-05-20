@@ -35,6 +35,36 @@ static int submit_wait(struct io_uring *ring)
 	return ret;
 }
 
+static int test_close_flush(void)
+{
+	struct io_uring ring;
+	struct io_uring_sqe *sqe;
+	char buf[128];
+	int ret, fd;
+
+	sprintf(buf, "/sys/kernel/debug/tracing/per_cpu/cpu0/trace_pipe_raw");
+	fd = open(buf, O_RDONLY);
+	if (fd < 0)
+		return 0;
+
+	ret = io_uring_queue_init(8, &ring, 0);
+	if (ret) {
+		fprintf(stderr, "ring setup failed\n");
+		return -1;
+	}
+
+	sqe = io_uring_get_sqe(&ring);
+	io_uring_prep_close(sqe, fd);
+	ret = submit_wait(&ring);
+	if (ret) {
+		fprintf(stderr, "closefailed %i\n", ret);
+		return -1;
+	}
+
+	io_uring_queue_exit(&ring);
+	return 0;
+}
+
 static inline int try_close(struct io_uring *ring, int fd, int slot)
 {
 	struct io_uring_sqe *sqe;
@@ -187,6 +217,39 @@ err:
 	return -1;
 }
 
+static int test_open_direct_cloexec(struct io_uring *ring, const char *path, int dfd)
+{
+	struct io_uring_cqe *cqe;
+	struct io_uring_sqe *sqe;
+	int ret;
+
+	sqe = io_uring_get_sqe(ring);
+	if (!sqe) {
+		fprintf(stderr, "get sqe failed\n");
+		goto err;
+	}
+	io_uring_prep_openat(sqe, dfd, path, O_RDONLY | O_CLOEXEC, 0);
+	sqe->file_index = 1;
+
+	ret = io_uring_submit(ring);
+	if (ret <= 0) {
+		fprintf(stderr, "sqe submit failed: %d\n", ret);
+		goto err;
+	}
+
+	ret = io_uring_wait_cqe(ring, &cqe);
+	if (ret < 0) {
+		fprintf(stderr, "wait completion %d\n", ret);
+		goto err;
+	}
+	if (cqe->res != -EINVAL)
+		return 1;
+	io_uring_cqe_seen(ring, cqe);
+	return 0;
+err:
+	return 1;
+}
+
 int main(int argc, char *argv[])
 {
 	struct io_uring ring;
@@ -220,12 +283,16 @@ int main(int argc, char *argv[])
 			fprintf(stdout, "Open not supported, skipping\n");
 			goto done;
 		}
+		if (ret == -EPERM || ret == -EACCES)
+			return T_EXIT_SKIP;
 		fprintf(stderr, "test_openat absolute failed: %d\n", ret);
 		goto err;
 	}
 
 	ret = test_openat(&ring, path_rel, AT_FDCWD);
 	if (ret < 0) {
+		if (ret == -EPERM || ret == -EACCES)
+			return T_EXIT_SKIP;
 		fprintf(stderr, "test_openat relative failed: %d\n", ret);
 		goto err;
 	}
@@ -245,6 +312,18 @@ int main(int argc, char *argv[])
 	ret = test_close_fixed();
 	if (ret) {
 		fprintf(stderr, "test_close_fixed failed\n");
+		goto err;
+	}
+
+	ret = test_close_flush();
+	if (ret) {
+		fprintf(stderr, "test_close_flush failed\n");
+		goto err;
+	}
+
+	ret = test_open_direct_cloexec(&ring, path, -1);
+	if (ret) {
+		fprintf(stderr, "test_open_direct_cloexex failed\n");
 		goto err;
 	}
 

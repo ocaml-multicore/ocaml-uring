@@ -9,8 +9,17 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <stdarg.h>
 
 #include "helpers.h"
+
+#ifndef CONFIG_HAVE_MEMFD_CREATE
+#include <sys/syscall.h>
+int memfd_create(const char *name, unsigned int flags)
+{
+	return (int)syscall(SYS_memfd_create, name, flags);
+}
+#endif
 
 int setup_listening_socket(int port, int ipv6)
 {
@@ -59,4 +68,28 @@ int setup_listening_socket(int port, int ipv6)
 	}
 
 	return fd;
+}
+
+void *t_aligned_alloc(size_t alignment, size_t size)
+{
+	void *ret;
+
+	if (posix_memalign(&ret, alignment, size))
+		return NULL;
+
+	return ret;
+}
+
+void t_error(int status, int errnum, const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+
+	vfprintf(stderr, format, args);
+	if (errnum)
+		fprintf(stderr, ": %s", strerror(errnum));
+
+	fprintf(stderr, "\n");
+	va_end(args);
+	exit(status);
 }

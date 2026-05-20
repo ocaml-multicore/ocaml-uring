@@ -19,8 +19,9 @@
 
 static int nr_msgs;
 static int use_tcp;
+static int classic_buffers;
 
-#define RECV_BIDS	8192
+#define RECV_BIDS	16384
 #define RECV_BID_MASK	(RECV_BIDS - 1)
 
 #include "liburing.h"
@@ -112,6 +113,9 @@ static int recv_prep(struct io_uring *ring, struct recv_data *rd, int *sock)
 		}
 
 		pthread_barrier_wait(&rd->connect);
+
+		if (rd->abort)
+			goto err;
 
 		socklen = sizeof(saddr);
 		use_fd = accept(sockfd, (struct sockaddr *)&saddr, &socklen);
@@ -210,7 +214,7 @@ static int do_recv(struct io_uring *ring, struct recv_data *rd)
 			fprintf(stderr, "got bid %d, wanted %d\n", bid, next_bid);
 			goto err;
 		}
-		if (!rd->recv_bundle && cqe->res != MSG_SIZE) {
+		if (!rd->recv_bundle && cqe->res > MSG_SIZE) {
 			fprintf(stderr, "recv got wrong length: %d\n", cqe->res);
 			goto err;
 		}
@@ -245,13 +249,36 @@ err:
 	return 1;
 }
 
+static int provide_classic_buffers(struct io_uring *ring, void *buf, int nbufs, int bgid)
+{
+	struct io_uring_sqe *sqe;
+	struct io_uring_cqe *cqe;
+	int ret;
+
+	sqe = io_uring_get_sqe(ring);
+	io_uring_prep_provide_buffers(sqe, buf, MSG_SIZE, nbufs, bgid, 0);
+	io_uring_submit(ring);
+
+	ret = io_uring_wait_cqe(ring, &cqe);
+	if (ret) {
+		fprintf(stderr, "provide buffer wait: %d\n", ret);
+		return 1;
+	}
+	if (cqe->res) {
+		fprintf(stderr, "provide buffers fail: %d\n", cqe->res);
+		return 1;
+	}
+	io_uring_cqe_seen(ring, cqe);
+	return 0;
+}
+
 static void *recv_fn(void *data)
 {
 	struct recv_data *rd = data;
 	struct io_uring_params p = { };
 	struct io_uring ring;
 	struct io_uring_buf_ring *br;
-	void *buf, *ptr;
+	void *buf = NULL, *ptr;
 	int ret, sock, i;
 
 	p.cq_entries = 4096;
@@ -264,22 +291,31 @@ static void *recv_fn(void *data)
 		goto err;
 	}
 
-	if (posix_memalign(&buf, 4096, MSG_SIZE * RECV_BIDS))
+	if (posix_memalign(&buf, sysconf(_SC_PAGESIZE), MSG_SIZE * RECV_BIDS))
 		goto err;
 
-	br = io_uring_setup_buf_ring(&ring, RECV_BIDS, RECV_BGID, 0, &ret);
-	if (!br) {
-		fprintf(stderr, "failed setting up recv ring %d\n", ret);
-		goto err;
-	}
+	if (!classic_buffers) {
+		br = io_uring_setup_buf_ring(&ring, RECV_BIDS, RECV_BGID, 0, &ret);
+		if (!br) {
+			if (ret != -EINVAL)
+				fprintf(stderr, "failed setting up recv ring %d\n", ret);
+			goto err;
+		}
 
-	ptr = buf;
-	for (i = 0; i < RECV_BIDS; i++) {
-		io_uring_buf_ring_add(br, ptr, MSG_SIZE, i, RECV_BID_MASK, i);
-		ptr += MSG_SIZE;
+		ptr = buf;
+		for (i = 0; i < RECV_BIDS; i++) {
+			io_uring_buf_ring_add(br, ptr, MSG_SIZE, i, RECV_BID_MASK, i);
+			ptr += MSG_SIZE;
+		}
+		io_uring_buf_ring_advance(br, RECV_BIDS);
+		rd->recv_buf = buf;
+	} else {
+		ret = provide_classic_buffers(&ring, buf, RECV_BIDS, RECV_BGID);
+		if (ret) {
+			fprintf(stderr, "failed providing classic buffers\n");
+			goto err;
+		}
 	}
-	io_uring_buf_ring_advance(br, RECV_BIDS);
-	rd->recv_buf = buf;
 
 	ret = recv_prep(&ring, rd, &sock);
 	if (ret) {
@@ -293,15 +329,13 @@ static void *recv_fn(void *data)
 	close(rd->accept_fd);
 	io_uring_queue_exit(&ring);
 err:
+	free(buf);
 	return (void *)(intptr_t)ret;
 }
 
-static int __do_send_bundle(struct recv_data *rd, struct io_uring *ring, int sockfd)
+static void submit_bundle(struct io_uring *ring, int sockfd)
 {
-	struct io_uring_cqe *cqe;
 	struct io_uring_sqe *sqe;
-	int bytes_needed = MSG_SIZE * nr_msgs;
-	int i, ret;
 
 	sqe = io_uring_get_sqe(ring);
 	io_uring_prep_send_bundle(sqe, sockfd, 0, 0);
@@ -309,9 +343,16 @@ static int __do_send_bundle(struct recv_data *rd, struct io_uring *ring, int soc
 	sqe->buf_group = SEND_BGID;
 	sqe->user_data = 1;
 
-	ret = io_uring_submit(ring);
-	if (ret != 1)
-		return 1;
+	io_uring_submit(ring);
+}
+
+static int __do_send_bundle(struct recv_data *rd, struct io_uring *ring, int sockfd)
+{
+	struct io_uring_cqe *cqe;
+	int bytes_needed = MSG_SIZE * nr_msgs;
+	int i, ret;
+
+	submit_bundle(ring, sockfd);
 
 	pthread_barrier_wait(&rd->barrier);
 
@@ -335,10 +376,9 @@ static int __do_send_bundle(struct recv_data *rd, struct io_uring *ring, int soc
 			io_uring_cqe_seen(ring, cqe);
 			break;
 		}
-		if (!(cqe->flags & IORING_CQE_F_MORE)) {
-			fprintf(stderr, "expected more, but MORE not set\n");
-			return 1;
-		}
+		/* bundle finished, resubmit as more is pending */
+		if (!(cqe->flags & IORING_CQE_F_MORE))
+			submit_bundle(ring, sockfd);
 		io_uring_cqe_seen(ring, cqe);
 	}
 
@@ -402,7 +442,7 @@ static int do_send(struct recv_data *rd)
 	struct io_uring_buf_ring *br;
 	int sockfd, ret, len, i;
 	socklen_t optlen;
-	void *buf, *ptr;
+	void *buf = NULL, *ptr;
 
 	ret = io_uring_queue_init_params(16, &ring, &p);
 	if (ret) {
@@ -410,29 +450,39 @@ static int do_send(struct recv_data *rd)
 		return 1;
 	}
 	if (!(p.features & IORING_FEAT_RECVSEND_BUNDLE)) {
+		rd->abort = 1;
 		no_send_mshot = 1;
+		pthread_barrier_wait(&rd->connect);
 		return 0;
 	}
 
-	if (posix_memalign(&buf, 4096, MSG_SIZE * nr_msgs))
+	if (posix_memalign(&buf, sysconf(_SC_PAGESIZE), MSG_SIZE * nr_msgs))
 		return 1;
 
-	br = io_uring_setup_buf_ring(&ring, nr_msgs, SEND_BGID, 0, &ret);
-	if (!br) {
-		if (ret == -EINVAL) {
-			fprintf(stderr, "einval on br setup\n");
-			return 0;
+	if (!classic_buffers) {
+		br = io_uring_setup_buf_ring(&ring, nr_msgs, SEND_BGID, 0, &ret);
+		if (!br) {
+			if (ret == -EINVAL) {
+				fprintf(stderr, "einval on br setup\n");
+				return 0;
+			}
+			fprintf(stderr, "failed setting up send ring %d\n", ret);
+			return 1;
 		}
-		fprintf(stderr, "failed setting up send ring %d\n", ret);
-		return 1;
-	}
 
-	ptr = buf;
-	for (i = 0; i < nr_msgs; i++) {
-		io_uring_buf_ring_add(br, ptr, MSG_SIZE, i, nr_msgs - 1, i);
-		ptr += MSG_SIZE;
+		ptr = buf;
+		for (i = 0; i < nr_msgs; i++) {
+			io_uring_buf_ring_add(br, ptr, MSG_SIZE, i, nr_msgs - 1, i);
+			ptr += MSG_SIZE;
+		}
+		io_uring_buf_ring_advance(br, nr_msgs);
+	} else {
+		ret = provide_classic_buffers(&ring, buf, nr_msgs, SEND_BGID);
+		if (ret) {
+			fprintf(stderr, "failed providing classic buffers\n");
+			return ret;
+		}
 	}
-	io_uring_buf_ring_advance(br, nr_msgs);
 
 	memset(&saddr, 0, sizeof(saddr));
 	saddr.sin_family = AF_INET;
@@ -509,6 +559,7 @@ static int do_send(struct recv_data *rd)
 
 	close(sockfd);
 	io_uring_queue_exit(&ring);
+	free(buf);
 	return 0;
 
 err:
@@ -516,6 +567,7 @@ err:
 err2:
 	io_uring_queue_exit(&ring);
 	pthread_barrier_wait(&rd->finish);
+	free(buf);
 	return 1;
 }
 
@@ -550,8 +602,12 @@ static int test(int backlog, unsigned int max_sends, int *to_eagain,
 	}
 
 	ret = do_send(&rd);
-	if (no_send_mshot)
+	if (no_send_mshot) {
+		fprintf(stderr, "no_send_mshot, aborting (ignore other errors)\n");
+		rd.abort = 1;
+		pthread_join(recv_thread, &retval);
 		return 0;
+	}
 
 	if (ret)
 		return ret;
@@ -656,7 +712,7 @@ static int test_tcp(void)
 	use_tcp = 1;
 	ret = run_tests(false);
 	if (ret == T_EXIT_FAIL)
-		fprintf(stderr, "TCP test case failed\n");
+		fprintf(stderr, "TCP test case (classic=%d) failed\n", classic_buffers);
 	return ret;
 }
 
@@ -668,7 +724,7 @@ static int test_udp(void)
 	use_port++;
 	ret = run_tests(true);
 	if (ret == T_EXIT_FAIL)
-		fprintf(stderr, "UDP test case failed\n");
+		fprintf(stderr, "UDP test case (classic=%d) failed\n", classic_buffers);
 	return ret;
 }
 
@@ -678,6 +734,16 @@ int main(int argc, char *argv[])
 
 	if (argc > 1)
 		return T_EXIT_SKIP;
+
+	ret = test_tcp();
+	if (ret != T_EXIT_PASS)
+		return ret;
+
+	ret = test_udp();
+	if (ret != T_EXIT_PASS)
+		return ret;
+
+	classic_buffers = 1;
 
 	ret = test_tcp();
 	if (ret != T_EXIT_PASS)

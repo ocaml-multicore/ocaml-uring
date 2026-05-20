@@ -43,6 +43,37 @@ accepts the same parameters as
 .BR io_uring_prep_sendmsg (3)
 but prepares a zerocopy sendmsg request.
 
+See
+.BR io_uring_prep_send (3)
+for a description of flags that can be set in the SQE
+.I ioprio
+field. In addition to those, the zero-copy send also supports setting
+.B IORING_SEND_ZC_REPORT_USAGE .
+If set, the notification CQE
+.I res
+field will report the number of bytes that were copied rather than sent with
+zero copy. A value of
+.B 0
+indicates success. If the value is
+.B IORING_NOTIF_USAGE_ZC_COPIED ,
+then data was copied.
+
+As opposed to non-zerocopy send requests, a zerocopy send will usually
+generate two CQEs. The first CQE holds the result of the send operation itself,
+and if that CQE has
+.B IORING_CQE_F_MORE
+set in the CQE
+.I flags
+field, then a second notification CQE will be posted for the operation. This
+second notification tells the application that the memory associated with the
+send is safe to get reused. The second CQE will have
+.B IORING_CQE_F_NOTIF
+set in the CQE
+.I flags
+field. Also see the
+.BR io_uring_enter (2)
+man page for a fuller description of the notification CQE.
+
 Note that using
 .B IOSQE_IO_LINK
 with this request type requires the setting of
@@ -72,7 +103,17 @@ Instead it returns the negated
 .I errno
 directly in the CQE
 .I res
-field.
+field. Some common error cases are:
+.TP
+.B -ENOMEM
+The
+.BR ulimit (1)
+-l setting is too low to support the size of the attempted zero copy send.
+Increasing the limit may help
+.TP
+.B -ENOMEM
+The kernel ran out of memory.
+.P
 .SH NOTES
 As with any request that passes in data in a struct, that data must remain
 valid until the request has been successfully submitted. It need not remain

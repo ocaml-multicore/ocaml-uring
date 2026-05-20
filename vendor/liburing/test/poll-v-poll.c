@@ -17,6 +17,7 @@
 #include <sys/epoll.h>
 
 #include "liburing.h"
+#include "helpers.h"
 
 struct thread_data {
 	struct io_uring *ring;
@@ -174,6 +175,8 @@ static int do_fd_test(struct io_uring *ring, const char *fname, int events)
 
 	fd = open(fname, O_RDONLY);
 	if (fd < 0) {
+		if (errno == EPERM || errno == EACCES)
+			return T_EXIT_SKIP;
 		perror("open");
 		return 1;
 	}
@@ -331,19 +334,19 @@ int main(int argc, char *argv[])
 		fname = argv[0];
 
 	ret = do_fd_test(&ring, fname, POLLIN);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "fd test IN failed\n");
 		return ret;
 	}
 
 	ret = do_fd_test(&ring, fname, POLLOUT);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "fd test OUT failed\n");
 		return ret;
 	}
 
 	ret = do_fd_test(&ring, fname, POLLOUT | POLLIN);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "fd test IN|OUT failed\n");
 		return ret;
 	}

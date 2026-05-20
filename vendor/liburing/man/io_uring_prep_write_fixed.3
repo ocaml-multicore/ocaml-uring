@@ -2,7 +2,7 @@
 .\"
 .\" SPDX-License-Identifier: LGPL-2.0-or-later
 .\"
-.TH io_uring_prep_write 3 "February 13, 2022" "liburing-2.1" "liburing Manual"
+.TH io_uring_prep_write_fixed 3 "February 13, 2022" "liburing-2.1" "liburing Manual"
 .SH NAME
 io_uring_prep_write_fixed \- prepare I/O write request with registered buffer
 .SH SYNOPSIS
@@ -47,7 +47,7 @@ arguments must fall within a region specified by
 in the previously registered buffer. The buffer need not be aligned with
 the start of the registered buffer.
 
-After the read has been prepared it can be submitted with one of the submit
+After the write has been prepared it can be submitted with one of the submit
 functions.
 
 .SH RETURN VALUE

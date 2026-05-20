@@ -2,7 +2,7 @@
 .\"
 .\" SPDX-License-Identifier: LGPL-2.0-or-later
 .\"
-.TH io_uring_prep_poll_timeout 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
+.TH io_uring_prep_timeout 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
 .SH NAME
 io_uring_prep_timeout \- prepare a timeout request
 .SH SYNOPSIS
@@ -10,7 +10,7 @@ io_uring_prep_timeout \- prepare a timeout request
 .B #include <liburing.h>
 .PP
 .BI "void io_uring_prep_timeout(struct io_uring_sqe *" sqe ","
-.BI "                           struct __kernel_timespec *" ts ","
+.BI "                           const struct __kernel_timespec *" ts ","
 .BI "                           unsigned " count ","
 .BI "                           unsigned " flags ");"
 .fi
@@ -60,6 +60,10 @@ IORING_CQE_F_MORE is set if more timeouts are expected. The value specified in
 is the number of repeats. A value of 0 means the timeout is indefinite and can
 only be stopped by a removal request. Available since the 6.4 kernel.
 .PP
+If no alternate clock source is given in the above flags, then
+.B CLOCK_MONOTONIC
+is used.
+
 The timeout completion event will trigger if either the specified timeout
 has occurred, or the specified number of events to wait for have been posted
 to the CQ ring.
