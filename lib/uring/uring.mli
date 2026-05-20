@@ -39,12 +39,14 @@ module type FLAGS = sig
   (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
 end
 
-(** Flags that can be passed to {!create}. *)
+(** Flags that can be passed to {!create}.
+
+    See io_uring_setup_flags(7) for details. *)
 module Setup_flags : sig
   include FLAGS
 
   val iopoll : t
-  (** io_context is polled *)
+  (** Enable I/O polling mode for file descriptors that support it. *)
 
   val clamp : t
   (** Clamp SQ/CQ ring sizes *)
@@ -72,6 +74,21 @@ module Setup_flags : sig
 
   val defer_taskrun : t
   (** Defer running task work to get events *)
+
+  val no_sqarray : t
+  (** On older kernels, fail rather than falling back to the older indirect submission entries system. *)
+
+  val hybrid_iopoll : t
+  (** Similar to {!iopoll}, but it will delay a bit before doing completion side polling,
+      to avoid wasting too much CPU resources. *)
+
+  val cqe_mixed : t
+  (** Allow the kernel to send both 16-bit and 32-bit responses (saves memory).
+      This is an alternative to {!cqe32}. *)
+
+  val sqe_mixed : t
+  (** Allow sending 64-bit and 128-bit requests (saves memory).
+      This is an alternative to {!sqe128}. *)
 end
 
 module Res : sig
