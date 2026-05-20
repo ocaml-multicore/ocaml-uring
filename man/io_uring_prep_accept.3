@@ -92,7 +92,7 @@ will have an unused table index dynamically chosen and returned for each connect
 If both forms of direct selection will be employed, specific and dynamic, see
 .BR io_uring_register_file_alloc_range (3)
 for setting up the table so dynamically chosen entries are made against
-a different range than that targetted by specific requests.
+a different range than that targeted by specific requests.
 
 Note that old kernels don't check the SQE
 .I file_index
@@ -187,6 +187,12 @@ behavior by inspecting the
 .B IORING_FEAT_SUBMIT_STABLE
 flag passed back from
 .BR io_uring_queue_init_params (3).
+.P
+Note that the direct versions of accept do not accept
+.B SOCK_CLOEXEC ,
+and setting that flag will result in an
+.B -EINVAL
+error in the CQE.
 .SH SEE ALSO
 .BR io_uring_get_sqe (3),
 .BR io_uring_submit (3),

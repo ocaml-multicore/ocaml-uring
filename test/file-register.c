@@ -120,16 +120,21 @@ static int test_grow(struct io_uring *ring)
 		fds = open_files(1, 0, off);
 		ret = io_uring_register_files_update(ring, off, fds, 1);
 		if (ret != 1) {
-			if (off == 300 && ret == -EINVAL)
+			if (off == 300 && ret == -EINVAL) {
+				free(fds);
 				break;
+			}
 			fprintf(stderr, "%s: update ret=%d\n", __FUNCTION__, ret);
+			free(fds);
 			break;
 		}
 		if (off >= 300) {
 			fprintf(stderr, "%s: Succeeded beyond end-of-list?\n", __FUNCTION__);
+			free(fds);
 			goto err;
 		}
 		off++;
+		free(fds);
 	} while (1);
 
 	ret = io_uring_unregister_files(ring);
@@ -305,7 +310,7 @@ static int test_sparse(struct io_uring *ring)
 	files = open_files(100, 100, 0);
 	ret = io_uring_register_files(ring, files, 200);
 	if (ret) {
-		if (ret == -EBADF) {
+		if (ret == -EBADF || ret == -EINVAL) {
 			fprintf(stdout, "Sparse files not supported, skipping\n");
 			no_update = 1;
 			goto done;
@@ -352,15 +357,21 @@ err:
 static int test_basic(struct io_uring *ring, int fail)
 {
 	int *files;
-	int ret;
+	int ret, i;
 	int nr_files = fail ? 10 : 100;
 
-	files = open_files(nr_files, 0, 0);
+	files = open_files(nr_files, fail ? 90 : 0, 0);
+	if (fail) {
+		for (i = nr_files; i < nr_files + 90; i++)
+			files[i] = -2;
+	}
 	ret = io_uring_register_files(ring, files, 100);
 	if (ret) {
 		if (fail) {
-			if (ret == -EBADF || ret == -EFAULT)
+			if (ret == -EBADF || ret == -EFAULT) {
+				close_files(files, nr_files, 0);
 				return 0;
+			}
 		}
 		fprintf(stderr, "%s: register %d\n", __FUNCTION__, ret);
 		goto err;
@@ -627,6 +638,7 @@ static int test_sparse_updates(void)
 	ret = io_uring_register_files(&ring, fds, 256);
 	if (ret) {
 		fprintf(stderr, "file_register: %d\n", ret);
+		free(fds);
 		return ret;
 	}
 
@@ -635,6 +647,7 @@ static int test_sparse_updates(void)
 		ret = io_uring_register_files_update(&ring, i, &newfd, 1);
 		if (ret != 1) {
 			fprintf(stderr, "file_update: %d\n", ret);
+			free(fds);
 			return ret;
 		}
 	}
@@ -646,6 +659,7 @@ static int test_sparse_updates(void)
 	ret = io_uring_register_files(&ring, fds, 256);
 	if (ret) {
 		fprintf(stderr, "file_register: %d\n", ret);
+		free(fds);
 		return ret;
 	}
 
@@ -654,12 +668,14 @@ static int test_sparse_updates(void)
 		ret = io_uring_register_files_update(&ring, i, &newfd, 1);
 		if (ret != 1) {
 			fprintf(stderr, "file_update: %d\n", ret);
+			free(fds);
 			return ret;
 		}
 	}
 	io_uring_unregister_files(&ring);
 
 	io_uring_queue_exit(&ring);
+	free(fds);
 	return 0;
 }
 
@@ -935,6 +951,59 @@ static int test_zero_range_alloc(struct io_uring *ring, int fds[2])
 	return 0;
 }
 
+static int test_defer_taskrun(void)
+{
+	struct io_uring_sqe *sqe;
+	struct io_uring ring;
+	int ret, fds[2];
+	char buff = 'x';
+
+	ret = io_uring_queue_init(8, &ring,
+				  IORING_SETUP_DEFER_TASKRUN | IORING_SETUP_SINGLE_ISSUER);
+	if (ret) {
+		fprintf(stderr, "ring init\n");
+		return 1;
+	}
+
+	ret = pipe(fds);
+	if (ret) {
+		fprintf(stderr, "bad pipes\n");
+		return 1;
+	}
+
+	ret = io_uring_register_files(&ring, &fds[0], 2);
+	if (ret) {
+		fprintf(stderr, "bad register %d\n", ret);
+		return 1;
+	}
+
+	sqe = io_uring_get_sqe(&ring);
+	io_uring_prep_read(sqe, 0, &buff, 1, 0);
+	sqe->flags |= IOSQE_FIXED_FILE;
+	ret = io_uring_submit(&ring);
+	if (ret != 1) {
+		fprintf(stderr, "bad submit\n");
+		return 1;
+	}
+
+	ret = write(fds[1], &buff, 1);
+	if (ret != 1) {
+		fprintf(stderr, "bad pipe write\n");
+		return 1;
+	}
+
+	ret = io_uring_unregister_files(&ring);
+	if (ret) {
+		fprintf(stderr, "bad unregister %d\n", ret);
+		return 1;
+	}
+
+	close(fds[0]);
+	close(fds[1]);
+	io_uring_queue_exit(&ring);
+	return 0;
+}
+
 static int test_file_alloc_ranges(void)
 {
 	struct io_uring ring;
@@ -1118,6 +1187,14 @@ int main(int argc, char *argv[])
 	if (ret) {
 		fprintf(stderr, "test_partial_register_fail failed\n");
 		return T_EXIT_FAIL;
+	}
+
+	if (t_probe_defer_taskrun()) {
+		ret = test_defer_taskrun();
+		if (ret) {
+			fprintf(stderr, "test_defer_taskrun failed\n");
+			return T_EXIT_FAIL;
+		}
 	}
 
 	return T_EXIT_PASS;

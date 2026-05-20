@@ -2,15 +2,15 @@
 .\"
 .\" SPDX-License-Identifier: LGPL-2.0-or-later
 .\"
-.TH io_uring_prep_poll_timeout_update 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
+.TH io_uring_prep_timeout_update 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
 .SH NAME
-io_uring_prep_timeoute_update \- prepare a request to update an existing timeout
+io_uring_prep_timeout_update \- prepare a request to update an existing timeout
 .SH SYNOPSIS
 .nf
 .B #include <liburing.h>
 .PP
 .BI "void io_uring_prep_timeout_update(struct io_uring_sqe *" sqe ","
-.BI "                                  struct __kernel_timespec *" ts ","
+.BI "                                  const struct __kernel_timespec *" ts ","
 .BI "                                  __u64 " user_data ","
 .BI "                                  unsigned " flags ");"
 .PP
@@ -54,6 +54,7 @@ CQE
 .I res
 value.
 .PP
+The timeout remove command does not currently accept any flags.
 
 .SH RETURN VALUE
 None
@@ -77,7 +78,7 @@ is already firing and cannot be canceled.
 .TP
 .B -EINVAL
 One of the fields set in the SQE was invalid. For example, two clocksources
-where given, or the specified timeout seconds or nanoseconds where < 0.
+were given, or the specified timeout seconds or nanoseconds were < 0.
 .TP
 .B -EFAULT
 io_uring was unable to access the data specified by

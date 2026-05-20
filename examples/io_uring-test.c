@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
 		io_uring_prep_readv(sqe, fd, &iovecs[i], 1, offset);
 		offset += iovecs[i].iov_len;
 		i++;
-		if (offset > sb.st_size)
+		if (offset >= sb.st_size)
 			break;
 	} while (1);
 
@@ -108,5 +108,8 @@ int main(int argc, char *argv[])
 						(unsigned long) fsize);
 	close(fd);
 	io_uring_queue_exit(&ring);
+	for (i = 0; i < QD; i++)
+		free(iovecs[i].iov_base);
+	free(iovecs);
 	return 0;
 }

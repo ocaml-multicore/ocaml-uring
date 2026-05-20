@@ -25,14 +25,29 @@ IO completions from the queue belonging to the
 .I ring
 param, waiting for them if necessary or until the timeout
 .I ts
-expires. The
+expires.
+.PP
+The
 .I sigmask
-specifies the set of signals to block. The prevailing signal mask is restored
-before returning.
+specifies the set of signals to block. If set, it is equivalent to atomically
+executing the following calls:
+.PP
+.in +4n
+.EX
+sigset_t origmask;
 
+pthread_sigmask(SIG_SETMASK, &sigmask, &origmask);
+ret = io_uring_wait_cqes(ring, cqe, wait_nr, ts, NULL);
+pthread_sigmask(SIG_SETMASK, &origmask, NULL);
+.EE
+.in
+.PP
 The
 .I cqe_ptr
-param is filled in on success.
+param is filled in on success with the first CQE. Callers of this function
+should use
+.BR io_uring_for_each_cqe (3)
+to iterate all available CQEs.
 
 If
 .I ts
@@ -45,12 +60,23 @@ before calling
 For newer kernels with that feature flag set, there is no implied submit
 when waiting for a request.
 
+If
+.I ts
+is
+.B NULL ,
+then this behaves like
+.BR io_uring_wait_cqe (3)
+in that it will wait forever for an event.
+
 .SH RETURN VALUE
 On success
 .BR io_uring_wait_cqes (3)
 returns 0 and the cqe_ptr param is filled in. On failure it returns
 .BR -errno .
+If a timeout occurs, it will return
+.BR -ETIME .
 .SH SEE ALSO
 .BR io_uring_submit (3),
+.BR io_uring_for_each_cqe (3),
 .BR io_uring_wait_cqe_timeout (3),
 .BR io_uring_wait_cqe (3)

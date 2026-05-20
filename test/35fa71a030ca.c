@@ -28,6 +28,7 @@
 #include "helpers.h"
 #include "../src/syscall.h"
 
+#ifndef CONFIG_USE_SANITIZER
 #if !defined(SYS_futex) && defined(SYS_futex_time64)
 # define SYS_futex SYS_futex_time64
 #endif
@@ -176,7 +177,7 @@ static void kill_and_wait(int pid, int* status)
 }
 
 #define SYZ_HAVE_SETUP_TEST 1
-static void setup_test()
+static void setup_test(void)
 {
   prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
   setpgrp();
@@ -262,7 +263,7 @@ static void loop(void)
   }
 }
 
-uint64_t r[1] = {0xffffffffffffffff};
+static uint64_t r[1] = {0xffffffffffffffff};
 
 void execute_call(int call)
 {
@@ -320,10 +321,16 @@ int main(int argc, char *argv[])
 	if (argc > 1)
 		return T_EXIT_SKIP;
 	signal(SIGINT, sig_int);
-	mmap((void *) 0x20000000, 0x1000000, 3, 0x32, -1, 0);
+	mmap((void *) 0x20000000, 0x1000000, 3, MAP_ANON|MAP_PRIVATE, -1, 0);
 	signal(SIGALRM, sig_int);
 	alarm(5);
 
 	loop();
 	return T_EXIT_PASS;
 }
+#else
+int main(int argc, char *argv[])
+{
+	return T_EXIT_SKIP;
+}
+#endif

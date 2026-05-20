@@ -38,16 +38,20 @@ struct sqe_info {
  * sqe_flags: combination of sqe flags
  * multi_sqes: record the user_data/index of all the multishot sqes
  * cnt: how many entries there are in multi_sqes
- * we can leverage multi_sqes array for cancellation: we randomly pick
- * up an entry in multi_sqes when form a cancellation sqe.
+ * we can leverage multi_sqes array for cancelation: we randomly pick
+ * up an entry in multi_sqes when form a cancelation sqe.
  * multi_cap: limitation of number of multishot sqes
  */
-const unsigned sqe_flags[4] = {0, IOSQE_IO_LINK, IOSQE_IO_DRAIN,
-	IOSQE_IO_LINK | IOSQE_IO_DRAIN};
-int multi_sqes[max_entry], cnt = 0;
-int multi_cap = max_entry / 5;
+static const unsigned sqe_flags[4] = {
+	0,
+	IOSQE_IO_LINK,
+	IOSQE_IO_DRAIN,
+	IOSQE_IO_LINK | IOSQE_IO_DRAIN
+};
+static int multi_sqes[max_entry], cnt = 0;
+static int multi_cap = max_entry / 5;
 
-int write_pipe(int pipe, char *str)
+static int write_pipe(int pipe, char *str)
 {
 	int ret;
 	do {
@@ -57,7 +61,7 @@ int write_pipe(int pipe, char *str)
 	return ret;
 }
 
-void read_pipe(int pipe)
+static void read_pipe(int pipe)
 {
 	char str[4] = {0};
 	int ret;
@@ -67,18 +71,21 @@ void read_pipe(int pipe)
 		perror("read");
 }
 
-int trigger_event(int p[])
+static int trigger_event(struct io_uring *ring, int p[])
 {
 	int ret;
 	if ((ret = write_pipe(p[1], "foo")) != 3) {
 		fprintf(stderr, "bad write return %d\n", ret);
 		return 1;
 	}
+	usleep(1000);
+	io_uring_get_events(ring);
 	read_pipe(p[0]);
 	return 0;
 }
 
-void io_uring_sqe_prep(int op, struct io_uring_sqe *sqe, unsigned sqe_flags, int arg)
+static void io_uring_sqe_prep(int op, struct io_uring_sqe *sqe,
+			      unsigned sqe_flags, int arg)
 {
 	switch (op) {
 		case multi:
@@ -98,11 +105,11 @@ void io_uring_sqe_prep(int op, struct io_uring_sqe *sqe, unsigned sqe_flags, int
 	sqe->flags = sqe_flags;
 }
 
-__u8 generate_flags(int sqe_op)
+static __u8 generate_flags(int sqe_op)
 {
 	__u8 flags = 0;
 	/*
-	 * drain sqe must be put after multishot sqes cancelled
+	 * drain sqe must be put after multishot sqes canceled
 	 */
 	do {
 		flags = sqe_flags[rand() % 4];
@@ -117,7 +124,7 @@ __u8 generate_flags(int sqe_op)
 	/*
 	 * avoid below case:
 	 * sqe0(multishot, link)->sqe1(nop, link)->sqe2(nop)->sqe3(cancel_sqe0)
-	 * sqe3 may execute before sqe0 so that sqe0 isn't cancelled
+	 * sqe3 may execute before sqe0 so that sqe0 isn't canceled
 	 */
 	if (sqe_op == multi)
 		flags &= ~IOSQE_IO_LINK;
@@ -136,7 +143,7 @@ __u8 generate_flags(int sqe_op)
  * - ensure number of multishot sqes doesn't exceed multi_cap
  * - don't generate multishot sqes after high watermark
  */
-int generate_opcode(int i, int pre_flags)
+static int generate_opcode(int i, int pre_flags)
 {
 	int sqe_op;
 	int high_watermark = max_entry - max_entry / 5;
@@ -163,7 +170,7 @@ static inline void add_multishot_sqe(int index)
 	multi_sqes[cnt++] = index;
 }
 
-int remove_multishot_sqe()
+static int remove_multishot_sqe(void)
 {
 	int ret;
 
@@ -226,15 +233,13 @@ static int test_generic_drain(struct io_uring *ring)
 	}
 
 	sleep(1);
-	// TODO: randomize event triggerring order
+	// TODO: randomize event triggering order
 	for (i = 0; i < max_entry; i++) {
 		if (si[i].op != multi && si[i].op != single)
 			continue;
 
-		if (trigger_event(pipes[i]))
+		if (trigger_event(ring, pipes[i]))
 			goto err;
-
-		io_uring_get_events(ring);
 	}
 	sleep(1);
 	i = 0;
@@ -260,7 +265,7 @@ static int test_generic_drain(struct io_uring *ring)
 			}
 		}
 		/*
-		 * for multishot sqes, record them only when it is cancelled
+		 * for multishot sqes, record them only when it is canceled
 		 */
 		if ((si[index].op != multi) || (cqe_res[j] == -ECANCELED))
 			compl_bits |= (1ULL << index);
@@ -312,13 +317,11 @@ static int test_simple_drain(struct io_uring *ring)
 	}
 
 	for (i = 0; i < 2; i++) {
-		if (trigger_event(pipe1))
+		if (trigger_event(ring, pipe1))
 			goto err;
-		io_uring_get_events(ring);
 	}
-	if (trigger_event(pipe2))
-			goto err;
-	io_uring_get_events(ring);
+	if (trigger_event(ring, pipe2))
+		goto err;
 
 	for (i = 0; i < 2; i++) {
 		sqe[i] = io_uring_get_sqe(ring);

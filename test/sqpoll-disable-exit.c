@@ -22,8 +22,10 @@
 #include <unistd.h>
 
 #include "liburing.h"
+#include "helpers.h"
 #include "../src/syscall.h"
 
+#ifndef CONFIG_USE_SANITIZER
 static void sleep_ms(uint64_t ms)
 {
   usleep(ms * 1000);
@@ -136,7 +138,7 @@ static void kill_and_wait(int pid, int* status)
   }
 }
 
-static void setup_test()
+static void setup_test(void)
 {
   prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
   setpgrp();
@@ -188,9 +190,15 @@ void execute_one(void)
 }
 int main(void)
 {
-  mmap((void *)0x1ffff000ul, 0x1000ul, 0ul, 0x32ul, -1, 0ul);
-  mmap((void *)0x20000000ul, 0x1000000ul, 7ul, 0x32ul, -1, 0ul);
-  mmap((void *)0x21000000ul, 0x1000ul, 0ul, 0x32ul, -1, 0ul);
+  mmap((void *)0x1ffff000ul, 0x1000ul, 0ul, MAP_ANON|MAP_PRIVATE, -1, 0ul);
+  mmap((void *)0x20000000ul, 0x1000000ul, 7ul, MAP_ANON|MAP_PRIVATE, -1, 0ul);
+  mmap((void *)0x21000000ul, 0x1000ul, 0ul, MAP_ANON|MAP_PRIVATE, -1, 0ul);
   loop();
   return 0;
 }
+#else
+int main(int argc, char *argv[])
+{
+	return T_EXIT_SKIP;
+}
+#endif

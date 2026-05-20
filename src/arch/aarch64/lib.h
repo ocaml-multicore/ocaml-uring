@@ -4,7 +4,6 @@
 #define LIBURING_ARCH_AARCH64_LIB_H
 
 #include <elf.h>
-#include <sys/auxv.h>
 #include "../../syscall.h"
 
 static inline long __get_page_size(void)
@@ -21,7 +20,7 @@ static inline long __get_page_size(void)
 		ssize_t x;
 
 		x = __sys_read(fd, buf, sizeof(buf));
-		if (x < sizeof(buf))
+		if (x < (long) sizeof(buf))
 			break;
 
 		if (buf[0] == AT_PAGESZ) {

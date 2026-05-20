@@ -8,45 +8,20 @@
 #include <unistd.h>
 #include <pthread.h>
 #include "liburing.h"
+#include "helpers.h"
 
 #define TIMEOUT_MSEC	200
 #define TIMEOUT_SEC	10
 
-int thread_ret0, thread_ret1;
-int cnt = 0;
-pthread_mutex_t mutex;
+static int thread_ret0, thread_ret1;
+static int cnt = 0;
+static pthread_mutex_t mutex;
 
 static void msec_to_ts(struct __kernel_timespec *ts, unsigned int msec)
 {
 	ts->tv_sec = msec / 1000;
 	ts->tv_nsec = (msec % 1000) * 1000000;
 }
-
-static unsigned long long mtime_since(const struct timeval *s,
-				      const struct timeval *e)
-{
-	long long sec, usec;
-
-	sec = e->tv_sec - s->tv_sec;
-	usec = (e->tv_usec - s->tv_usec);
-	if (sec > 0 && usec < 0) {
-		sec--;
-		usec += 1000000;
-	}
-
-	sec *= 1000;
-	usec /= 1000;
-	return sec + usec;
-}
-
-static unsigned long long mtime_since_now(struct timeval *tv)
-{
-	struct timeval end;
-
-	gettimeofday(&end, NULL);
-	return mtime_since(tv, &end);
-}
-
 
 static int test_return_before_timeout(struct io_uring *ring)
 {
@@ -111,7 +86,8 @@ static int test_return_after_timeout(struct io_uring *ring)
 	return 0;
 }
 
-int __reap_thread_fn(void *data) {
+static int __reap_thread_fn(void *data)
+{
 	struct io_uring *ring = (struct io_uring *)data;
 	struct io_uring_cqe *cqe;
 	struct __kernel_timespec ts;
@@ -123,12 +99,14 @@ int __reap_thread_fn(void *data) {
 	return io_uring_wait_cqe_timeout(ring, &cqe, &ts);
 }
 
-void *reap_thread_fn0(void *data) {
+static void *reap_thread_fn0(void *data)
+{
 	thread_ret0 = __reap_thread_fn(data);
 	return NULL;
 }
 
-void *reap_thread_fn1(void *data) {
+static void *reap_thread_fn1(void *data)
+{
 	thread_ret1 = __reap_thread_fn(data);
 	return NULL;
 }
@@ -137,7 +115,8 @@ void *reap_thread_fn1(void *data) {
  * This is to test issuing a sqe in main thread and reaping it in two child-thread
  * at the same time. To see if timeout feature works or not.
  */
-int test_multi_threads_timeout() {
+static int test_multi_threads_timeout(void)
+{
 	struct io_uring ring;
 	int ret;
 	bool both_wait = false;

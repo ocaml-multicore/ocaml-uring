@@ -42,6 +42,8 @@ int main(int argc, char *argv[])
 	sprintf(buf, "./XXXXXX");
 	fd = mkostemp(buf, O_WRONLY | O_DIRECT | O_CREAT);
 	if (fd < 0) {
+		if (errno == EINVAL)
+			return T_EXIT_SKIP;
 		perror("mkostemp");
 		return T_EXIT_FAIL;
 	}
@@ -76,10 +78,12 @@ int main(int argc, char *argv[])
 
 	close(fd);
 	unlink(buf);
+	free(iov.iov_base);
 	return T_EXIT_PASS;
 err:
 	close(fd);
 	unlink(buf);
+	free(iov.iov_base);
 	return T_EXIT_FAIL;
 skipped:
 	fprintf(stderr, "Polling not supported in current dir, test skipped\n");

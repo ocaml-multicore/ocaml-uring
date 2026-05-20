@@ -1,9 +1,5 @@
 /* SPDX-License-Identifier: MIT */
 
-#define _LARGEFILE_SOURCE
-#define _FILE_OFFSET_BITS 64
-
-#include <liburing.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,16 +10,18 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "liburing.h"
 #include "helpers.h"
 
 static const int RSIZE = 2;
-static const int OPEN_FLAGS = O_RDWR | O_CREAT;
+static const int OPEN_FLAGS = O_RDWR | O_CREAT | O_LARGEFILE;
 static const mode_t OPEN_MODE = S_IRUSR | S_IWUSR;
 
-#define DIE(...) do {\
-		fprintf(stderr, __VA_ARGS__);\
-		abort();\
-	} while(0);
+#define DIE(...)				\
+	do {					\
+		fprintf(stderr, __VA_ARGS__);	\
+		abort();			\
+	} while(0)
 
 static int do_write(struct io_uring *ring, int fd, off_t offset)
 {

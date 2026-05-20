@@ -1,5 +1,4 @@
 /* SPDX-License-Identifier: MIT */
-#include <liburing.h>
 #include <netdb.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -11,17 +10,16 @@
 #include "helpers.h"
 #include "../src/syscall.h"
 
-struct io_uring io_uring;
+static struct io_uring io_uring;
 
-int sys_io_uring_enter(const int fd,
-		       const unsigned to_submit,
-		       const unsigned min_complete,
-		       const unsigned flags, sigset_t * const sig)
+static int sys_io_uring_enter(const int fd, const unsigned to_submit,
+			      const unsigned min_complete,
+			      const unsigned flags, sigset_t * const sig)
 {
 	return __sys_io_uring_enter(fd, to_submit, min_complete, flags, sig);
 }
 
-int submit_sqe(void)
+static int submit_sqe(void)
 {
 	struct io_uring_sq *sq = &io_uring.sq;
 	const unsigned tail = *sq->ktail;
@@ -47,7 +45,7 @@ int main(int argc, char **argv)
 		return T_EXIT_SKIP;
 
 	memset(&params, 0, sizeof(params));
-	ret = io_uring_queue_init_params(4, &io_uring, &params);
+	ret = t_io_uring_init_sqarray(4, &io_uring, &params);
 	if (ret) {
 		fprintf(stderr, "io_uring_init_failed: %d\n", ret);
 		return T_EXIT_FAIL;

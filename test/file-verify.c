@@ -10,7 +10,6 @@
 #include <string.h>
 #include <fcntl.h>
 #include <assert.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <linux/fs.h>
@@ -29,24 +28,42 @@
 #define MAX_VECS	16
 
 /*
- * Can be anything, let's just do something for a bit of parallellism
+ * Can be anything, let's just do something for a bit of parallelism
  */
 #define READ_BATCH	16
+
+static void verify_buf_sync(void *buf, size_t size, bool registered)
+{
+#if defined(__hppa__)
+	if (registered) {
+		unsigned long off = (unsigned long) buf & 4095;
+		unsigned long p = (unsigned long) buf & ~4095;
+		int i;
+
+		size += off;
+		for (i = 0; i < size; i += 32)
+			asm volatile("fdc 0(%0)" : : "r" (p + i));
+	}
+#endif
+}
 
 /*
  * Each offset in the file has the offset / sizeof(int) stored for every
  * sizeof(int) address.
  */
-static int verify_buf(void *buf, size_t size, off_t off)
+static int verify_buf(void *buf, size_t size, off_t off, bool registered)
 {
 	int i, u_in_buf = size / sizeof(unsigned int);
 	unsigned int *ptr;
+
+	verify_buf_sync(buf, size, registered);
 
 	off /= sizeof(unsigned int);
 	ptr = buf;
 	for (i = 0; i < u_in_buf; i++) {
 		if (off != *ptr) {
-			fprintf(stderr, "Found %u, wanted %lu\n", *ptr, off);
+			fprintf(stderr, "Found %u, wanted %llu\n", *ptr,
+					(unsigned long long) off);
 			return 1;
 		}
 		ptr++;
@@ -73,6 +90,8 @@ static int test_truncate(struct io_uring *ring, const char *fname, int buffered,
 	else
 		fd = open(fname, O_DIRECT | O_RDWR);
 	if (fd < 0) {
+		if (!buffered && errno == EINVAL)
+			return T_EXIT_SKIP;
 		perror("open");
 		return 1;
 	}
@@ -197,7 +216,7 @@ again:
 		goto err;
 	}
 
-	if (verify_buf(buf, CHUNK_SIZE / 2, 0))
+	if (verify_buf(buf, CHUNK_SIZE / 2, 0, false))
 		goto err;
 
 	/*
@@ -329,6 +348,8 @@ static int test(struct io_uring *ring, const char *fname, int buffered,
 		flags |= O_DIRECT;
 	fd = open(fname, flags);
 	if (fd < 0) {
+		if (errno == EINVAL || errno == EPERM || errno == EACCES)
+			return T_EXIT_SKIP;
 		perror("open");
 		return 1;
 	}
@@ -364,9 +385,12 @@ static int test(struct io_uring *ring, const char *fname, int buffered,
 			v[i].iov_base = buf[i];
 			v[i].iov_len = CHUNK_SIZE;
 		}
-		ret = io_uring_register_buffers(ring, v, READ_BATCH);
+		ret = t_register_buffers(ring, v, READ_BATCH);
 		if (ret) {
-			fprintf(stderr, "Error buffer reg %d\n", ret);
+			if (ret == T_SETUP_SKIP) {
+				ret = 0;
+				goto free_bufs;
+			}
 			goto err;
 		}
 	}
@@ -445,12 +469,12 @@ static int test(struct io_uring *ring, const char *fname, int buffered,
 					void *buf = vecs[index][j].iov_base;
 					size_t len = vecs[index][j].iov_len;
 
-					if (verify_buf(buf, len, voff))
+					if (verify_buf(buf, len, voff, registered))
 						goto err;
 					voff += len;
 				}
 			} else {
-				if (verify_buf(buf[index], CHUNK_SIZE, voff))
+				if (verify_buf(buf[index], CHUNK_SIZE, voff, registered))
 					goto err;
 			}
 		}
@@ -460,6 +484,7 @@ static int test(struct io_uring *ring, const char *fname, int buffered,
 done:
 	if (registered)
 		io_uring_unregister_buffers(ring);
+free_bufs:
 	if (vectored) {
 		for (j = 0; j < READ_BATCH; j++)
 			for (i = 0; i < nr_vecs; i++)
@@ -484,6 +509,8 @@ static int fill_pattern(const char *fname)
 
 	fd = open(fname, O_WRONLY);
 	if (fd < 0) {
+		if (errno == EPERM || errno == EACCES)
+			return T_EXIT_SKIP;
 		perror("open");
 		return 1;
 	}
@@ -536,89 +563,94 @@ int main(int argc, char *argv[])
 		goto err;
 	}
 
-	if (fill_pattern(fname))
+	ret = fill_pattern(fname);
+	if (ret == T_EXIT_SKIP)
+		return T_EXIT_SKIP;
+	else if (ret)
 		goto err;
 
 	ret = test(&ring, fname, 1, 0, 0, 0, 0);
+	if (ret == T_EXIT_SKIP)
+		return T_EXIT_SKIP;
 	if (ret) {
 		fprintf(stderr, "Buffered novec test failed\n");
 		goto err;
 	}
 	ret = test(&ring, fname, 1, 0, 0, 1, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "Buffered novec reg test failed\n");
 		goto err;
 	}
 	ret = test(&ring, fname, 1, 0, 0, 0, 1);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "Buffered novec provide test failed\n");
 		goto err;
 	}
 	ret = test(&ring, fname, 1, 1, 0, 0, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "Buffered vec test failed\n");
 		goto err;
 	}
 	ret = test(&ring, fname, 1, 1, 1, 0, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "Buffered small vec test failed\n");
 		goto err;
 	}
 
 	ret = test(&ring, fname, 0, 0, 0, 0, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "O_DIRECT novec test failed\n");
 		goto err;
 	}
 	ret = test(&ring, fname, 0, 0, 0, 1, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "O_DIRECT novec reg test failed\n");
 		goto err;
 	}
 	ret = test(&ring, fname, 0, 0, 0, 0, 1);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "O_DIRECT novec provide test failed\n");
 		goto err;
 	}
 	ret = test(&ring, fname, 0, 1, 0, 0, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "O_DIRECT vec test failed\n");
 		goto err;
 	}
 	ret = test(&ring, fname, 0, 1, 1, 0, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "O_DIRECT small vec test failed\n");
 		goto err;
 	}
 
 	ret = test_truncate(&ring, fname, 1, 0, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "Buffered end truncate read failed\n");
 		goto err;
 	}
 	ret = test_truncate(&ring, fname, 1, 1, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "Buffered end truncate vec read failed\n");
 		goto err;
 	}
 	ret = test_truncate(&ring, fname, 1, 0, 1);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "Buffered end truncate pbuf read failed\n");
 		goto err;
 	}
 
 	ret = test_truncate(&ring, fname, 0, 0, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "O_DIRECT end truncate read failed\n");
 		goto err;
 	}
 	ret = test_truncate(&ring, fname, 0, 1, 0);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "O_DIRECT end truncate vec read failed\n");
 		goto err;
 	}
 	ret = test_truncate(&ring, fname, 0, 0, 1);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "O_DIRECT end truncate pbuf read failed\n");
 		goto err;
 	}

@@ -57,8 +57,9 @@ enum nvme_io_opcode {
 	nvme_cmd_read			= 0x02,
 };
 
-int nsid;
-__u32 lba_shift;
+static int nsid;
+static __u32 lba_shift;
+static __u32 meta_size;
 
 struct nvme_lbaf {
 	__le16			ms;
@@ -120,7 +121,8 @@ static inline int ilog2(uint32_t i)
 	return log;
 }
 
-int nvme_get_info(const char *file)
+__attribute__((__unused__))
+static int nvme_get_info(const char *file)
 {
 	struct nvme_id_ns ns;
 	int fd, err;
@@ -156,6 +158,7 @@ int nvme_get_info(const char *file)
 
 	lba_size = 1 << ns.lbaf[(ns.flbas & 0x0f)].ds;
 	lba_shift = ilog2(lba_size);
+	meta_size = ns.lbaf[(ns.flbas & 0x0f)].ms;
 
 	close(fd);
 	return 0;

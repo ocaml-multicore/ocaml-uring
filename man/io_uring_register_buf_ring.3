@@ -59,9 +59,9 @@ is the desired size of the ring, and must be a power-of-2 in size. The maximum
 size allowed is 2^15 (32768).
 .I bgid
 is the buffer group ID associated with this ring. SQEs that select a buffer
-has a buffer group associated with them in their
+have a buffer group associated with them in their
 .I buf_group
-field, and the associated CQE will have
+field, and the associated CQEs will have
 .B IORING_CQE_F_BUFFER
 set in their
 .I flags
@@ -70,7 +70,19 @@ of the fields are reserved and must be cleared to zero.
 
 The
 .I flags
-argument is currently unused and must be set to zero.
+argument can be set to one of the following values:
+.TP
+.B IOU_PBUF_RING_INC
+The buffers in this ring can be incrementally consumed. With partial
+consumption, each completion of a given buffer ID will continue where the
+previous one left off, or from the start if no completions have been seen yet.
+When more completions should be expected for a given buffer ID, the CQE will
+have
+.B IORING_CQE_F_BUF_MORE
+set in the
+.I flags
+member. Available since 6.12.
+.PP
 
 A shared buffer ring looks as follows:
 .PP
@@ -78,13 +90,13 @@ A shared buffer ring looks as follows:
 .EX
 struct io_uring_buf_ring {
     union {
-	struct {
+        struct {
             __u64 resv1;
             __u32 resv2;
             __u16 resv3;
             __u16 tail;
-	};
-	struct io_uring_buf bufs[0];
+        };
+        struct io_uring_buf bufs[0];
     };
 };
 .EE
@@ -118,12 +130,12 @@ is the buffer ID that will be returned in the CQE once consumed.
 
 Reserved fields must not be touched. Applications must use
 .BR io_uring_buf_ring_init (3)
-to initialise the buffer ring. Applications may use
+to initialise the buffer ring before use. Applications may use
 .BR io_uring_buf_ring_add (3)
 and
 .BR io_uring_buf_ring_advance (3)
 or
-.BR io_uring_buf_ring_advance (3)
+.BR io_uring_buf_ring_cq_advance (3)
 to provide buffers, which will set these fields and update the tail.
 
 Available since 5.19.
@@ -133,8 +145,13 @@ On success
 .BR io_uring_register_buf_ring (3)
 returns 0. On failure it returns
 .BR -errno .
+.SH NOTES
+Unless manual setup is needed, it's recommended to use
+.BR io_uring_setup_buf_ring (3)
+as it provides a simpler way to setup a provided buffer ring.
 .SH SEE ALSO
 .BR io_uring_buf_ring_init (3),
 .BR io_uring_buf_ring_add (3),
+.BR io_uring_setup_buf_ring (3),
 .BR io_uring_buf_ring_advance (3),
 .BR io_uring_buf_ring_cq_advance (3)

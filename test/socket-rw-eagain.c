@@ -42,7 +42,8 @@ int main(int argc, char *argv[])
 
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-	assert(!t_bind_ephemeral_port(recv_s0, &addr));
+	ret = t_bind_ephemeral_port(recv_s0, &addr);
+	assert(!ret);
 	ret = listen(recv_s0, 128);
 	assert(ret != -1);
 
@@ -52,12 +53,7 @@ int main(int argc, char *argv[])
 	ret = setsockopt(p_fd[1], IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
 	assert(ret != -1);
 
-	int32_t flags = fcntl(p_fd[1], F_GETFL, 0);
-	assert(flags != -1);
-
-	flags |= O_NONBLOCK;
-	ret = fcntl(p_fd[1], F_SETFL, flags);
-	assert(ret != -1);
+	t_set_nonblock(p_fd[1]);
 
 	ret = connect(p_fd[1], (struct sockaddr*)&addr, sizeof(addr));
 	assert(ret == -1);
@@ -65,12 +61,7 @@ int main(int argc, char *argv[])
 	p_fd[0] = accept(recv_s0, NULL, NULL);
 	assert(p_fd[0] != -1);
 
-	flags = fcntl(p_fd[0], F_GETFL, 0);
-	assert(flags != -1);
-
-	flags |= O_NONBLOCK;
-        ret = fcntl(p_fd[0], F_SETFL, flags);
-	assert(ret != -1);
+	t_set_nonblock(p_fd[0]);
 
 	while (1) {
 		int32_t code;
