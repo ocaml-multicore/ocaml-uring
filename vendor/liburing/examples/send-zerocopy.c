@@ -43,6 +43,8 @@
 
 #include "liburing.h"
 
+#define PATTERN_SIZE	26
+
 #define ZC_TAG 0xfffffffULL
 #define MAX_SUBMIT_NR 512
 #define MAX_THREADS 100
@@ -58,6 +60,9 @@ struct thread_data {
 	int fd;
 };
 
+static int page_size;
+static size_t alloc_size;
+
 static bool cfg_reg_ringfd = true;
 static bool cfg_fixed_files = 1;
 static bool cfg_zc = 1;
@@ -68,6 +73,7 @@ static bool cfg_defer_taskrun = 0;
 static int  cfg_cpu = -1;
 static bool cfg_rx = 0;
 static unsigned  cfg_nr_threads = 1;
+static const char *cfg_ifname;
 
 static int  cfg_family		= PF_UNSPEC;
 static int  cfg_type		= 0;
@@ -75,11 +81,11 @@ static int  cfg_payload_len;
 static int  cfg_port		= 8000;
 static int  cfg_runtime_ms	= 4200;
 static bool cfg_rx_poll		= false;
+static bool cfg_verify;
 
 static socklen_t cfg_alen;
 static char *str_addr = NULL;
 
-static char payload_buf[IP_MAXPACKET] __attribute__((aligned(4096)));
 static char *payload;
 static struct thread_data threads[MAX_THREADS];
 static pthread_barrier_t barrier;
@@ -343,6 +349,16 @@ static void do_tx(struct thread_data *td, int domain, int type, int protocol)
 	if (fd == -1)
 		t_error(1, errno, "socket t");
 
+	if (cfg_ifname) {
+		struct ifreq ifr;
+
+		memset(&ifr, 0, sizeof(ifr));
+		strncpy(ifr.ifr_name, cfg_ifname, sizeof(ifr.ifr_name));
+
+		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)) < 0)
+			t_error(1, errno, "Binding to device failed\n");
+	}
+
 	if (connect(fd, (void *)&td->dst_addr, cfg_alen))
 		t_error(1, errno, "connect, idx %i", td->idx);
 
@@ -365,7 +381,7 @@ static void do_tx(struct thread_data *td, int domain, int type, int protocol)
 	}
 
 	iov.iov_base = payload;
-	iov.iov_len = cfg_payload_len;
+	iov.iov_len = cfg_payload_len + PATTERN_SIZE;
 
 	ret = io_uring_register_buffers(&ring, &iov, 1);
 	if (ret)
@@ -392,13 +408,18 @@ static void do_tx(struct thread_data *td, int domain, int type, int protocol)
 		unsigned msg_flags = MSG_WAITALL;
 
 		for (i = 0; i < cfg_nr_reqs; i++) {
+			char *buf = payload;
+
+			if (cfg_verify && cfg_type == SOCK_STREAM)
+				buf += td->bytes % PATTERN_SIZE;
+
 			sqe = io_uring_get_sqe(&ring);
 
 			if (!cfg_zc)
-				io_uring_prep_send(sqe, fd, payload,
+				io_uring_prep_send(sqe, fd, buf,
 						   cfg_payload_len, 0);
 			else {
-				io_uring_prep_send_zc(sqe, fd, payload,
+				io_uring_prep_send_zc(sqe, fd, buf,
 						     cfg_payload_len, msg_flags, 0);
 				if (cfg_fixed_buf) {
 					sqe->ioprio |= IORING_RECVSEND_FIXED_BUF;
@@ -439,7 +460,7 @@ static void do_tx(struct thread_data *td, int domain, int type, int protocol)
 				td->bytes += cqe->res;
 			} else if (cqe->res == -ECONNREFUSED || cqe->res == -EPIPE ||
 				   cqe->res == -ECONNRESET) {
-				fprintf(stderr, "Connection failure\n");
+				printf("Connection failure %i\n", cqe->res);
 				goto out_fail;
 			} else if (cqe->res != -EAGAIN) {
 				t_error(1, cqe->res, "send failed");
@@ -450,9 +471,9 @@ static void do_tx(struct thread_data *td, int domain, int type, int protocol)
 			break;
 	} while ((++loop % 16 != 0) || gettimeofday_ms() < tstart + cfg_runtime_ms);
 
+out_fail:
 	td->dt_ms = gettimeofday_ms() - tstart;
 
-out_fail:
 	shutdown(fd, SHUT_RDWR);
 	if (close(fd))
 		t_error(1, errno, "close");
@@ -488,7 +509,6 @@ static void usage(const char *filepath)
 	printf("  -D <address>\tDestination address\n");
 	printf("  -p <port>\tServer port to listen on/connect to\n");
 	printf("  -s <size>\tBytes per request\n");
-	printf("  -s <size>\tBytes per request\n");
 	printf("  -n <nr>\tNumber of parallel requests\n");
 	printf("  -z <mode>\tZerocopy mode, 0 to disable, enabled otherwise\n");
 	printf("  -b <mode>\tUse registered buffers\n");
@@ -502,7 +522,8 @@ static void usage(const char *filepath)
 
 static void parse_opts(int argc, char **argv)
 {
-	const int max_payload_len = IP_MAXPACKET -
+	const char *cfg_test;
+	const int max_udp_payload_len = IP_MAXPACKET -
 				    sizeof(struct ipv6hdr) -
 				    sizeof(struct tcphdr) -
 				    40 /* max tcp options */;
@@ -514,9 +535,9 @@ static void parse_opts(int argc, char **argv)
 		exit(0);
 	}
 
-	cfg_payload_len = max_payload_len;
+	cfg_payload_len = max_udp_payload_len;
 
-	while ((c = getopt(argc, argv, "46D:p:s:t:n:z:b:l:dC:T:Ry")) != -1) {
+	while ((c = getopt(argc, argv, "46D:p:s:t:n:z:I:b:l:dC:T:Ryv")) != -1) {
 		switch (c) {
 		case '4':
 			if (cfg_family != PF_UNSPEC)
@@ -529,6 +550,9 @@ static void parse_opts(int argc, char **argv)
 				t_error(1, 0, "Pass one of -4 or -6");
 			cfg_family = PF_INET6;
 			cfg_alen = sizeof(struct sockaddr_in6);
+			break;
+		case 'I':
+			cfg_ifname = optarg;
 			break;
 		case 'D':
 			daddr = optarg;
@@ -568,43 +592,12 @@ static void parse_opts(int argc, char **argv)
 		case 'R':
 			cfg_rx = 1;
 			break;
+		case 'v':
+			cfg_verify = true;
+			break;
 		case 'y':
 			cfg_rx_poll = 1;
 			break;
-		}
-	}
-
-	if (cfg_nr_reqs > MAX_SUBMIT_NR)
-		t_error(1, 0, "-n: submit batch nr exceeds max (%d)", MAX_SUBMIT_NR);
-	if (cfg_payload_len > max_payload_len)
-		t_error(1, 0, "-s: payload exceeds max (%d)", max_payload_len);
-
-	str_addr = daddr;
-
-	if (optind != argc - 1)
-		usage(argv[0]);
-}
-
-int main(int argc, char **argv)
-{
-	unsigned long long tsum = 0;
-	unsigned long long packets = 0, bytes = 0;
-	struct thread_data *td;
-	const char *cfg_test;
-	unsigned int i;
-	void *res;
-
-	parse_opts(argc, argv);
-	set_cpu_affinity();
-
-	payload = payload_buf;
-	if (cfg_hugetlb) {
-		payload = mmap(NULL, 2*1024*1024, PROT_READ | PROT_WRITE,
-				MAP_PRIVATE | MAP_HUGETLB | MAP_HUGE_2MB | MAP_ANONYMOUS,
-				-1, 0);
-		if (payload == MAP_FAILED) {
-			fprintf(stderr, "hugetlb alloc failed\n");
-			return 1;
 		}
 	}
 
@@ -616,11 +609,74 @@ int main(int argc, char **argv)
 	else
 		t_error(1, 0, "unknown cfg_test %s", cfg_test);
 
+	if (!cfg_rx) {
+		if (cfg_nr_reqs > MAX_SUBMIT_NR)
+			t_error(1, 0, "-n: submit batch nr exceeds max (%d)", MAX_SUBMIT_NR);
+		if (!cfg_nr_reqs)
+			t_error(1, 0, "-n: submit batch can't be zero");
+		if (cfg_nr_reqs > 1 && cfg_type == SOCK_STREAM) {
+			printf("warning: submit batching >1 with TCP sockets will cause data reordering");
+			if (cfg_verify)
+				t_error(1, 0, "can't verify data because of reordering");
+		}
+	} else {
+		if (cfg_ifname)
+			t_error(1, 0, "Interface can only be specified for tx");
+		if (cfg_verify)
+			t_error(1, 0, "Server mode doesn't support data verification");
+	}
+
+	if (cfg_type == SOCK_DGRAM && cfg_payload_len > max_udp_payload_len)
+		t_error(1, 0, "-s: UDP payload exceeds max (%d)", max_udp_payload_len);
+
+	str_addr = daddr;
+
+	if (optind != argc - 1)
+		usage(argv[0]);
+}
+
+static void init_buffers(void)
+{
+	unsigned map_flags = MAP_PRIVATE | MAP_ANONYMOUS;
+	int i;
+
+	alloc_size = cfg_payload_len + PATTERN_SIZE;
+	alloc_size = (alloc_size + page_size - 1) / page_size * page_size;
+
+	if (cfg_hugetlb) {
+		size_t huge_size = 1 << 21;
+
+		alloc_size = (alloc_size + huge_size - 1) / huge_size * huge_size;
+		map_flags |= MAP_HUGETLB | MAP_HUGE_2MB;
+	}
+
+	payload = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE, map_flags, -1, 0);
+	if (payload == MAP_FAILED)
+		t_error(0, 1, "buffer alloc failed (size %zu)\n", alloc_size);
+
+	for (i = 0; i < alloc_size; i++)
+		payload[i] = 'a' + (i % PATTERN_SIZE);
+}
+
+int main(int argc, char **argv)
+{
+	unsigned long long tsum = 0;
+	unsigned long long packets = 0, bytes = 0;
+	struct thread_data *td;
+	unsigned int i;
+	void *res;
+
+	page_size = sysconf(_SC_PAGESIZE);
+	if (page_size < 0) {
+		perror("sysconf(_SC_PAGESIZE)");
+		return 1;
+	}
+
+	parse_opts(argc, argv);
+	init_buffers();
+	set_cpu_affinity();
+
 	pthread_barrier_init(&barrier, NULL, cfg_nr_threads);
-
-	for (i = 0; i < IP_MAXPACKET; i++)
-		payload[i] = 'a' + (i % 26);
-
 	for (i = 0; i < cfg_nr_threads; i++) {
 		td = &threads[i];
 		td->idx = i;
@@ -653,6 +709,9 @@ int main(int argc, char **argv)
 			packets * 1000 / tsum,
 			(bytes >> 20) * 1000 / tsum);
 	}
+
+	if (payload)
+		munmap(payload, alloc_size);
 	pthread_barrier_destroy(&barrier);
 	return 0;
 }

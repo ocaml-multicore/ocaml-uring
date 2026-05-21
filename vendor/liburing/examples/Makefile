@@ -13,6 +13,18 @@ endif
 LDFLAGS ?=
 override LDFLAGS += -L../src/ -luring -lpthread
 
+ifeq ($(CONFIG_USE_SANITIZER),y)
+	override CFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls
+	override CPPFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls
+	override LDFLAGS += -fsanitize=address,undefined
+endif
+
+ifeq ($(CONFIG_USE_TSAN),y)
+	override CFLAGS += -fsanitize=thread -fno-omit-frame-pointer -fno-optimize-sibling-calls
+	override CPPFLAGS += -fsanitize=thread -fno-omit-frame-pointer -fno-optimize-sibling-calls
+	override LDFLAGS += -fsanitize=thread -ltsan
+endif
+
 example_srcs := \
 	io_uring-close-test.c \
 	io_uring-cp.c \
@@ -22,9 +34,12 @@ example_srcs := \
 	napi-busy-poll-client.c \
 	napi-busy-poll-server.c \
 	poll-bench.c \
+	reg-wait.c \
 	send-zerocopy.c \
 	rsrc-update-bench.c \
-	proxy.c
+	proxy.c \
+	zcrx.c \
+	kdigest.c
 
 all_targets :=
 

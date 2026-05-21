@@ -95,3 +95,46 @@ LIBURING_2.6 {
 
 LIBURING_2.7 {
 } LIBURING_2.6;
+
+LIBURING_2.8 {
+	global:
+		io_uring_register_clock;
+		io_uring_submit_and_wait_min_timeout;
+		io_uring_wait_cqes_min_timeout;
+		io_uring_clone_buffers;
+} LIBURING_2.7;
+
+LIBURING_2.9 {
+		io_uring_resize_rings;
+		io_uring_register_wait_reg;
+		io_uring_submit_and_wait_reg;
+		io_uring_clone_buffers_offset;
+		io_uring_register_region;
+} LIBURING_2.8;
+
+LIBURING_2.10 {
+	global:
+		io_uring_register_ifq;
+		io_uring_set_iowait;
+		__io_uring_clone_buffers;
+		__io_uring_clone_buffers_offset;
+} LIBURING_2.9;
+
+LIBURING_2.11 {
+	global:
+		io_uring_memory_size;
+		io_uring_memory_size_params;
+		io_uring_register_sync_msg;
+} LIBURING_2.10;
+
+LIBURING_2.12 {
+
+} LIBURING_2.11;
+
+LIBURING_2.13 {
+
+} LIBURING_2.12;
+
+LIBURING_2.14 {
+
+} LIBURING_2.13;

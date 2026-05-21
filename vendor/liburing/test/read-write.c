@@ -15,6 +15,7 @@
 
 #include "helpers.h"
 #include "liburing.h"
+#include "../src/syscall.h"
 
 #define FILE_SIZE	(256 * 1024)
 #define BS		8192
@@ -23,6 +24,7 @@
 static struct iovec *vecs;
 static int no_read;
 static int no_buf_select;
+static int no_buf_copy;
 static int warned;
 
 static int create_nonaligned_buffers(void)
@@ -42,9 +44,9 @@ static int create_nonaligned_buffers(void)
 	return 0;
 }
 
-static int __test_io(const char *file, struct io_uring *ring, int write,
-		     int buffered, int sqthread, int fixed, int nonvec,
-		     int buf_select, int seq, int exp_len)
+static int _test_io(const char *file, struct io_uring *ring, int write,
+		    int buffered, int sqthread, int fixed, int nonvec,
+		    int buf_select, int seq, int exp_len, bool worker_offload)
 {
 	struct io_uring_sqe *sqe;
 	struct io_uring_cqe *cqe;
@@ -64,7 +66,7 @@ static int __test_io(const char *file, struct io_uring *ring, int write,
 	if (!buffered)
 		open_flags |= O_DIRECT;
 
-	if (fixed) {
+	if (fixed == 1) {
 		ret = t_register_buffers(ring, vecs, BUFFERS);
 		if (ret == T_SETUP_SKIP)
 			return 0;
@@ -76,7 +78,7 @@ static int __test_io(const char *file, struct io_uring *ring, int write,
 
 	fd = open(file, open_flags);
 	if (fd < 0) {
-		if (errno == EINVAL)
+		if (errno == EINVAL || errno == EPERM || errno == EACCES)
 			return 0;
 		perror("file open");
 		goto err;
@@ -142,6 +144,10 @@ static int __test_io(const char *file, struct io_uring *ring, int write,
 		sqe->user_data = i;
 		if (sqthread)
 			sqe->flags |= IOSQE_FIXED_FILE;
+
+		if (worker_offload)
+			sqe->flags |= IOSQE_ASYNC;
+
 		if (buf_select) {
 			if (nonvec)
 				sqe->addr = 0;
@@ -201,13 +207,6 @@ static int __test_io(const char *file, struct io_uring *ring, int write,
 		io_uring_cqe_seen(ring, cqe);
 	}
 
-	if (fixed) {
-		ret = io_uring_unregister_buffers(ring);
-		if (ret) {
-			fprintf(stderr, "buffer unreg failed: %d\n", ret);
-			goto err;
-		}
-	}
 	if (sqthread) {
 		ret = io_uring_unregister_files(ring);
 		if (ret) {
@@ -229,8 +228,67 @@ err:
 		close(fd);
 	return 1;
 }
+
+static int __test_io(const char *file, struct io_uring *ring, int write,
+		     int buffered, int sqthread, int fixed, int nonvec,
+		     int buf_select, int seq, int exp_len, bool worker_offload)
+{
+	int ret;
+
+	ret = _test_io(file, ring, write, buffered, sqthread, fixed, nonvec,
+		       buf_select, seq, exp_len, worker_offload);
+	if (ret)
+		return ret;
+
+	if (fixed) {
+		struct io_uring ring2;
+		int ring_flags = 0;
+
+		if (no_buf_copy)
+			return 0;
+		if (sqthread)
+			ring_flags = IORING_SETUP_SQPOLL;
+		ret = t_create_ring(64, &ring2, ring_flags);
+		if (ret == T_SETUP_SKIP)
+			return 0;
+		if (ret != T_SETUP_OK) {
+			fprintf(stderr, "ring create failed: %d\n", ret);
+			return 1;
+		}
+
+		ret = io_uring_clone_buffers(&ring2, ring);
+		if (ret) {
+			if (ret == -EINVAL) {
+				no_buf_copy = 1;
+				io_uring_queue_exit(&ring2);
+				return 0;
+			}
+			fprintf(stderr, "copy buffers: %d\n", ret);
+			return ret;
+		}
+		ret = _test_io(file, &ring2, write, buffered, sqthread, 2,
+			       nonvec, buf_select, seq, exp_len, worker_offload);
+		if (ret)
+			return ret;
+
+		ret = io_uring_unregister_buffers(ring);
+		if (ret) {
+			fprintf(stderr, "buffer unreg failed: %d\n", ret);
+			return ret;
+		}
+		ret = io_uring_unregister_buffers(&ring2);
+		if (ret) {
+			fprintf(stderr, "buffer copy unreg failed: %d\n", ret);
+			return ret;
+		}
+		io_uring_queue_exit(&ring2);
+	}
+
+	return ret;
+}
+
 static int test_io(const char *file, int write, int buffered, int sqthread,
-		   int fixed, int nonvec, int exp_len)
+		   int fixed, int nonvec, int exp_len, bool worker_offload)
 {
 	struct io_uring ring;
 	int ret, ring_flags = 0;
@@ -247,7 +305,7 @@ static int test_io(const char *file, int write, int buffered, int sqthread,
 	}
 
 	ret = __test_io(file, &ring, write, buffered, sqthread, fixed, nonvec,
-			0, 0, exp_len);
+			0, 0, exp_len, worker_offload);
 	io_uring_queue_exit(&ring);
 	return ret;
 }
@@ -266,6 +324,8 @@ static int read_poll_link(const char *file)
 
 	fd = open(file, O_WRONLY);
 	if (fd < 0) {
+		if (errno == EACCES || errno == EPERM)
+			return T_EXIT_SKIP;
 		perror("open");
 		return 1;
 	}
@@ -338,6 +398,7 @@ out:
 	if (!(p->ops[IORING_OP_READ].flags & IO_URING_OP_SUPPORTED))
 		goto out;
 	io_uring_queue_exit(&ring);
+	free(p);
 	return 1;
 }
 
@@ -401,7 +462,7 @@ static int test_buf_select_short(const char *filename, int nonvec)
 	}
 
 	exp_len = 0;
-	for (i = 0; i < BUFFERS; i++) {
+	for (i = 0; i < 2 * BUFFERS; i++) {
 		sqe = io_uring_get_sqe(&ring);
 		io_uring_prep_provide_buffers(sqe, vecs[i].iov_base,
 						vecs[i].iov_len / 2, 1, 1, i);
@@ -410,12 +471,12 @@ static int test_buf_select_short(const char *filename, int nonvec)
 	}
 
 	ret = io_uring_submit(&ring);
-	if (ret != BUFFERS) {
+	if (ret != BUFFERS * 2) {
 		fprintf(stderr, "submit: %d\n", ret);
 		return -1;
 	}
 
-	for (i = 0; i < BUFFERS; i++) {
+	for (i = 0; i < BUFFERS * 2; i++) {
 		ret = io_uring_wait_cqe(&ring, &cqe);
 		if (cqe->res < 0) {
 			fprintf(stderr, "cqe->res=%d\n", cqe->res);
@@ -424,7 +485,8 @@ static int test_buf_select_short(const char *filename, int nonvec)
 		io_uring_cqe_seen(&ring, cqe);
 	}
 
-	ret = __test_io(filename, &ring, 0, 0, 0, 0, nonvec, 1, 1, exp_len);
+	ret = __test_io(filename, &ring, 0, 0, 0, 0, nonvec, 1, 1, exp_len,
+			false);
 
 	io_uring_queue_exit(&ring);
 	return ret;
@@ -563,7 +625,7 @@ static int test_buf_select(const char *filename, int nonvec)
 	for (i = 0; i < BUFFERS; i++)
 		memset(vecs[i].iov_base, i, vecs[i].iov_len);
 
-	ret = __test_io(filename, &ring, 1, 0, 0, 0, 0, 0, 1, BS);
+	ret = __test_io(filename, &ring, 1, 0, 0, 0, 0, 0, 1, BS, false);
 	if (ret) {
 		fprintf(stderr, "failed writing data\n");
 		return 1;
@@ -576,7 +638,7 @@ static int test_buf_select(const char *filename, int nonvec)
 	if (ret)
 		return ret;
 
-	ret = __test_io(filename, &ring, 0, 0, 0, 0, nonvec, 1, 1, BS);
+	ret = __test_io(filename, &ring, 0, 0, 0, 0, nonvec, 1, 1, BS, false);
 	io_uring_queue_exit(&ring);
 	return ret;
 }
@@ -696,6 +758,8 @@ static int test_io_link(const char *file)
 
 	fd = open(file, O_WRONLY);
 	if (fd < 0) {
+		if (errno == EPERM || errno == EACCES)
+			return 0;
 		perror("file open");
 		goto err;
 	}
@@ -871,20 +935,21 @@ int main(int argc, char *argv[])
 
 	signal(SIGXFSZ, SIG_IGN);
 
-	vecs = t_create_buffers(BUFFERS, BS);
+	vecs = t_create_buffers(2 * BUFFERS, BS);
 
 	/* if we don't have nonvec read, skip testing that */
-	nr = has_nonvec_read() ? 32 : 16;
+	nr = has_nonvec_read() ? 64 : 32;
 
 	for (i = 0; i < nr; i++) {
 		int write = (i & 1) != 0;
 		int buffered = (i & 2) != 0;
 		int sqthread = (i & 4) != 0;
 		int fixed = (i & 8) != 0;
-		int nonvec = (i & 16) != 0;
+		int offload = (i & 16) != 0;
+		int nonvec = (i & 32) != 0;
 
 		ret = test_io(fname, write, buffered, sqthread, fixed, nonvec,
-			      BS);
+			      BS, offload);
 		if (ret) {
 			fprintf(stderr, "test_io failed %d/%d/%d/%d/%d\n",
 				write, buffered, sqthread, fixed, nonvec);
@@ -929,7 +994,7 @@ int main(int argc, char *argv[])
 	}
 
 	ret = read_poll_link(fname);
-	if (ret) {
+	if (ret == T_EXIT_FAIL) {
 		fprintf(stderr, "read_poll_link failed\n");
 		goto err;
 	}
@@ -970,6 +1035,12 @@ int main(int argc, char *argv[])
 		goto err;
 	}
 
+	if(vecs != NULL) {
+		for (i = 0; i < BUFFERS; i++)
+			free(vecs[i].iov_base);
+	}
+	free(vecs);
+
 	srand((unsigned)time(NULL));
 	if (create_nonaligned_buffers()) {
 		fprintf(stderr, "file creation failed\n");
@@ -982,14 +1053,15 @@ int main(int argc, char *argv[])
 		int buffered = (i & 2) != 0;
 		int sqthread = (i & 4) != 0;
 		int fixed = (i & 8) != 0;
-		int nonvec = (i & 16) != 0;
+		int offload = (i & 16) != 0;
+		int nonvec = (i & 32) != 0;
 
 		/* direct IO requires alignment, skip it */
 		if (!buffered || !fixed || nonvec)
 			continue;
 
 		ret = test_io(fname, write, buffered, sqthread, fixed, nonvec,
-			      -1);
+			      -1, offload);
 		if (ret) {
 			fprintf(stderr, "test_io failed %d/%d/%d/%d/%d\n",
 				write, buffered, sqthread, fixed, nonvec);

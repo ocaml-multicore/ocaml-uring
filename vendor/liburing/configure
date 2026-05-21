@@ -28,6 +28,10 @@ for opt do
   ;;
   --use-libc) use_libc=yes
   ;;
+  --enable-sanitizer) use_sanitizer=yes
+  ;;
+  --enable-tsan) use_tsan=yes
+  ;;
   *)
     echo "ERROR: unknown option $opt"
     echo "Try '$0 --help' for more information"
@@ -76,6 +80,7 @@ Options: [defaults in brackets after descriptions]
   --cc=CMD                 use CMD as the C compiler
   --cxx=CMD                use CMD as the C++ compiler
   --use-libc               use libc for liburing (useful for hardening)
+  --enable-sanitizer       compile liburing with the address and undefined behaviour sanitizers. (useful for debugging)
 EOF
 exit 0
 fi
@@ -111,12 +116,13 @@ fatal() {
 
 # Print result for each configuration test
 print_config() {
-  printf "%-30s%s\n" "$1" "$2"
+  printf "%-35s%s\n" "$1" "$2"
 }
 
 # Default CFLAGS
-CFLAGS="-D_GNU_SOURCE -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -include config-host.h"
-BUILD_CFLAGS=""
+ENV_CFLAGS="${CFLAGS}"
+CFLAGS="${CFLAGS:+$CFLAGS }-D_GNU_SOURCE -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -include config-host.h"
+BUILD_CFLAGS="${ENV_CFLAGS}"
 
 # Print configure header at the top of $config_host_h
 echo "/*" > $config_host_h
@@ -377,6 +383,22 @@ fi
 print_config "has_ucontext" "$has_ucontext"
 
 ##########################################
+# check for memfd_create(2)
+has_memfd_create="no"
+cat > $TMPC << EOF
+#include <sys/mman.h>
+int main(int argc, char **argv)
+{
+  int memfd = memfd_create("test", 0);
+  return 0;
+}
+EOF
+if compile_prog "-Werror=implicit-function-declaration" "" "has_memfd_create"; then
+  has_memfd_create="yes"
+fi
+print_config "has_memfd_create" "$has_memfd_create"
+
+##########################################
 # Check NVME_URING_CMD support
 nvme_uring_cmd="no"
 cat > $TMPC << EOF
@@ -413,6 +435,21 @@ if compile_prog "" "" "futexv"; then
   futexv="yes"
 fi
 print_config "futex waitv support" "$futexv"
+
+##########################################
+# Check block discard cmd support
+discard_cmd="no"
+cat > $TMPC << EOF
+#include <linux/blkdev.h>
+int main(void)
+{
+  return BLOCK_URING_CMD_DISCARD;
+}
+EOF
+if compile_prog "" "" "discard command"; then
+  discard_cmd="yes"
+fi
+print_config "io_uring discard command support" "$discard_cmd"
 
 ##########################################
 # Check idtype_t support
@@ -471,6 +508,26 @@ fi
 print_config "has_fanotify" "$has_fanotify"
 ####################################################
 
+##########################################
+# check for ublk headers
+ublk_header="no"
+cat > $TMPC << EOF
+#include <string.h>
+#include <sys/ioctl.h>
+#include <linux/ublk_cmd.h>
+int main(int argc, char **argv)
+{
+  struct ublksrv_ctrl_cmd cmd = { };
+
+  cmd.addr = UBLK_U_CMD_START_DEV;
+  return cmd.queue_id;
+}
+EOF
+if compile_prog "" "" "ublk_header"; then
+  ublk_header="yes"
+fi
+print_config "ublk_header" "$ublk_header"
+
 if test "$liburing_nolibc" = "yes"; then
   output_sym "CONFIG_NOLIBC"
 fi
@@ -501,6 +558,9 @@ fi
 if test "$array_bounds" = "yes"; then
   output_sym "CONFIG_HAVE_ARRAY_BOUNDS"
 fi
+if test "$has_memfd_create" = "yes"; then
+  output_sym "CONFIG_HAVE_MEMFD_CREATE"
+fi
 if test "$nvme_uring_cmd" = "yes"; then
   output_sym "CONFIG_HAVE_NVME_URING"
 fi
@@ -510,10 +570,26 @@ fi
 if test "$futexv" = "yes"; then
   output_sym "CONFIG_HAVE_FUTEXV"
 fi
+if test "$ublk_header" = "yes"; then
+  output_sym "CONFIG_HAVE_UBLK_HEADER"
+fi
+if test "$use_sanitizer" = "yes"; then
+  output_sym "CONFIG_USE_SANITIZER"
+  print_config "use sanitizer" "yes"
+else
+  print_config "use sanitizer" "no"
+fi
+if test "$use_tsan" = "yes"; then
+  output_sym "CONFIG_USE_TSAN"
+  print_config "use tsan" "yes"
+else
+  print_config "use tsan" "no"
+fi
 
 echo "CC=$cc" >> $config_host_mak
 print_config "CC" "$cc"
 echo "CXX=$cxx" >> $config_host_mak
+echo "BUILD_CFLAGS=$BUILD_CFLAGS" >> $config_host_mak
 print_config "CXX" "$cxx"
 
 # generate io_uring_version.h
@@ -549,8 +625,28 @@ typedef int __kernel_rwf_t;
 
 EOF
 fi
+
+cat >> $compat_h << EOF
+#if defined(__has_include)
+/* introduced in C++17 & C23 */
+/* quotes "" quotes needed for GCC < 10 */
+#if __has_include("linux/time_types.h")
+#include <linux/time_types.h>
+#else
+struct __kernel_timespec {
+	int64_t		tv_sec;
+	long long	tv_nsec;
+};
+#endif
+
+#define UAPI_LINUX_IO_URING_H_SKIP_LINUX_TIME_TYPES_H 1
+#endif
+
+EOF
+
 if test "$__kernel_timespec" != "yes"; then
 cat >> $compat_h << EOF
+#if !defined(__has_include)
 #include <stdint.h>
 
 struct __kernel_timespec {
@@ -560,14 +656,15 @@ struct __kernel_timespec {
 
 /* <linux/time_types.h> is not available, so it can't be included */
 #define UAPI_LINUX_IO_URING_H_SKIP_LINUX_TIME_TYPES_H 1
-
+#endif
 EOF
 else
 cat >> $compat_h << EOF
+#if !defined(__has_include)
 #include <linux/time_types.h>
 /* <linux/time_types.h> is included above and not needed again */
 #define UAPI_LINUX_IO_URING_H_SKIP_LINUX_TIME_TYPES_H 1
-
+#endif
 EOF
 fi
 if test "$open_how" != "yes"; then
@@ -619,6 +716,23 @@ typedef enum
 } idtype_t;
 EOF
 fi
+
+if test "$discard_cmd" != "yes"; then
+cat >> $compat_h << EOF
+
+#include <linux/ioctl.h>
+
+#ifndef BLOCK_URING_CMD_DISCARD
+#define BLOCK_URING_CMD_DISCARD                        _IO(0x12, 0)
+#endif
+
+EOF
+else cat >> $compat_h << EOF
+#include <linux/blkdev.h>
+
+EOF
+fi
+
 cat >> $compat_h << EOF
 #endif
 EOF

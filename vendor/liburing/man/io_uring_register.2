@@ -3,7 +3,7 @@
 .\"
 .\" SPDX-License-Identifier: LGPL-2.0-or-later
 .\"
-.TH io_uring_register 2 2019-01-17 "Linux" "Linux Programmer's Manual"
+.TH io_uring_register 2 "January 17, 2019" "Linux" "Linux Programmer's Manual"
 .SH NAME
 io_uring_register \- register files or user buffers for asynchronous I/O 
 .SH SYNOPSIS
@@ -113,27 +113,25 @@ but aims to have a more extensible ABI.
 
 .I arg
 points to a
-.I struct io_uring_rsrc_register,
+.I struct
+.IR io_uring_rsrc_register ,
 and
 .I nr_args
 should be set to the number of bytes in the structure.
 
-.PP
-.in +8n
+.IP
+.in +4n
 .EX
 struct io_uring_rsrc_register {
     __u32 nr;
-    __u32 resv;
+    __u32 flags;
     __u64 resv2;
     __aligned_u64 data;
     __aligned_u64 tags;
 };
-
 .EE
 .in
-.PP
-
-.in +8n
+.IP
 
 The
 .I data
@@ -154,8 +152,25 @@ posted with
 .I user_data
 set to the specified tag and all other fields zeroed.
 
+The
+.I flags
+field supports the following flags:
+
+.IP
+.in +4n
+.B IORING_RSRC_REGISTER_SPARSE
+If set, io_uring will register
+.I nr
+empty buffers, which need to be updated before use. When this flag is set,
+.I data
+and
+.I tags
+must be NULL. Available since 5.19.
+.in
+.IP
+
 Note that resource updates, e.g.
-.B IORING_REGISTER_BUFFERS_UPDATE,
+.BR IORING_REGISTER_BUFFERS_UPDATE ,
 don't necessarily deallocate resources by the time it returns, but they might
 be held alive until all requests using it complete.
 
@@ -167,9 +182,13 @@ Updates registered buffers with new ones, either turning a sparse entry into
 a real one, or replacing an existing entry.
 
 .I arg
-must contain a pointer to a struct io_uring_rsrc_update2, which contains
+must contain a pointer to a
+.I struct
+.IR io_uring_rsrc_update2 ,
+which contains
 an offset on which to start the update, and an array of
-.I struct iovec.
+.I struct
+.IR iovec .
 .I tags
 points to an array of tags.
 .I nr
@@ -226,7 +245,7 @@ member is set to the index of the file in the file descriptor array.
 The file set may be sparse, meaning that the
 .B fd
 field in the array may be set to
-.B -1.
+.BR -1 .
 See
 .B IORING_REGISTER_FILES_UPDATE
 for how to update files in place.
@@ -244,11 +263,12 @@ register a new set of fds. Available since 5.1.
 .TP
 .B IORING_REGISTER_FILES2
 Register files for I/O. Similar to
-.B IORING_REGISTER_FILES.
+.BR IORING_REGISTER_FILES .
 
 .I arg
 points to a
-.I struct io_uring_rsrc_register,
+.I struct
+.IR io_uring_rsrc_register ,
 and
 .I nr_args
 should be set to the number of bytes in the structure.
@@ -266,7 +286,7 @@ field should either be 0 or or point to an array of
 for more info on resource tagging.
 
 Note that resource updates, e.g.
-.B IORING_REGISTER_FILES_UPDATE,
+.BR IORING_REGISTER_FILES_UPDATE ,
 don't necessarily deallocate resources, they might be held until all requests
 using that resource complete.
 
@@ -276,14 +296,15 @@ Available since 5.13.
 .B IORING_REGISTER_FILES_UPDATE
 This operation replaces existing files in the registered file set with new
 ones, either turning a sparse entry (one where fd is equal to
-.B -1
-) into a real one, removing an existing entry (new one is set to
-.B -1
-), or replacing an existing entry with a new existing entry.
+.BR -1 )
+into a real one, removing an existing entry (new one is set to
+.BR -1 ),
+or replacing an existing entry with a new existing entry.
 
 .I arg
 must contain a pointer to a
-.I struct io_uring_files_update,
+.I struct
+.IR io_uring_rsrc_update ,
 which contains
 an offset on which to start the update, and an array of file descriptors to
 use for the update.
@@ -292,27 +313,30 @@ must contain the number of descriptors in the passed in array. Available
 since 5.5.
 
 File descriptors can be skipped if they are set to
-.B IORING_REGISTER_FILES_SKIP.
+.BR IORING_REGISTER_FILES_SKIP .
 Skipping an fd will not touch the file associated with the previous
 fd at that index. Available since 5.12.
 
 .TP
 .B IORING_REGISTER_FILES_UPDATE2
-Similar to IORING_REGISTER_FILES_UPDATE, replaces existing files in the
+Similar to
+.BR IORING_REGISTER_FILES_UPDATE ,
+replaces existing files in the
 registered file set with new ones, either turning a sparse entry (one where
 fd is equal to
-.B -1
-) into a real one, removing an existing entry (new one is set to
-.B -1
-), or replacing an existing entry with a new existing entry.
+.BR -1 )
+into a real one, removing an existing entry (new one is set to
+.BR -1 ),
+or replacing an existing entry with a new existing entry.
 
 .I arg
 must contain a pointer to a
-.I struct io_uring_rsrc_update2,
+.I struct
+.IR io_uring_rsrc_update2 ,
 which contains
 an offset on which to start the update, and an array of file descriptors to
 use for the update stored in
-.I data.
+.IR data .
 .I tags
 points to an array of tags.
 .I nr
@@ -332,7 +356,9 @@ with the io_uring instance will be unregistered. Available since 5.1.
 
 .TP
 .B IORING_REGISTER_EVENTFD
-It's possible to use eventfd(2) to get notified of completion events on an
+It's possible to use
+.BR eventfd (2)
+to get notified of completion events on an
 io_uring instance. If this is desired, an eventfd file descriptor can be
 registered through this operation.
 .I arg
@@ -357,12 +383,12 @@ Available since 5.8.
 .TP
 .B IORING_REGISTER_EVENTFD_ASYNC
 This works just like
-.B IORING_REGISTER_EVENTFD
-, except notifications are only posted for events that complete in an async
+.BR IORING_REGISTER_EVENTFD ,
+except notifications are only posted for events that complete in an async
 manner. This means that events that complete inline while being submitted
 do not trigger a notification event. The arguments supplied are the same as
 for
-.B IORING_REGISTER_EVENTFD.
+.BR IORING_REGISTER_EVENTFD .
 Available since 5.6.
 
 .TP
@@ -413,7 +439,7 @@ must be set to NULL. Available since 5.6.
 .TP
 .B IORING_REGISTER_ENABLE_RINGS
 This operation enables an io_uring ring started in a disabled state
-.RB (IORING_SETUP_R_DISABLED
+.RB ( IORING_SETUP_R_DISABLED
 was specified in the call to
 .BR io_uring_setup (2)).
 While the io_uring ring is disabled, submissions are not allowed and
@@ -439,7 +465,7 @@ entries.
 
 With an entry it is possible to allow an
 .BR io_uring_register (2)
-.I opcode,
+.IR opcode ,
 or specify which
 .I opcode
 and
@@ -456,7 +482,7 @@ are not allowed).
 
 Restrictions can be registered only if the io_uring ring started in a disabled
 state
-.RB (IORING_SETUP_R_DISABLED
+.RB ( IORING_SETUP_R_DISABLED
 must be specified in the call to
 .BR io_uring_setup (2)).
 
@@ -480,7 +506,7 @@ Available since 5.14.
 .TP
 .B IORING_UNREGISTER_IOWQ_AFF
 Undoes a CPU mask previously set with
-.B IORING_REGISTER_IOWQ_AFF.
+.BR IORING_REGISTER_IOWQ_AFF .
 Must not have
 .I arg
 or
@@ -534,7 +560,7 @@ of
 .I nr_args
 number of entries. The
 .B data
-field of this struct must point to an io_uring file descriptor, and the
+field of this struct must contain an io_uring file descriptor, and the
 .B offset
 field can be either
 .B -1
@@ -567,7 +593,7 @@ Available since 5.18.
 .TP
 .B IORING_UNREGISTER_RING_FDS
 Unregister descriptors previously registered with
-.B IORING_REGISTER_RING_FDS.
+.BR IORING_REGISTER_RING_FDS .
 
 .I arg
 must be set to a pointer to an array of type
@@ -656,7 +682,7 @@ field set to the buffer group ID of the previously registered provided buffer
 group.
 .I nr_args
 must be set to 1. Also see
-.B IORING_REGISTER_PBUF_RING .
+.BR IORING_REGISTER_PBUF_RING .
 
 Available since 5.19.
 
@@ -685,7 +711,7 @@ Available since 6.0.
 .B IORING_REGISTER_FILE_ALLOC_RANGE
 sets the allowable range for fixed file index allocations within the
 kernel. When requests that can instantiate a new fixed file are used with
-.B IORING_FILE_INDEX_ALLOC ,
+.BR IORING_FILE_INDEX_ALLOC ,
 the application is asking the kernel to allocate a new fixed file descriptor
 rather than pass in a specific value for one. By default, the kernel will
 pick any available fixed file descriptor within the range available.
@@ -720,8 +746,488 @@ The application must have registered a file table first.
 
 Available since 6.0.
 
-.SH RETURN VALUE
+.TP
+.B IORING_REGISTER_PBUF_STATUS
+Can be used to retrieve the current head of a ringbuffer provided earlier via
+.BR IORING_REGISTER_PBUF_RING .
+.I arg
+must point to a
+.PP
+.in +12
+.EX
+struct io_uring_buf_status {
+	__u32	buf_group;	/* input */
+	__u32	head;		/* output */
+	__u32	resv[8];
+};
+.EE
+.in
+.PP
+.in +8
+of which
+.I arg->buf_group
+should contain the buffer group ID for the buffer ring in question,
+.I nr_args
+should be set to 1 and
+.I arg->resv
+should be zeroed out.
+The current head of the ringbuffer will be returned in
+.IR arg->head .
 
+Available since 6.8.
+
+.TP
+.B IORING_REGISTER_NAPI
+Registers a napi instance with the io_uring instance of
+.IR fd .
+.I arg
+should point to a
+.PP
+.in +12
+.EX
+struct io_uring_napi {
+	__u32	busy_poll_to;
+	__u8	prefer_busy_poll;
+	__u8	pad[3];
+	__u64	resv;
+};
+.EE
+.in
+.PP
+.in +8
+in which
+.I arg->busy_poll_to
+should contain the busy poll timeout in micro seconds and
+.I arg->prefer_busy_poll
+should specify whether busy polling should be used rather than IRQs.
+.I nr_args
+should be set to 1 and
+.I arg->pad
+and
+.I arg->resv
+should be zeroed out.
+On successful return the
+.I io_uring_napi
+struct pointed to by
+.I arg
+will contain the previously used settings.
+
+Available since 6.9.
+
+.TP
+.B IORING_UNREGISTER_NAPI
+Unregisters a napi instance previously registered via
+.B IORING_REGISTER_NAPI
+to the io_uring instance of
+.IR fd .
+.I arg
+should point to a
+.I struct
+.IR io_uring_napi .
+On successful return the
+.I io_uring_napi
+struct pointed to by
+.I arg
+will contain the previously used settings.
+
+Available since 6.9.
+
+.TP
+.B IORING_REGISTER_CLOCK
+Specifies which clock id io_uring will use for timers while waiting for
+completion events with
+.BR IORING_ENTER_GETEVENTS .
+It's only effective if the timeout argument in
+.I struct io_uring_getevents_arg
+is passed, ignored otherwise.
+When used in conjunction with
+.BR IORING_ENTER_ABS_TIMER ,
+interprets the timeout argument as absolute time of the specified clock.
+
+The default clock is
+.BR CLOCK_MONOTONIC .
+
+Available since 6.12 and supports
+.B CLOCK_MONOTONIC
+and
+.BR CLOCK_BOOTTIME .
+
+.TP
+.B IORING_REGISTER_CLONE_BUFFERS
+Supports cloning buffers from a source ring to a destination ring, duplicating
+previously registered buffers from source to destination.
+.IR arg
+must be set to a pointer to a
+.I struct io_uring_clone_buffers
+and
+.IR nr_args
+must be set to
+.B 1 .
+.I struct io_uring_buf_reg
+looks as follows:
+.PP
+.in +12n
+.EX
+struct io_uring_clone_buffers {
+    __u32 src_fd;
+    __u32 flags;
+    __u32 src_off;
+    __u32 dst_off;
+    __u32 nr;
+    __u32 pad[3];
+};
+.EE
+.in
+.TP
+.PP
+where
+.IR src_fd
+indicates the fd of the source ring,
+.IR flags
+are modifier flags for the operation,
+.IR src_off
+indicates the offset from where to start the cloning from the source ring,
+.IR dst_off
+indicates the offset from where to start the cloning into the destination ring,
+and
+.IR nr
+indicates the number of buffers to clone at the given offsets.
+.IR pad
+must be zero filled.
+Kernel 6.12 added support for full range cloning, where
+.IR src_off ,
+.IR dst_off ,
+and
+.IR nr
+must all be set to 0, indicating cloning of the entire table in source to
+destination. Kernel 6.13 added support for specifying the offsets and
+how many buffers to clone. Additionally, it added support for cloning into
+a previously registered table in the destination as well, 6.12 would fail
+that operation with
+.B -EBUSY
+if attempted. To replace existing nodes, or clone into an existing table,
+.B IORING_REGISTER_DST_REPLACE
+must be set in the
+.IR flags
+member.
+
+.TP
+.B IORING_REGISTER_SEND_MSG_RING
+Supports sending of the equivalent of a
+.B IORING_OP_MSG_RING
+request, but without having a source ring available. Takes a pointer to a
+.IR struct io_uring_sqe
+which must be prepared with
+.BR io_uring_prep_msg_ring (3)
+before being submitted. Only supports
+.B IORING_MSG_DATA
+type of requests. Available since kernel 6.13.
+
+.TP
+.B IORING_REGISTER_RESIZE_RINGS
+Supports resizing the SQ and CQ rings. Takes a pointer to a
+.IR struct io_uring_params
+as the argument, where
+.IR sq_entries
+and
+.IR cq_entries
+may be set to the desired values. Only supports a limited set of flags set
+in the
+.IR struct io_uring_params
+argument, notably
+.B IORING_SETUP_CQSIZE
+and
+.B IORING_SETUP_CLAMP
+to modify the CQ ring sizing. See
+.BR io_uring_resize_rings (3)
+for details. Note that while liburing takes care of the ring unmap and mapping
+for a resize operation, manual users of this register syscall must perform
+those operations, similarly to when a new ring is created. The
+.IR struct io_uring_params
+structure will get the necessary offsets copied back upon successful completion
+of this system call, which can be used to memory map the ring just like how
+a new ring would've been mapped. Available since kernel 6.13.
+
+.TP
+.B IORING_REGISTER_MEM_REGION
+Supports registering multiple purposes memory regions, avoiding unnecessary
+copying in of
+.IR struct io_uring_getevents_arg
+for wait operations that specify a timeout or minimum timeout. Takes a pointer
+to a
+.IR struct io_uring_mem_region_reg
+structure, which looks as follows:
+.PP
+.in +12n
+.EX
+struct io_uring_mem_region_reg {
+    __u64 region_uptr;
+    __u64 flags;
+    __u64 __resv[2];
+};
+.EE
+.in
+.TP
+.PP
+where
+.IR region_uptr
+must be set to the region being registered as memory regions,
+.IR flags
+specifies modifier flags (must currently be
+.B IORING_MEM_REGION_REG_WAIT_ARG ). The pad fields must all be cleared to
+.B 0 .
+Each memory regions looks as follows:
+.PP
+.in +12n
+.EX
+struct io_uring_region_desc {
+    __u64 user_addr;
+    __u64 size;
+    __u32 flags;
+    __u32 id;
+    __u64 mmap_offset;
+    __u64 __resv[4];
+};
+.EE
+.in
+.TP
+.PP
+where
+.IR user_addr
+points to userspace memory mappings,
+.IR size
+is the size of userspace memory. Current supported userspace memory regions
+looks as follows:
+.PP
+.in +12n
+.EX
+struct io_uring_reg_wait {
+    struct __kernel_timespec ts;
+    __u32                    min_wait_usec;
+    __u32                    flags;
+    __u64                    sigmask;
+    __u32                    sigmask_sz;
+    __u32                    pad[3];
+    __u64                    pad2[2];
+};
+.EE
+.in
+.TP
+.PP
+where
+.IR ts
+holds the timeout information for this region
+.IR flags
+holds information about the timeout region,
+.IR sigmask
+is a pointer to a signal mask, if used, and
+.IR sigmask_sz
+is the size of that signal mask. The pad fields must all be cleared to
+.B 0 .
+Currently the only valid flag is
+.B IORING_REG_WAIT_TS ,
+which, if set, says that the values in
+.IR ts
+are valid and should be used for a timeout operation. The
+.IR user_addr
+field of
+.IR struct io_uring_region_desc
+must be set to an address of
+.IR struct io_uring_reg_wait
+members, an up to a page size can be mapped. At the size of 64 bytes per
+region, that allows at least 64 individual regions on a 4k page size system.
+The offsets of these regions are used for an
+.BR io_uring_enter (2)
+system call, with the first one being 0, second one 1, and so forth. After
+registration of the wait regions,
+.BR io_uring_enter (2)
+may be used with the enter flag of
+.B IORING_ENTER_EXT_ARG_REG and an
+.IR argp
+set to the wait region offset, rather than a pointer to a
+.IR struct io_uring_getevent_arg
+structure. If used with
+.B IORING_ENTER_GETEVENTS ,
+then the wait operation will use the information in the registered wait
+region rather than needing a io_uring_getevent_arg structure copied for each
+operation. For high frequency waits, this can save considerable CPU cycles.
+Note: once a region has been registered, it cannot get unregistered. It lives
+for the life of the ring. Individual wait region offset may be modified before
+any
+.BR io_uring_enter (2)
+system call. Available since kernel 6.13.
+
+.TP
+.B IORING_REGISTER_ZCRX_IFQ
+Registers a zero-copy receive interface queue for network receive operations.
+Zero-copy receive allows the kernel to place incoming network data directly
+into application-provided memory without copying, reducing CPU overhead for
+high-bandwidth network workloads.
+.I arg
+must point to a
+.I struct io_uring_zcrx_ifq_reg
+structure, and
+.I nr_args
+must be set to 1.
+.PP
+.in +12n
+.EX
+struct io_uring_zcrx_ifq_reg {
+    __u32 if_idx;
+    __u32 if_rxq;
+    __u32 rq_entries;
+    __u32 flags;
+    __u64 area_ptr;
+    __u64 region_ptr;
+    struct io_uring_zcrx_offsets offsets;
+    __u32 zcrx_id;
+    __u32 __resv2;
+    __u64 __resv[3];
+};
+.EE
+.in
+.PP
+.in +8n
+where
+.I if_idx
+is the network interface index,
+.I if_rxq
+is the receive queue index,
+.I rq_entries
+is the number of entries in the refill queue (will be rounded up to a power
+of two),
+.I flags
+contains modifier flags,
+.I area_ptr
+points to a
+.I struct io_uring_zcrx_area_reg
+describing the memory area to use,
+.I region_ptr
+points to a
+.I struct io_uring_region_desc
+describing the memory region, and upon successful return
+.I zcrx_id
+will contain the ID of the registered zero-copy receive context.
+The
+.I offsets
+field is filled in by the kernel and contains the ring offsets for the refill
+queue.
+
+The io_uring ring must have been created with
+.B IORING_SETUP_DEFER_TASKRUN
+and either
+.B IORING_SETUP_CQE32
+or
+.B IORING_SETUP_CQE_MIXED
+flags set. The caller must have the
+.B CAP_NET_ADMIN
+capability.
+
+Available since kernel 6.15.
+
+.TP
+.B IORING_REGISTER_QUERY
+Queries io_uring capabilities and feature support. This operation does not
+require an io_uring ring and can be called with
+.I fd
+set to -1. It provides information about supported opcodes, flags, and
+subsystem-specific capabilities.
+.I arg
+must point to a
+.I struct io_uring_query_hdr
+and
+.I nr_args
+must be 0.
+.PP
+.in +12n
+.EX
+struct io_uring_query_hdr {
+    __u64 next_entry;
+    __u64 query_data;
+    __u32 query_op;
+    __u32 size;
+    __s32 result;
+    __u32 __resv[3];
+};
+.EE
+.in
+.PP
+.in +8n
+Multiple queries can be chained together via
+.I next_entry
+which points to the next
+.I struct io_uring_query_hdr
+(or 0 for the last entry).
+.I query_data
+points to a data structure appropriate for the query type.
+.I query_op
+specifies the query type and can be one of:
+.IP \[bu] 2
+.B IO_URING_QUERY_OPCODES
+\- Returns information about supported opcodes and flags in a
+.I struct io_uring_query_opcode
+.IP \[bu]
+.B IO_URING_QUERY_ZCRX
+\- Returns information about zero-copy receive support in a
+.I struct io_uring_query_zcrx
+.IP \[bu]
+.B IO_URING_QUERY_SCQ
+\- Returns information about the SQ/CQ ring layout in a
+.I struct io_uring_query_scq
+.PP
+.in +8n
+.I size
+should be set to the size of the data structure pointed to by
+.IR query_data .
+Upon return,
+.I result
+will be 0 on success, or a negative error code.
+
+Available since kernel 6.15.
+
+.TP
+.B IORING_REGISTER_ZCRX_CTRL
+Performs control operations on a previously registered zero-copy receive
+context.
+.I arg
+must point to a
+.I struct zcrx_ctrl
+and
+.I nr_args
+must be 0.
+.PP
+.in +12n
+.EX
+struct zcrx_ctrl {
+    __u32 zcrx_id;
+    __u32 op;
+    __u64 __resv[2];
+    union {
+        struct zcrx_ctrl_export     zc_export;
+        struct zcrx_ctrl_flush_rq   zc_flush;
+    };
+};
+.EE
+.in
+.PP
+.in +8n
+where
+.I zcrx_id
+is the ID of the zero-copy receive context returned from
+.BR IORING_REGISTER_ZCRX_IFQ ,
+and
+.I op
+specifies the control operation:
+.IP \[bu] 2
+.B ZCRX_CTRL_FLUSH_RQ
+\- Flushes pending buffers from the refill queue
+.IP \[bu]
+.B ZCRX_CTRL_EXPORT
+\- Exports the zero-copy receive context for use by other rings
+
+Available since kernel 6.15.
+
+.SH RETURN VALUE
 On success,
 .BR io_uring_register (2)
 returns either 0 or a positive value, depending on the
@@ -811,8 +1317,7 @@ was specified and adding
 .I nr_args
 file references would exceed the maximum allowed number of files the user
 is allowed to have according to the
-.B
-RLIMIT_NOFILE
+.B RLIMIT_NOFILE
 resource limit and the caller does not have
 .B CAP_SYS_RESOURCE
 capability. Note that this is a per user limit, not per process.
@@ -840,3 +1345,23 @@ User buffers point to file-backed memory.
 .TP
 .B EFAULT
 User buffers point to file-backed memory (newer kernels).
+.TP
+.B ENOENT
+.B IORING_REGISTER_PBUF_STATUS
+was specified, but
+.I buf_group
+did not refer to a currently valid buffer group.
+.TP
+.B EINVAL
+.B IORING_REGISTER_PBUF_STATUS
+was specified, but the valid buffer group specified by
+.I buf_group
+did not refer to a buffer group registered via
+.BR IORING_REGISTER_PBUF_RING .
+.TP
+.B EINVAL
+.B IORING_REGISTER_NAPI
+was specified, but the ring associated with
+.I fd
+has not been created with
+.BR IORING_SETUP_IOPOLL .
