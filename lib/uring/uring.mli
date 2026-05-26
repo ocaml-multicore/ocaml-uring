@@ -61,7 +61,10 @@ module Setup_flags : sig
   (** Cooperative task running *)
 
   val taskrun_flag : t
-  (** Get notified if task work is available *)
+  (** Asks the kernel to set "IORING_SQ_TASKRUN" when task work is available.
+      This is used with {!coop_taskrun} and {!defer_taskrun}.
+      {!get_cqe_nonblocking} will check "IORING_SQ_TASKRUN" and automatically
+      enter the kernel to run the tasks if needed. *)
 
   val sqe128 : t
   (** SQEs are 128 byte *)
