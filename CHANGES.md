@@ -1,3 +1,39 @@
+## v2.14.0
+
+Breaking changes:
+
+- Add `Uring.Res` module to handle result values (@talex5 #131).  
+  This avoids the need to use `Obj.magic` for operations that return
+  file descriptors. Based on investigations by @dra27 in #129 and #130
+  and an initial request from @koonwen.
+
+  To upgrade, you can either use the functions in the `Res` module,
+  or just cast back to `int` with `(res :> int)` and continue as before.
+
+Other new features:
+
+- Update to uring 2.14 (@talex5 #138).
+
+- Add `send_zc` and `sendmsg_zc` ops (@avsm #139).
+
+Bug fixes:
+
+- Register `polling_timeout` with GC in `ocaml_uring_setup` (@talex5 #136, spotted by @polytypic).  
+
+- Use `MSG_CMSG_CLOEXEC` when receiving file descriptors (@talex5 #132).
+
+Documentation:
+
+- Warn about ZFS bug when using `write_fixed` (@talex5 #133, suggested by @toastal).
+
+Build and tests:
+
+- If the sending test fails, don't wait to receive (@talex5 #134).
+
+- Fix mkdir test (@talex5 #127).
+
+- Document and simplify the build process (@talex5 #137).
+
 ## v2.7.0
 
 - Fix use-after-free data race in CQE handlers (@avsm #124, reported #123 by @polytypic).
