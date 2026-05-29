@@ -520,15 +520,12 @@ value ocaml_uring_statx_ ## field ## _bytes(value v_statx) { \
 
 // Int64
 STATX_GETTER(blksize, int64_t, caml_copy_int64);
-STATX_GETTER(attributes, int64_t, caml_copy_int64);
 STATX_GETTER(nlink, int64_t, caml_copy_int64);
 STATX_GETTER(uid, int64_t, caml_copy_int64);
 STATX_GETTER(gid, int64_t, caml_copy_int64);
 STATX_GETTER(ino, int64_t, caml_copy_int64);
 STATX_GETTER(size, int64_t, caml_copy_int64);
 STATX_GETTER(blocks, int64_t, caml_copy_int64);
-STATX_GETTER(attributes_mask, int64_t, caml_copy_int64);
-STATX_GETTER(mask, int64_t, caml_copy_int64);
 
 int64_t
 ocaml_uring_statx_rdev_native(value v_statx) {
@@ -618,6 +615,9 @@ STATX_TIME_GETTER(mtime);
 
 // Int
 STATX_GETTER(mode, intnat, Val_int);
+STATX_GETTER(attributes, intnat, Val_int);
+STATX_GETTER(attributes_mask, intnat, Val_int);
+STATX_GETTER(mask, intnat, Val_int);
 
 intnat
 ocaml_uring_statx_perm_native(value v_statx) {
