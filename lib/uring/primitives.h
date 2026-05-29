@@ -80,6 +80,8 @@ CAMLprim value ocaml_uring_submit_close(value, value, value);
 CAMLprim value ocaml_uring_submit_statx_native(value, value, value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_statx_byte(value *, int);
 CAMLprim value ocaml_uring_submit_splice(value, value, value, value, value);
+CAMLprim value ocaml_uring_submit_bind(value, value, value, value);
+CAMLprim value ocaml_uring_submit_listen(value, value, value, value);
 CAMLprim value ocaml_uring_submit_connect(value, value, value, value);
 CAMLprim value ocaml_uring_submit_accept(value, value, value, value);
 CAMLprim value ocaml_uring_submit_cancel(value, value, value);
