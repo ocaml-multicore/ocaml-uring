@@ -578,7 +578,7 @@ int64_t
 ocaml_uring_statx_dio_offset_align_native(value v_statx) {
   #ifdef STATX_DIOALIGN // Linux 6.1 and above
   struct statx *s = Statx_val(v_statx);
-  return s->stx_dio_mem_align;
+  return s->stx_dio_offset_align;
   #else
   return 0;
   #endif
