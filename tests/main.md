@@ -510,6 +510,10 @@ val t : [ `Read ] Uring.t = <abstr>
 val fbuf :
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
   <abstr>
+# Uring.Region.init fbuf 5 ~block_size:16;;
+Exception:
+Invalid_argument
+ "Region.init: block_size 16 * slots 5 = 80 exceeds buffer size 64".
 # let region = Uring.Region.init fbuf 4 ~block_size:16;;
 val region : Uring.Region.t = <abstr>
 # let chunk = Uring.Region.alloc region;;

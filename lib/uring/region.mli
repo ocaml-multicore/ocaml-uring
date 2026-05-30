@@ -19,7 +19,9 @@ type t
 
   val init: block_size:int -> Cstruct.buffer -> int -> t
   (** [init ~block_size buf slots] initialises a region from
-      the buffer [buf] with total size of [block_size * slots]. *)
+      the buffer [buf] with total size of [block_size * slots].
+      @raise Invalid_argument if [block_size] or [slots] is negative, or if
+             [block_size * slots] exceeds the size of [buf] *)
 
   val alloc : t -> chunk
   (** [alloc t] will allocate a single chuck of length [block_size]
