@@ -124,10 +124,10 @@ value ocaml_uring_register_ba(value v_uring, value v_ba) {
 value ocaml_uring_unregister_buffers(value v_uring) {
   CAMLparam1(v_uring);
   struct io_uring *ring = Ring_val(v_uring);
-  dprintf("uring %p: unregistering buffers");
+  dprintf("uring %p: unregistering buffers\n", ring);
   int ret = io_uring_unregister_buffers(ring);
   if (ret)
-    unix_error(-ret, "io_uring_register_buffers", Nothing);
+    unix_error(-ret, "io_uring_unregister_buffers", Nothing);
   CAMLreturn(Val_unit);
 }
 
