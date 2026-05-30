@@ -413,6 +413,31 @@ val renameat : 'a t ->
     @param old_path Path of the existing entry.
     @param new_path New path for the entry. *)
 
+val symlinkat : 'a t -> target:string -> ?dir_fd:Unix.file_descr -> link_path:string -> 'a -> 'a job option
+(** [symlinkat t ~target ~link_path] creates a symbolic link at [link_path]
+    whose contents are [target].
+
+    A symbolic link is a special file that simply holds a string, [target]; that
+    string is interpreted only when the link is later followed by some other
+    syscall. Consequently [target] is stored verbatim and is neither resolved nor
+    checked when the link is created: it need not name an existing file, and the
+    call still succeeds, creating a "dangling" link. [target] may be absolute or
+    relative; a relative [target] is interpreted (at follow time) relative to the
+    directory that contains the link, not relative to [dir_fd] or the current
+    working directory.
+
+    The completion's [result] field is 0 on success, or a negative error code
+    (for example [EEXIST] if [link_path] already exists).
+
+    @param dir_fd If provided and [link_path] is relative, [link_path] is
+                  interpreted relative to [dir_fd]; if [link_path] is absolute,
+                  [dir_fd] is ignored. Defaults to the current working directory.
+                  Note that [dir_fd] only affects [link_path]: [target] is never
+                  resolved against it.
+    @param target The string the new symlink will contain (its target path).
+    @param link_path Path at which to create the symlink.
+    @return [None] if the submission queue is full; otherwise [Some job] *)
+
 val unlink : 'a t -> dir:bool -> ?fd:Unix.file_descr -> string -> 'a -> 'a job option
 (** [unlink t ~dir ~fd path] removes the directory entry [path], which is resolved relative to [fd].
     If [fd] is not given, then the current working directory is used.

@@ -93,6 +93,7 @@ CAMLprim value ocaml_uring_submit_linkat_byte(value *, int);
 CAMLprim value ocaml_uring_submit_unlinkat(value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_renameat_native(value, value, value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_renameat_byte(value *, int);
+CAMLprim value ocaml_uring_submit_symlinkat(value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_mkdirat(value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_send_msg(value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_recv_msg(value, value, value, value, value);

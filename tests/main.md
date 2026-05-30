@@ -991,6 +991,51 @@ val dst_dir : unit = ()
 - : unit = ()
 ```
 
+## Symlinkat
+
+```ocaml
+# let t : unit Uring.t = Uring.create ~queue_depth:1 ();;
+val t : unit Uring.t = <abstr>
+# Uring.symlinkat t ~target:"the-target" ~link_path:"the-link" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# (Unix.lstat "the-link").st_kind;;
+- : Unix.file_kind = Unix.S_LNK
+# Unix.readlink "the-link";;
+- : string = "the-target"
+# Unix.unlink "the-link";;
+- : unit = ()
+```
+
+With [dir_fd], [link_path] is resolved against an open directory (note that
+[target] is stored verbatim and is never resolved against [dir_fd]):
+
+```ocaml
+# Unix.mkdir "sl-dir" 0o700;;
+- : unit = ()
+# let dir = Unix.openfile "sl-dir" [ O_RDONLY ] 0;;
+val dir : Unix.file_descr = <abstr>
+# Uring.symlinkat t ~target:"the-target" ~dir_fd:dir ~link_path:"inner-link" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# (Unix.lstat "sl-dir/inner-link").st_kind;;
+- : Unix.file_kind = Unix.S_LNK
+# Unix.readlink "sl-dir/inner-link";;
+- : string = "the-target"
+# let dir : unit = Unix.close dir;;
+val dir : unit = ()
+# Unix.unlink "sl-dir/inner-link"; Unix.rmdir "sl-dir";;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Mkdirat
 
 ```ocaml

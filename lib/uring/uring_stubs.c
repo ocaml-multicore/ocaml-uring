@@ -1193,3 +1193,22 @@ ocaml_uring_submit_renameat_byte(value* values, int argc) {
     values[6]
   );
 }
+
+// Creates a symlink at v_link_path (relative to v_new_dir) whose contents are
+// v_target. v_target is not resolved relative to any directory.
+value /* noalloc */
+ocaml_uring_submit_symlinkat(value v_uring, value v_id,
+    value v_target, value v_new_dir, value v_link_path) {
+  struct io_uring *ring = Ring_val(v_uring);
+  char *target = Sketch_ptr_val(v_target);
+  char *link_path = Sketch_ptr_val(v_link_path);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+
+  if (!sqe)
+    return Val_false;
+
+  io_uring_prep_symlinkat(sqe, target, with_at_fdcwd(v_new_dir), link_path);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+
+  return Val_true;
+}
