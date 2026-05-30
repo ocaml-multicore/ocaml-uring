@@ -768,6 +768,16 @@ val accept : 'a t -> Unix.file_descr -> Sockaddr.t -> 'a -> 'a job option
     @param addr Pre-allocated storage for the peer address (create with {!Sockaddr.create})
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
+val shutdown : 'a t -> Unix.file_descr -> Unix.shutdown_command -> 'a -> 'a job option
+(** [shutdown t fd command d] will submit a [shutdown(2)] request, disabling
+    further reception ({!Unix.SHUTDOWN_RECEIVE}), transmission
+    ({!Unix.SHUTDOWN_SEND}) or both ({!Unix.SHUTDOWN_ALL}) on the socket [fd].
+
+    This is an asynchronous version of shutdown(2). The completion's [result]
+    field will be 0 on success or a negative error code.
+
+    @return [None] if the submission queue is full; otherwise [Some job] *)
+
 val close : 'a t -> Unix.file_descr -> 'a -> 'a job option
 (** [close t fd d] will submit a request to close file descriptor [fd].
 

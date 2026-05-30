@@ -789,6 +789,28 @@ val w : unit = ()
 - : unit = ()
 ```
 
+## Shutdown
+
+```ocaml
+# let t : [ `Shutdown ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Shutdown ] Uring.t = <abstr>
+# let a, b = Unix.(socketpair PF_UNIX SOCK_STREAM 0);;
+val a : Unix.file_descr = <abstr>
+val b : Unix.file_descr = <abstr>
+# Uring.shutdown t a Unix.SHUTDOWN_SEND `Shutdown;;
+- : [ `Shutdown ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume t;;
+- : [ `Shutdown ] * Uring.Res.t = (`Shutdown, 0)
+# let a : unit = Unix.close a;;
+val a : unit = ()
+# let b : unit = Unix.close b;;
+val b : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Unlink and rmdir
 
 ```ocaml

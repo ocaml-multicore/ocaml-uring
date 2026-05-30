@@ -865,6 +865,21 @@ ocaml_uring_submit_accept(value v_uring, value v_id, value v_fd, value v_sockadd
   return (Val_true);
 }
 
+static const int shutdown_command_table[] = {
+  SHUT_RD, SHUT_WR, SHUT_RDWR,
+};
+
+value /* noalloc */
+ocaml_uring_submit_shutdown(value v_uring, value v_id, value v_fd, value v_command) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) return (Val_false);
+  io_uring_prep_shutdown(sqe, Int_val(v_fd),
+                         shutdown_command_table[Int_val(v_command)]);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
 value /* noalloc */
 ocaml_uring_set_string(value v_sketch_ptr, value v_string)
 {

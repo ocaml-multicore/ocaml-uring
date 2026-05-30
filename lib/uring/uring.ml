@@ -334,6 +334,7 @@ module Uring = struct
   external submit_listen : t -> id -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_listen" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
+  external submit_shutdown : t -> id -> Unix.file_descr -> Unix.shutdown_command -> bool = "ocaml_uring_submit_shutdown" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
   external submit_openat2 : t -> id -> Unix.file_descr option -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
   external submit_linkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
@@ -662,6 +663,9 @@ let connect t fd addr user_data =
 
 let accept t fd addr user_data =
   with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) user_data ~extra_data:addr
+
+let shutdown t fd command user_data =
+  with_id t (fun id -> Uring.submit_shutdown t.uring id fd command) user_data
 
 let send_msg ?(fds=[]) ?dst t fd buffers user_data =
   let addr = Option.map Sockaddr.of_unix dst in
