@@ -1161,3 +1161,35 @@ ocaml_uring_submit_linkat_byte(value* values, int argc) {
     values[6]
   );
 }
+
+value /* noalloc */
+ocaml_uring_submit_renameat_native(value v_uring, value v_id,
+    value v_old_dir, value v_old_path,
+    value v_new_dir, value v_new_path,
+    value v_flags) {
+  struct io_uring *ring = Ring_val(v_uring);
+  char *old_path = Sketch_ptr_val(v_old_path);
+  char *new_path = Sketch_ptr_val(v_new_path);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+
+  if (!sqe)
+    return Val_false;
+
+  io_uring_prep_renameat(sqe, with_at_fdcwd(v_old_dir), old_path, with_at_fdcwd(v_new_dir), new_path, Int_val(v_flags));
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+
+  return Val_true;
+}
+
+value
+ocaml_uring_submit_renameat_byte(value* values, int argc) {
+  return ocaml_uring_submit_renameat_native(
+    values[0],
+    values[1],
+    values[2],
+    values[3],
+    values[4],
+    values[5],
+    values[6]
+  );
+}

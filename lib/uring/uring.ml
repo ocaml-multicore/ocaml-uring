@@ -340,6 +340,7 @@ module Uring = struct
   external submit_openat2 : t -> id -> Unix.file_descr option -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
   external submit_linkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
   external submit_unlinkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
+  external submit_renameat : t -> id -> Unix.file_descr option -> Sketch.ptr -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_renameat_byte" "ocaml_uring_submit_renameat_native" [@@noalloc]
   external submit_mkdirat : t -> id -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_mkdirat" [@@noalloc]
   external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
@@ -590,6 +591,18 @@ let linkat t ?old_dir_fd ?new_dir_fd ~flags ~old_path ~new_path user_data =
     let old_path_buf = Sketch.String.alloc t.sketch old_path in
     let new_path_buf = Sketch.String.alloc t.sketch new_path in
     Uring.submit_linkat t.uring id old_dir_fd old_path_buf new_dir_fd new_path_buf flags
+  ) user_data
+
+module Rename_flags = struct
+  include Flags
+  include Config.Rename
+end
+
+let renameat t ?old_dir_fd ?new_dir_fd ?(flags=Rename_flags.empty) ~old_path ~new_path user_data =
+  with_id t (fun id ->
+    let old_path_buf = Sketch.String.alloc t.sketch old_path in
+    let new_path_buf = Sketch.String.alloc t.sketch new_path in
+    Uring.submit_renameat t.uring id old_dir_fd old_path_buf new_dir_fd new_path_buf flags
   ) user_data
 
 let unlink t ~dir ?fd path user_data =

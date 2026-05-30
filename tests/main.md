@@ -925,6 +925,72 @@ This currently doesn't work due to https://github.com/axboe/liburing/issues/955:
 - : unit = ()
 ```
 
+## Renameat
+
+```ocaml
+# let t : unit Uring.t = Uring.create ~queue_depth:1 ();;
+val t : unit Uring.t = <abstr>
+# close_out (open_out "rename-src");;
+- : unit = ()
+# Uring.renameat t ~old_path:"rename-src" ~new_path:"rename-dst" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# Sys.file_exists "rename-src", Sys.file_exists "rename-dst";;
+- : bool * bool = (false, true)
+```
+
+With [noreplace], renaming onto an existing path fails with [EEXIST]:
+
+```ocaml
+# close_out (open_out "rename-src");;
+- : unit = ()
+# Uring.renameat t ~flags:Uring.Rename_flags.noreplace ~old_path:"rename-src" ~new_path:"rename-dst" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option =
+Uring.Some {Uring.result = EEXIST; data = ()}
+# ["rename-src"; "rename-dst"] |> List.iter Unix.unlink;;
+- : unit = ()
+```
+
+Resolving [old_path] and [new_path] against [old_dir_fd] / [new_dir_fd]
+moves a file between two open directories:
+
+```ocaml
+# Unix.mkdir "rn-src-dir" 0o700; Unix.mkdir "rn-dst-dir" 0o700;;
+- : unit = ()
+# close_out (open_out "rn-src-dir/a");;
+- : unit = ()
+# let src_dir = Unix.openfile "rn-src-dir" [ O_RDONLY ] 0;;
+val src_dir : Unix.file_descr = <abstr>
+# let dst_dir = Unix.openfile "rn-dst-dir" [ O_RDONLY ] 0;;
+val dst_dir : Unix.file_descr = <abstr>
+# Uring.renameat t ~old_dir_fd:src_dir ~new_dir_fd:dst_dir
+    ~old_path:"a" ~new_path:"b" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# Sys.file_exists "rn-src-dir/a", Sys.file_exists "rn-dst-dir/b";;
+- : bool * bool = (false, true)
+# let src_dir : unit = Unix.close src_dir;;
+val src_dir : unit = ()
+# let dst_dir : unit = Unix.close dst_dir;;
+val dst_dir : unit = ()
+# Unix.unlink "rn-dst-dir/b";;
+- : unit = ()
+# ["rn-src-dir"; "rn-dst-dir"] |> List.iter Unix.rmdir;;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Mkdirat
 
 ```ocaml

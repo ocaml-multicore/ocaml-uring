@@ -381,6 +381,38 @@ val linkat : 'a t ->
     @param old_path Path of the already-existing link.
     @param new_path Path for the newly created link. *)
 
+(** Flags that can be passed to {!renameat}. See renameat2(2) for details. *)
+module Rename_flags : sig
+  include FLAGS
+
+  val noreplace : t
+  (** [noreplace] causes the rename to fail with [Unix.EEXIST] if [new_path]
+      already exists, rather than atomically replacing it. *)
+
+  val exchange : t
+  (** [exchange] atomically exchanges [old_path] and [new_path]. Both must
+      exist. Cannot be used with {!noreplace}. *)
+
+  val whiteout : t
+  (** [whiteout] (used with {!exchange}) additionally leaves a "whiteout" object
+      at [old_path]. Used by overlay/union filesystems. *)
+end
+
+val renameat : 'a t ->
+  ?old_dir_fd:Unix.file_descr ->
+  ?new_dir_fd:Unix.file_descr ->
+  ?flags:Rename_flags.t ->
+  old_path:string ->
+  new_path:string ->
+  'a -> 'a job option
+(** [renameat t ~old_path ~new_path] renames [old_path] to [new_path].
+
+    @param old_dir_fd If provided and [old_path] is relative, it is interpreted relative to [old_dir_fd].
+    @param new_dir_fd If provided and [new_path] is relative, it is interpreted relative to [new_dir_fd].
+    @param flags Rename behaviour (see {!Rename_flags}); defaults to none.
+    @param old_path Path of the existing entry.
+    @param new_path New path for the entry. *)
+
 val unlink : 'a t -> dir:bool -> ?fd:Unix.file_descr -> string -> 'a -> 'a job option
 (** [unlink t ~dir ~fd path] removes the directory entry [path], which is resolved relative to [fd].
     If [fd] is not given, then the current working directory is used.
