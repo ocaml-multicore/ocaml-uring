@@ -811,6 +811,48 @@ val b : unit = ()
 - : unit = ()
 ```
 
+## Socket
+
+Create a socket on the ring and retrieve its file descriptor:
+
+```ocaml
+# let t : [ `Socket ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Socket ] Uring.t = <abstr>
+# Uring.socket t Unix.PF_INET Unix.SOCK_STREAM 0 `Socket;;
+- : [ `Socket ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let token, fd = consume_fd t;;
+val token : [ `Socket ] = `Socket
+val fd : Unix.file_descr = <abstr>
+```
+
+The returned fd is a `Unix.file_descr` so connect it over loopback to a
+listener and exchange a message.
+
+```ocaml
+# let roundtrip fd =
+    let server = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+    Fun.protect ~finally:(fun () -> Unix.close server) @@ fun () ->
+    Unix.bind server (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+    Unix.listen server 1;
+    Unix.connect fd (Unix.getsockname server);
+    let conn, _ = Unix.accept server in
+    Fun.protect ~finally:(fun () -> Unix.close conn) @@ fun () ->
+    assert (Unix.write_substring conn "ping" 0 4 = 4);
+    let buf = Bytes.create 4 in
+    let n = Unix.read fd buf 0 4 in
+    Bytes.sub_string buf 0 n;;
+val roundtrip : Unix.file_descr -> string = <fun>
+# roundtrip fd;;
+- : string = "ping"
+
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Unlink and rmdir
 
 ```ocaml

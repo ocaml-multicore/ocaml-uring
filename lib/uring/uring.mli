@@ -778,6 +778,18 @@ val shutdown : 'a t -> Unix.file_descr -> Unix.shutdown_command -> 'a -> 'a job 
 
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
+val socket : 'a t -> Unix.socket_domain -> Unix.socket_type -> int -> 'a -> 'a job option
+(** [socket t domain ty protocol d] will submit a request to create a new socket,
+    an asynchronous version of socket(2).
+
+    The completion's [result] field contains the new file descriptor on success
+    (retrieve it with {!Res.fd_exn} or {!Res.fd_result}), or a negative error code.
+
+    @param domain Protocol family (e.g. [Unix.PF_INET])
+    @param ty Socket type (e.g. [Unix.SOCK_STREAM])
+    @param protocol Protocol number, or 0 to select the default for the type
+    @return [None] if the submission queue is full; otherwise [Some job] *)
+
 val close : 'a t -> Unix.file_descr -> 'a -> 'a job option
 (** [close t fd d] will submit a request to close file descriptor [fd].
 

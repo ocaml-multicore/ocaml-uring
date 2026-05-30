@@ -85,6 +85,7 @@ CAMLprim value ocaml_uring_submit_listen(value, value, value, value);
 CAMLprim value ocaml_uring_submit_connect(value, value, value, value);
 CAMLprim value ocaml_uring_submit_accept(value, value, value, value);
 CAMLprim value ocaml_uring_submit_shutdown(value, value, value, value);
+CAMLprim value ocaml_uring_submit_socket(value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_cancel(value, value, value);
 CAMLprim value ocaml_uring_submit_openat2(value, value, value, value);
 CAMLprim value ocaml_uring_submit_linkat_native(value, value, value, value, value, value, value);
