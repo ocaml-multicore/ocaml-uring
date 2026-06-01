@@ -941,6 +941,9 @@ value ocaml_uring_submit(value v_uring)
   caml_enter_blocking_section();
   int num = io_uring_submit(ring);
   caml_leave_blocking_section();
+  if (num < 0) {
+    caml_unix_error(-num, "io_uring_submit", Nothing);
+  }
   CAMLreturn (Val_int(num));
 }
 
