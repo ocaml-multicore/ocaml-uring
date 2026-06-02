@@ -17,11 +17,12 @@ type t
   (** [No_space] is raised when an allocation request cannot
       be satisfied. *)
 
-  val init: block_size:int -> Cstruct.buffer -> int -> t
-  (** [init ~block_size buf slots] initialises a region from
-      the buffer [buf] with total size of [block_size * slots].
-      @raise Invalid_argument if [block_size] or [slots] is negative, or if
-             [block_size * slots] exceeds the size of [buf] *)
+  val init: block_size:int -> Cstruct.buffer -> t
+  (** [init ~block_size buf] initialises a region from the buffer [buf],
+      carving it into [length(buf) / block_size] chunks of
+      [block_size] bytes each. Any trailing bytes that do not fill a
+      whole chunk are unused.
+      @raise Invalid_argument if [block_size] is not positive *)
 
   val alloc : t -> chunk
   (** [alloc t] will allocate a single chuck of length [block_size]
