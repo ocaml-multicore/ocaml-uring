@@ -248,28 +248,11 @@ let stat_flags c =
   Gen.indent_lines (Gen.hex_module "Attr" attr_flags) @
   ["end"]
 
-let rename_flags c =
-  C.C_define.import c ~c_flags:["-D_GNU_SOURCE"; "-I"; include_dir]
-    ~includes:["stdio.h";"fcntl.h"]
-    C.C_define.Type.[
-      "RENAME_NOREPLACE", Int;
-      "RENAME_EXCHANGE", Int;
-      "RENAME_WHITEOUT", Int;
-    ]
-  |> List.map (function
-      | name, C.C_define.Value.Int v ->
-        let prefix_len = String.length "RENAME_" in
-        let ocaml_name = String.sub name prefix_len (String.length name - prefix_len) |> String.lowercase_ascii in
-        (ocaml_name, v)
-      | _ -> assert false)
-  |> Gen.hex_module "Rename"
-
 let () =
   C.main ~name:"discover" (fun c ->
       C.Flags.write_lines "config.ml" @@ List.flatten @@ List.map (fun f -> f c) [
         toplevel_defs;
         uring_defs;
         stat_flags;
-        rename_flags;
       ]
     )

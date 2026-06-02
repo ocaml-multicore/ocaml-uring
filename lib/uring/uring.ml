@@ -596,7 +596,11 @@ let linkat t ?old_dir_fd ?new_dir_fd ~flags ~old_path ~new_path user_data =
 
 module Rename_flags = struct
   include Flags
-  include Config.Rename
+
+  (* Not auto-generated because they're missing from musl before 1.2.6. *)
+  let noreplace = 0x1
+  let exchange = 0x2
+  let whiteout = 0x4
 end
 
 let renameat t ?old_dir_fd ?new_dir_fd ?(flags=Rename_flags.empty) ~old_path ~new_path user_data =
