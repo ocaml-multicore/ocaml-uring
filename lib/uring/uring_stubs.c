@@ -880,12 +880,8 @@ ocaml_uring_submit_shutdown(value v_uring, value v_id, value v_fd, value v_comma
   return (Val_true);
 }
 
-static const int socket_domain_table[] = {
-  PF_UNIX, PF_INET, PF_INET6,
-};
-static const int socket_type_table[] = {
-  SOCK_STREAM, SOCK_DGRAM, SOCK_RAW, SOCK_SEQPACKET,
-};
+extern const int caml_unix_socket_domain_table[];
+extern const int caml_unix_socket_type_table[];
 
 value /* noalloc */
 ocaml_uring_submit_socket(value v_uring, value v_id, value v_domain, value v_type, value v_protocol) {
@@ -893,8 +889,8 @@ ocaml_uring_submit_socket(value v_uring, value v_id, value v_domain, value v_typ
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe) return (Val_false);
   io_uring_prep_socket(sqe,
-                       socket_domain_table[Int_val(v_domain)],
-                       socket_type_table[Int_val(v_type)],
+                       caml_unix_socket_domain_table[Int_val(v_domain)],
+                       caml_unix_socket_type_table[Int_val(v_type)],
                        Int_val(v_protocol), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
