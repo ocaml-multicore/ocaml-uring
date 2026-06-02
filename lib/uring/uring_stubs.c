@@ -1007,6 +1007,8 @@ value ocaml_uring_wait_cqe(value v_uring)
       unix_error(-res, "io_uring_wait_cqe", Nothing);
     }
   } else {
+    if (!cqe)
+      CAMLreturn(Val_cqe_none);
     id = (long)io_uring_cqe_get_data(cqe);
     int cqe_res = cqe->res;
     io_uring_cqe_seen(ring, cqe);
