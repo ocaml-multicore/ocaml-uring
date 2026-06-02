@@ -203,6 +203,36 @@ val read : Uring.Res.t = 0
 val v : [ `Create ] = `Create
 val read : Uring.Res.t = 0
 
+# Uring.fallocate t fd ~off:0L ~len:4096L `Create;;
+- : [ `Create ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let v, read = consume t;;
+val v : [ `Create ] = `Create
+val read : Uring.Res.t = 0
+# (Unix.fstat fd).Unix.st_size;;
+- : int = 4096
+
+# Uring.fallocate t fd ~mode:Uring.Fallocate_flags.keep_size ~off:0L ~len:8192L `Create;;
+- : [ `Create ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let v, read = consume t;;
+val v : [ `Create ] = `Create
+val read : Uring.Res.t = 0
+# (Unix.fstat fd).Unix.st_size;;
+- : int = 4096
+
+# Uring.ftruncate t fd ~len:9L `Create;;
+- : [ `Create ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let v, read = consume t;;
+val v : [ `Create ] = `Create
+val read : Uring.Res.t = 0
+# (Unix.fstat fd).Unix.st_size;;
+- : int = 9
+
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
 

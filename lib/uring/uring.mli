@@ -962,6 +962,61 @@ val fdatasync : 'a t -> ?off:int64 -> ?len:int -> Unix.file_descr -> 'a -> 'a jo
     @param len Length of range to sync
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
+(** Mode flags controlling the behaviour of {!fallocate}. The empty set
+    allocates the range as for [posix_fallocate(3)], extending the file
+    size if necessary. Flags are combined with [( + )]. *)
+module Fallocate_flags : sig
+  include FLAGS
+
+  val keep_size : t
+  (** [keep_size] allocates the range but does not change the file size, so a
+      subsequent write into the range will not need to allocate blocks. *)
+
+  val punch_hole : t
+  (** [punch_hole] deallocates the range (creating a hole), reading back as
+      zeroes. Must be combined with {!keep_size}. *)
+
+  val collapse_range : t
+  (** [collapse_range] removes the range from the file without leaving a hole,
+      shifting any data beyond it downwards. *)
+
+  val zero_range : t
+  (** [zero_range] converts the range to zeroes, allocating blocks as needed.
+      Combine with {!keep_size} to avoid changing the file size. *)
+
+  val insert_range : t
+  (** [insert_range] inserts a hole of [len] bytes at [off], shifting existing
+      data beyond [off] upwards. *)
+
+  val unshare_range : t
+  (** [unshare_range] unshares any shared blocks within the range, for example
+      on a reflinked or snapshotted file. *)
+
+  val write_zeroes : t
+  (** [write_zeroes] zeroes the range such that subsequent reads return zeroes
+      (requires recent kernel and filesystem support). *)
+end
+
+val fallocate : 'a t -> ?mode:Fallocate_flags.t -> Unix.file_descr -> off:int64 -> len:int64 -> 'a -> 'a job option
+(** [fallocate t ?mode fd ~off ~len d] will submit a [fallocate(2)] request,
+    manipulating the allocated disk space for the file referred to by [fd] for
+    the byte range starting at [off] and continuing for [len] bytes.
+
+    The completion's [result] field will be 0 on success or a negative error code.
+
+    @param mode Operation mode (see {!Fallocate_flags}); defaults to the empty
+                set, which allocates the range as for [posix_fallocate(3)]
+    @return [None] if the submission queue is full; otherwise [Some job] *)
+
+val ftruncate : 'a t -> Unix.file_descr -> len:int64 -> 'a -> 'a job option
+(** [ftruncate t fd ~len d] submits an [ftruncate(2)] request, setting the
+    size of the file referred to by [fd] to [len] bytes. If the file is larger
+    it is truncated and if smaller it is extended with zero bytes.
+
+    The completion's [result] field will be 0 on success or a negative error code.
+
+    @return [None] if the submission queue is full; otherwise [Some job] *)
+
 (** {2 Probing}
 
     You can check which operations are supported by the running kernel. *)
