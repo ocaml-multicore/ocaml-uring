@@ -12,7 +12,10 @@ type chunk = t * int
 
 exception No_space
 
-let init ~block_size buf slots =
+let init ~block_size buf =
+  if block_size <= 0 then
+    invalid_arg (Printf.sprintf "Region.init: block_size %d must be positive" block_size);
+  let slots = Bigarray.Array1.dim buf / block_size in
   let freelist = Queue.create () in
   for i = 0 to slots - 1 do
     Queue.push (i*block_size) freelist
