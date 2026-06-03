@@ -22,11 +22,13 @@ module Region = Region
 module Int63 = Optint.Int63
 
 module type FLAGS = sig
-  type t = private int
+  type t
   val empty : t
   val of_int : int -> t
+  val to_int : t -> int
   val ( + ) : t -> t -> t
   val mem : t -> t -> bool
+  val ( = ) : t -> t -> bool
 end
 
 module Flags = struct
@@ -36,10 +38,14 @@ module Flags = struct
 
   let of_int x = x
 
+  let to_int x = x
+
   let ( + ) = ( lor )
 
   let mem a b =
     (a land b) = a
+
+  let ( = ) (a : t) (b : t) = Int.equal a b
 end
 
 module Open_flags = struct
@@ -128,33 +134,30 @@ module Statx = struct
     include Flags
     include Config.Statx.Attr
 
-    let check ?mask attr t =
-      let i = Int64.of_int t in
-      (match mask with Some m -> if Int64.equal (Int64.logand m i) i then invalid_arg "Attribute not supported" | _ -> ());
-      Int64.equal (Int64.logand attr i) i 
+    (* The kernel leaves the value of attributes it does not support in an
+       undefined state, so an attribute is only usable when it is reported as
+       both present in [mask] and [attrs]. *)
+    let mem_checked ~mask attr attrs =
+      mem attr mask && mem attr attrs
   end
 
   module Mask = struct
     include Flags
     include Config.Statx.Mask
-
-    let check mask t =
-      let i = Int64.of_int t in
-      Int64.equal (Int64.logand mask i) i 
   end
 
   external blksize : t -> (int64 [@unboxed]) = "ocaml_uring_statx_blksize_bytes" "ocaml_uring_statx_blksize_native" [@@noalloc]
-  external attributes : t -> (int64 [@unboxed]) = "ocaml_uring_statx_attributes_bytes" "ocaml_uring_statx_attributes_native" [@@noalloc]
+  external attributes : t -> (Attr.t [@untagged]) = "ocaml_uring_statx_attributes_bytes" "ocaml_uring_statx_attributes_native" [@@noalloc]
   external nlink : t -> (int64 [@unboxed]) = "ocaml_uring_statx_nlink_bytes" "ocaml_uring_statx_nlink_native" [@@noalloc]
   external uid : t -> (int64 [@unboxed]) = "ocaml_uring_statx_uid_bytes" "ocaml_uring_statx_uid_native" [@@noalloc]
   external gid : t -> (int64 [@unboxed]) = "ocaml_uring_statx_gid_bytes" "ocaml_uring_statx_gid_native" [@@noalloc]
   external ino : t -> (int64 [@unboxed]) = "ocaml_uring_statx_ino_bytes" "ocaml_uring_statx_ino_native" [@@noalloc]
   external size : t -> (int64 [@unboxed]) = "ocaml_uring_statx_size_bytes" "ocaml_uring_statx_size_native" [@@noalloc]
   external blocks : t -> (int64 [@unboxed]) = "ocaml_uring_statx_blocks_bytes" "ocaml_uring_statx_blocks_native" [@@noalloc]
-  external attributes_mask : t -> (int64 [@unboxed]) = "ocaml_uring_statx_attributes_mask_bytes" "ocaml_uring_statx_attributes_mask_native" [@@noalloc]
+  external attributes_mask : t -> (Attr.t [@untagged]) = "ocaml_uring_statx_attributes_mask_bytes" "ocaml_uring_statx_attributes_mask_native" [@@noalloc]
   external rdev : t -> (int64 [@unboxed]) = "ocaml_uring_statx_rdev_bytes" "ocaml_uring_statx_rdev_native" [@@noalloc]
   external dev : t -> (int64 [@unboxed]) = "ocaml_uring_statx_dev_bytes" "ocaml_uring_statx_dev_native" [@@noalloc]
-  external mask : t -> (int64 [@unboxed]) = "ocaml_uring_statx_mask_bytes" "ocaml_uring_statx_mask_native" [@@noalloc]
+  external mask : t -> (Mask.t [@untagged]) = "ocaml_uring_statx_mask_bytes" "ocaml_uring_statx_mask_native" [@@noalloc]
   external mnt_id : t -> (int64 [@unboxed]) = "ocaml_uring_statx_mnt_id_bytes" "ocaml_uring_statx_mnt_id_native" [@@noalloc]
   external dio_mem_align : t -> (int64 [@unboxed]) = "ocaml_uring_statx_dio_mem_align_bytes" "ocaml_uring_statx_dio_mem_align_native" [@@noalloc]
   external dio_offset_align : t -> (int64 [@unboxed]) = "ocaml_uring_statx_dio_offset_align_bytes" "ocaml_uring_statx_dio_offset_align_native" [@@noalloc]

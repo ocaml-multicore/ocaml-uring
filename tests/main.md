@@ -236,8 +236,19 @@ val retval : Uring.Res.t = 0
 #  Uring.Statx.kind statx, Printf.sprintf "0o%o" (Uring.Statx.perm statx), (Uring.Statx.size statx);;
 - : Uring.Statx.kind * string * int64 = (`Regular_file, "0o600", 9L)
 
-# if not (Uring.Statx.(Mask.check (mask statx) Mask.dioalign)) then assert (Uring.Statx.dio_mem_align statx = 0L);;
+# if not (Uring.Statx.(Mask.mem Mask.dioalign (mask statx))) then assert (Uring.Statx.dio_mem_align statx = 0L);;
 - : unit = ()
+# if not (Uring.Statx.(Mask.mem Mask.dioalign (mask statx))) then assert (Uring.Statx.dio_offset_align statx = 0L);;
+- : unit = ()
+
+# Int64.compare (Uring.Statx.nlink statx) 1L >= 0;;
+- : bool = true
+# Uring.Statx.size statx = (Unix.LargeFile.stat "test-openat").Unix.LargeFile.st_size;;
+- : bool = true
+# Uring.Statx.(Mask.mem Mask.size (mask statx));;
+- : bool = true
+# Uring.Statx.(Mask.mem Mask.type' (mask statx));;
+- : bool = true
 ```
 
 Now using `~fd`:
@@ -284,6 +295,72 @@ val retval : Uring.Res.t = 0
 val fd : unit = ()
 
 # Uring.exit t;;
+- : unit = ()
+```
+
+### Flags, masks and attributes
+
+Tests of the `Statx` flag handlers.
+
+```ocaml
+module S = Uring.Statx
+module Attr = S.Attr
+module Mask = S.Mask
+module Flags = S.Flags
+```
+
+`Flags` have `+` (union), `mem` (subset) and `=` (equality) operators:
+
+```ocaml
+# assert (Flags.mem Flags.empty Flags.empty);
+  assert (Flags.mem Flags.empty Flags.symlink_nofollow);
+  assert (not (Flags.mem Flags.symlink_nofollow Flags.empty));;
+- : unit = ()
+
+# let combo = Flags.(symlink_nofollow + no_automount) in
+  assert (Flags.mem Flags.symlink_nofollow combo);
+  assert (Flags.mem Flags.no_automount combo);
+  assert (not (Flags.mem Flags.empty_path combo));;
+- : unit = ()
+
+# assert Flags.(symlink_nofollow + symlink_nofollow = symlink_nofollow);
+  assert Flags.(of_int (to_int symlink_nofollow) = symlink_nofollow);;
+- : unit = ()
+```
+
+`Mask.basic_stats` is the union of the basic components, but excludes `btime` (birth time):
+
+```ocaml
+# let components = Mask.[ type'; mode; nlink; uid; gid; atime; mtime; ctime; ino; size; blocks ] in
+  List.iter (fun c -> assert (Mask.mem c Mask.basic_stats)) components;
+  assert (not (Mask.mem Mask.btime Mask.basic_stats));;
+- : unit = ()
+
+# let m = Mask.(size + type') in
+  assert (Mask.mem Mask.size m);
+  assert (Mask.mem Mask.type' m);
+  assert (not (Mask.mem Mask.mtime m));;
+- : unit = ()
+```
+
+`Attr.mem_checked ~mask attr attrs` reports whether `attr` is set in `attrs`,
+treating attributes the filesystem does not support as unset.
+
+```ocaml
+let compressed = Attr.compressed
+let immutable = Attr.immutable
+let both = Attr.(compressed + immutable)
+```
+
+```ocaml
+# (* supported and set / supported but not set *)
+  assert (Attr.mem_checked ~mask:both compressed both);
+  assert (not (Attr.mem_checked ~mask:both compressed immutable));;
+- : unit = ()
+
+# (* not supported -> reported as unset, rather than raising *)
+  assert (not (Attr.mem_checked ~mask:immutable compressed both));
+  assert (not (Attr.mem_checked ~mask:immutable compressed immutable));;
 - : unit = ()
 ```
 

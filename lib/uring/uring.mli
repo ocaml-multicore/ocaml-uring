@@ -25,18 +25,25 @@ module Region = Region
 
 (** Type of flags that can be combined. *)
 module type FLAGS = sig
-  type t = private int
+  type t
   (** A set of flags. *)
 
   val empty : t
 
   val of_int : int -> t
+  (** [of_int i] is the flags whose bits are those set in [i]. *)
+
+  val to_int : t -> int
+  (** [to_int t] is the integer with the bits of the flags [t] set. *)
 
   val ( + ) : t -> t -> t
   (** [a + b] is the union of the sets. *)
 
   val mem : t -> t -> bool
   (** [mem x flags] is [true] iff [x] is a subset of [flags]. *)
+
+  val ( = ) : t -> t -> bool
+  (** [a = b] is [true] iff [a] and [b] are the same set of flags. *)
 end
 
 (** Flags that can be passed to {!create}.
@@ -661,19 +668,24 @@ module Statx : sig
         @see <https://www.kernel.org/doc/Documentation/filesystems/dax.txt> Direct Access for Files
         @since Linux 5.8 *)
 
-    val check : ?mask:Int64.t -> Int64.t -> t -> bool
-    (** [check ?mask attr t] will check if [t] is set in [attr].
+    val mem_checked : mask:t -> t -> t -> bool
+    (** [mem_checked ~mask attr attrs] is [true] iff [attr] is both supported
+        and set, i.e. {!mem} [attr mask] && {!mem} [attr attrs].
 
-        If [mask] is not [None] then it will first check the mask to see
-        if the file attribute is supported and if not raise [Invalid_argument]. *)
+        [attrs] should be the result of {!attributes} and [mask] that of
+        {!attributes_mask} for the same {!statx} reply.  The kernel leaves
+        unsupported attributes in an undefined state, so an attribute that is
+        not in [mask] is reported as unset.
+
+        If you have already established that an attribute is supported you can
+        use {!mem} directly. *)
   end
 
   module Mask : sig
-    (** The mask flags are used to tell the kernel which fields the {!statx} invocation
-        is interested in. You may wish to use {! Mask.check} on the returned {!Statx.t} to
-        verify the field has actually been filled in with a sensible value first.
-        In general, the kernel never refused values specified in the mask, but may choose
-        to not set the mask in the returned buffer from {!statx}. *)
+    (** The mask flags tell the kernel which fields the {!statx} invocation wants.
+        The caller must verify the field has actually been filled in with a value
+        before using it. The kernel never refuses values specified in the mask, but
+        may choose to not set the mask in the returned buffer from {!statx}. *)
 
     include FLAGS
 
@@ -724,23 +736,28 @@ module Statx : sig
 
     val dioalign : t
     (** @since Linux 6.1 *)
-
-    val check : Int64.t -> t -> bool
-    (** [check mask t] checks if [t] is set in [mask]. *)
   end
 
   val blksize : t -> Int64.t
-  val attributes : t -> Int64.t
+
+  val attributes : t -> Attr.t
+  (** The attributes set on the file. *)
+
   val nlink : t -> Int64.t
   val uid : t -> Int64.t
   val gid : t -> Int64.t
   val ino : t -> Int64.t
   val size : t -> Int64.t
   val blocks : t -> Int64.t
-  val attributes_mask : t -> Int64.t
+
+  val attributes_mask : t -> Attr.t
+  (** The set of {!attributes} supported by the filesystem holding the file. *)
+
   val rdev : t -> Int64.t
   val dev : t -> Int64.t
-  val mask : t -> Int64.t
+
+  val mask : t -> Mask.t
+  (** The set of fields the kernel actually filled in. *)
   
   val mnt_id : t -> Int64.t
   (** See {! Mask.mnt_id}. *)

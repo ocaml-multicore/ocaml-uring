@@ -20,13 +20,12 @@ let get_completion_and_print uring =
   let amask = S.attributes_mask buf in
   let attrs = S.attributes buf in
   let pp_attr f (a,s) =
-    try
-      if S.Attr.check ~mask:amask attrs a then
-        Format.fprintf f "%s:on " s
-      else
-        Format.fprintf f "%s:off " s
-    with Invalid_argument _ ->
+    if not (S.Attr.mem a amask) then
       Format.fprintf f "%s:unsup " s
+    else if S.Attr.mem_checked ~mask:amask a attrs then
+      Format.fprintf f "%s:on " s
+    else
+      Format.fprintf f "%s:off " s
   in
   let opt_symlink = match kind with
       `Symbolic_link -> Printf.sprintf " -> %s" (Unix.readlink fname) (* TODO no readlink in io_uring? *)
