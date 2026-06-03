@@ -39,6 +39,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <assert.h>
 // Check for something related to statx
 // this is needed for Alpine.
 #ifndef STATX_TYPE
@@ -1038,6 +1039,7 @@ value ocaml_uring_wait_cqe(value v_uring)
       unix_error(-res, "io_uring_wait_cqe", Nothing);
     }
   } else {
+    assert (cqe != NULL);
     id = (long)io_uring_cqe_get_data(cqe);
     int cqe_res = cqe->res;
     io_uring_cqe_seen(ring, cqe);
