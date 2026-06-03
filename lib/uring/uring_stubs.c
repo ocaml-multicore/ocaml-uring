@@ -39,6 +39,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <assert.h>
 // Check for something related to statx
 // this is needed for Alpine.
 #ifndef STATX_TYPE
