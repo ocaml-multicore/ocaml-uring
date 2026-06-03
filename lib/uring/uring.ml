@@ -334,10 +334,14 @@ module Uring = struct
   external submit_listen : t -> id -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_listen" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
   external submit_accept : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_accept" [@@noalloc]
+  external submit_shutdown : t -> id -> Unix.file_descr -> Unix.shutdown_command -> bool = "ocaml_uring_submit_shutdown" [@@noalloc]
+  external submit_socket : t -> id -> Unix.socket_domain -> Unix.socket_type -> int -> bool = "ocaml_uring_submit_socket" [@@noalloc]
   external submit_cancel : t -> id -> id -> bool = "ocaml_uring_submit_cancel" [@@noalloc]
   external submit_openat2 : t -> id -> Unix.file_descr option -> Open_how.t -> bool = "ocaml_uring_submit_openat2" [@@noalloc]
   external submit_linkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_linkat_byte" "ocaml_uring_submit_linkat_native" [@@noalloc]
   external submit_unlinkat : t -> id -> Unix.file_descr option -> Sketch.ptr -> bool -> bool = "ocaml_uring_submit_unlinkat" [@@noalloc]
+  external submit_renameat : t -> id -> Unix.file_descr option -> Sketch.ptr -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_renameat_byte" "ocaml_uring_submit_renameat_native" [@@noalloc]
+  external submit_symlinkat : t -> id -> Sketch.ptr -> Unix.file_descr option -> Sketch.ptr -> bool = "ocaml_uring_submit_symlinkat" [@@noalloc]
   external submit_mkdirat : t -> id -> Unix.file_descr option -> Sketch.ptr -> int -> bool = "ocaml_uring_submit_mkdirat" [@@noalloc]
   external submit_send_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_send_msg" [@@noalloc]
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
@@ -590,6 +594,29 @@ let linkat t ?old_dir_fd ?new_dir_fd ~flags ~old_path ~new_path user_data =
     Uring.submit_linkat t.uring id old_dir_fd old_path_buf new_dir_fd new_path_buf flags
   ) user_data
 
+module Rename_flags = struct
+  include Flags
+
+  (* Not auto-generated because they're missing from musl before 1.2.6. *)
+  let noreplace = 0x1
+  let exchange = 0x2
+  let whiteout = 0x4
+end
+
+let renameat t ?old_dir_fd ?new_dir_fd ?(flags=Rename_flags.empty) ~old_path ~new_path user_data =
+  with_id t (fun id ->
+    let old_path_buf = Sketch.String.alloc t.sketch old_path in
+    let new_path_buf = Sketch.String.alloc t.sketch new_path in
+    Uring.submit_renameat t.uring id old_dir_fd old_path_buf new_dir_fd new_path_buf flags
+  ) user_data
+
+let symlinkat t ~target ?dir_fd ~link_path user_data =
+  with_id t (fun id ->
+    let target_buf = Sketch.String.alloc t.sketch target in
+    let link_path_buf = Sketch.String.alloc t.sketch link_path in
+    Uring.submit_symlinkat t.uring id target_buf dir_fd link_path_buf
+  ) user_data
+
 let unlink t ~dir ?fd path user_data =
   with_id t (fun id ->
       let buf = Sketch.String.alloc t.sketch path in
@@ -662,6 +689,12 @@ let connect t fd addr user_data =
 
 let accept t fd addr user_data =
   with_id_full t (fun id -> Uring.submit_accept t.uring id fd addr) user_data ~extra_data:addr
+
+let shutdown t fd command user_data =
+  with_id t (fun id -> Uring.submit_shutdown t.uring id fd command) user_data
+
+let socket t domain socket_type protocol user_data =
+  with_id t (fun id -> Uring.submit_socket t.uring id domain socket_type protocol) user_data
 
 let send_msg ?(fds=[]) ?dst t fd buffers user_data =
   let addr = Option.map Sockaddr.of_unix dst in

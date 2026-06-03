@@ -381,6 +381,63 @@ val linkat : 'a t ->
     @param old_path Path of the already-existing link.
     @param new_path Path for the newly created link. *)
 
+(** Flags that can be passed to {!renameat}. See renameat2(2) for details. *)
+module Rename_flags : sig
+  include FLAGS
+
+  val noreplace : t
+  (** [noreplace] causes the rename to fail with [Unix.EEXIST] if [new_path]
+      already exists, rather than atomically replacing it. *)
+
+  val exchange : t
+  (** [exchange] atomically exchanges [old_path] and [new_path]. Both must
+      exist. Cannot be used with {!noreplace}. *)
+
+  val whiteout : t
+  (** [whiteout] (used with {!exchange}) additionally leaves a "whiteout" object
+      at [old_path]. Used by overlay/union filesystems. *)
+end
+
+val renameat : 'a t ->
+  ?old_dir_fd:Unix.file_descr ->
+  ?new_dir_fd:Unix.file_descr ->
+  ?flags:Rename_flags.t ->
+  old_path:string ->
+  new_path:string ->
+  'a -> 'a job option
+(** [renameat t ~old_path ~new_path] renames [old_path] to [new_path].
+
+    @param old_dir_fd If provided and [old_path] is relative, it is interpreted relative to [old_dir_fd].
+    @param new_dir_fd If provided and [new_path] is relative, it is interpreted relative to [new_dir_fd].
+    @param flags Rename behaviour (see {!Rename_flags}); defaults to none.
+    @param old_path Path of the existing entry.
+    @param new_path New path for the entry. *)
+
+val symlinkat : 'a t -> target:string -> ?dir_fd:Unix.file_descr -> link_path:string -> 'a -> 'a job option
+(** [symlinkat t ~target ~link_path] creates a symbolic link at [link_path]
+    whose contents are [target].
+
+    A symbolic link is a special file that simply holds a string, [target]; that
+    string is interpreted only when the link is later followed by some other
+    syscall. Consequently [target] is stored verbatim and is neither resolved nor
+    checked when the link is created: it need not name an existing file, and the
+    call still succeeds, creating a "dangling" link. [target] may be absolute or
+    relative; a relative [target] is interpreted (at follow time) relative to the
+    directory that contains the link, not relative to [dir_fd] or the current
+    working directory.
+
+    The completion's [result] field is 0 on success, or a negative error code
+    (for example [EEXIST] if [link_path] already exists).
+
+    @param dir_fd If provided and [link_path] is relative, [link_path] is
+                  interpreted relative to [dir_fd]; if [link_path] is absolute,
+                  [dir_fd] is ignored. Defaults to the current working directory.
+                  Note that [dir_fd] only affects [link_path]: [target] is never
+                  resolved against it.
+    @param target The string the new symlink will contain (its target path).
+    @param link_path Path at which to create the symlink.
+    @return [None] if the submission queue is full; otherwise [Some job] *)
+
 val unlink : 'a t -> dir:bool -> ?fd:Unix.file_descr -> string -> 'a -> 'a job option
 (** [unlink t ~dir ~fd path] removes the directory entry [path], which is resolved relative to [fd].
     If [fd] is not given, then the current working directory is used.
@@ -766,6 +823,28 @@ val accept : 'a t -> Unix.file_descr -> Sockaddr.t -> 'a -> 'a job option
 
     @param fd Listening socket (must have called {!listen} first)
     @param addr Pre-allocated storage for the peer address (create with {!Sockaddr.create})
+    @return [None] if the submission queue is full; otherwise [Some job] *)
+
+val shutdown : 'a t -> Unix.file_descr -> Unix.shutdown_command -> 'a -> 'a job option
+(** [shutdown t fd command d] will submit a [shutdown(2)] request, disabling
+    further reception ({!Unix.SHUTDOWN_RECEIVE}), transmission
+    ({!Unix.SHUTDOWN_SEND}) or both ({!Unix.SHUTDOWN_ALL}) on the socket [fd].
+
+    This is an asynchronous version of shutdown(2). The completion's [result]
+    field will be 0 on success or a negative error code.
+
+    @return [None] if the submission queue is full; otherwise [Some job] *)
+
+val socket : 'a t -> Unix.socket_domain -> Unix.socket_type -> int -> 'a -> 'a job option
+(** [socket t domain ty protocol d] will submit a request to create a new socket,
+    an asynchronous version of socket(2).
+
+    The completion's [result] field contains the new file descriptor on success
+    (retrieve it with {!Res.fd_exn} or {!Res.fd_result}), or a negative error code.
+
+    @param domain Protocol family (e.g. [Unix.PF_INET])
+    @param ty Socket type (e.g. [Unix.SOCK_STREAM])
+    @param protocol Protocol number, or 0 to select the default for the type
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val close : 'a t -> Unix.file_descr -> 'a -> 'a job option

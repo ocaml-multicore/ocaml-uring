@@ -791,6 +791,70 @@ val w : unit = ()
 - : unit = ()
 ```
 
+## Shutdown
+
+```ocaml
+# let t : [ `Shutdown ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Shutdown ] Uring.t = <abstr>
+# let a, b = Unix.(socketpair PF_UNIX SOCK_STREAM 0);;
+val a : Unix.file_descr = <abstr>
+val b : Unix.file_descr = <abstr>
+# Uring.shutdown t a Unix.SHUTDOWN_SEND `Shutdown;;
+- : [ `Shutdown ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume t;;
+- : [ `Shutdown ] * Uring.Res.t = (`Shutdown, 0)
+# let a : unit = Unix.close a;;
+val a : unit = ()
+# let b : unit = Unix.close b;;
+val b : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
+## Socket
+
+Create a socket on the ring and retrieve its file descriptor:
+
+```ocaml
+# let t : [ `Socket ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Socket ] Uring.t = <abstr>
+# Uring.socket t Unix.PF_INET Unix.SOCK_STREAM 0 `Socket;;
+- : [ `Socket ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let token, fd = consume_fd t;;
+val token : [ `Socket ] = `Socket
+val fd : Unix.file_descr = <abstr>
+```
+
+The returned fd is a `Unix.file_descr` so connect it over loopback to a
+listener and exchange a message.
+
+```ocaml
+# let roundtrip fd =
+    let server = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+    Fun.protect ~finally:(fun () -> Unix.close server) @@ fun () ->
+    Unix.bind server (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+    Unix.listen server 1;
+    Unix.connect fd (Unix.getsockname server);
+    let conn, _ = Unix.accept server in
+    Fun.protect ~finally:(fun () -> Unix.close conn) @@ fun () ->
+    assert (Unix.write_substring conn "ping" 0 4 = 4);
+    let buf = Bytes.create 4 in
+    let n = Unix.read fd buf 0 4 in
+    Bytes.sub_string buf 0 n;;
+val roundtrip : Unix.file_descr -> string = <fun>
+# roundtrip fd;;
+- : string = "ping"
+
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Unlink and rmdir
 
 ```ocaml
@@ -843,21 +907,130 @@ val t : unit Uring.t = <abstr>
 - : Unix.file_kind = Unix.S_LNK
 ```
 
-This currently doesn't work due to https://github.com/axboe/liburing/issues/955:
-
-    # Uring.linkat t ~old_path:"old-path" ~new_path:"new-file" ~flags:Uring.Linkat_flags.symlink_follow ();;
-    - : unit Uring.job option = Some <abstr>
-    # Uring.submit t;;
-    - : int = 1
-    # Uring.wait t;;
-    - : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
-    # (Unix.lstat "new-file").st_kind;;
-    - : Unix.file_kind = Unix.S_REG
-
-    # ["test-file"; "old-path"; "new-symlink"; "new-file"] |> List.iter Unix.unlink;;
+`symlink_follow` used to be broken due to <https://github.com/axboe/liburing/issues/955>
+but now works.
 
 ```ocaml
-# ["test-file"; "old-path"; "new-symlink"] |> List.iter Unix.unlink;;
+# Uring.linkat t ~old_path:"old-path" ~new_path:"new-file" ~flags:Uring.Linkat_flags.symlink_follow ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# (Unix.lstat "new-file").st_kind;;
+- : Unix.file_kind = Unix.S_REG
+# ["test-file"; "old-path"; "new-symlink"; "new-file"] |> List.iter Unix.unlink;;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
+## Renameat
+
+```ocaml
+# let t : unit Uring.t = Uring.create ~queue_depth:1 ();;
+val t : unit Uring.t = <abstr>
+# close_out (open_out "rename-src");;
+- : unit = ()
+# Uring.renameat t ~old_path:"rename-src" ~new_path:"rename-dst" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# Sys.file_exists "rename-src", Sys.file_exists "rename-dst";;
+- : bool * bool = (false, true)
+```
+
+With [noreplace], renaming onto an existing path fails with [EEXIST]:
+
+```ocaml
+# close_out (open_out "rename-src");;
+- : unit = ()
+# Uring.renameat t ~flags:Uring.Rename_flags.noreplace ~old_path:"rename-src" ~new_path:"rename-dst" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option =
+Uring.Some {Uring.result = EEXIST; data = ()}
+# ["rename-src"; "rename-dst"] |> List.iter Unix.unlink;;
+- : unit = ()
+```
+
+Resolving [old_path] and [new_path] against [old_dir_fd] / [new_dir_fd]
+moves a file between two open directories:
+
+```ocaml
+# Unix.mkdir "rn-src-dir" 0o700; Unix.mkdir "rn-dst-dir" 0o700;;
+- : unit = ()
+# close_out (open_out "rn-src-dir/a");;
+- : unit = ()
+# let src_dir = Unix.openfile "rn-src-dir" [ O_RDONLY ] 0;;
+val src_dir : Unix.file_descr = <abstr>
+# let dst_dir = Unix.openfile "rn-dst-dir" [ O_RDONLY ] 0;;
+val dst_dir : Unix.file_descr = <abstr>
+# Uring.renameat t ~old_dir_fd:src_dir ~new_dir_fd:dst_dir
+    ~old_path:"a" ~new_path:"b" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# Sys.file_exists "rn-src-dir/a", Sys.file_exists "rn-dst-dir/b";;
+- : bool * bool = (false, true)
+# let src_dir : unit = Unix.close src_dir;;
+val src_dir : unit = ()
+# let dst_dir : unit = Unix.close dst_dir;;
+val dst_dir : unit = ()
+# Unix.unlink "rn-dst-dir/b";;
+- : unit = ()
+# ["rn-src-dir"; "rn-dst-dir"] |> List.iter Unix.rmdir;;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
+## Symlinkat
+
+```ocaml
+# let t : unit Uring.t = Uring.create ~queue_depth:1 ();;
+val t : unit Uring.t = <abstr>
+# Uring.symlinkat t ~target:"the-target" ~link_path:"the-link" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# (Unix.lstat "the-link").st_kind;;
+- : Unix.file_kind = Unix.S_LNK
+# Unix.readlink "the-link";;
+- : string = "the-target"
+# Unix.unlink "the-link";;
+- : unit = ()
+```
+
+With [dir_fd], [link_path] is resolved against an open directory (note that
+[target] is stored verbatim and is never resolved against [dir_fd]):
+
+```ocaml
+# Unix.mkdir "sl-dir" 0o700;;
+- : unit = ()
+# let dir = Unix.openfile "sl-dir" [ O_RDONLY ] 0;;
+val dir : Unix.file_descr = <abstr>
+# Uring.symlinkat t ~target:"the-target" ~dir_fd:dir ~link_path:"inner-link" ();;
+- : unit Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# Uring.wait t;;
+- : unit Uring.completion_option = Uring.Some {Uring.result = 0; data = ()}
+# (Unix.lstat "sl-dir/inner-link").st_kind;;
+- : Unix.file_kind = Unix.S_LNK
+# Unix.readlink "sl-dir/inner-link";;
+- : string = "the-target"
+# let dir : unit = Unix.close dir;;
+val dir : unit = ()
+# Unix.unlink "sl-dir/inner-link"; Unix.rmdir "sl-dir";;
 - : unit = ()
 # Uring.exit t;;
 - : unit = ()

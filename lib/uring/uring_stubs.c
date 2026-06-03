@@ -865,6 +865,37 @@ ocaml_uring_submit_accept(value v_uring, value v_id, value v_fd, value v_sockadd
   return (Val_true);
 }
 
+static const int shutdown_command_table[] = {
+  SHUT_RD, SHUT_WR, SHUT_RDWR,
+};
+
+value /* noalloc */
+ocaml_uring_submit_shutdown(value v_uring, value v_id, value v_fd, value v_command) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) return (Val_false);
+  io_uring_prep_shutdown(sqe, Int_val(v_fd),
+                         shutdown_command_table[Int_val(v_command)]);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+extern const int caml_unix_socket_domain_table[];
+extern const int caml_unix_socket_type_table[];
+
+value /* noalloc */
+ocaml_uring_submit_socket(value v_uring, value v_id, value v_domain, value v_type, value v_protocol) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe) return (Val_false);
+  io_uring_prep_socket(sqe,
+                       caml_unix_socket_domain_table[Int_val(v_domain)],
+                       caml_unix_socket_type_table[Int_val(v_type)],
+                       Int_val(v_protocol), 0);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
 value /* noalloc */
 ocaml_uring_set_string(value v_sketch_ptr, value v_string)
 {
@@ -1125,4 +1156,55 @@ ocaml_uring_submit_linkat_byte(value* values, int argc) {
     values[5],
     values[6]
   );
+}
+
+value /* noalloc */
+ocaml_uring_submit_renameat_native(value v_uring, value v_id,
+    value v_old_dir, value v_old_path,
+    value v_new_dir, value v_new_path,
+    value v_flags) {
+  struct io_uring *ring = Ring_val(v_uring);
+  char *old_path = Sketch_ptr_val(v_old_path);
+  char *new_path = Sketch_ptr_val(v_new_path);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+
+  if (!sqe)
+    return Val_false;
+
+  io_uring_prep_renameat(sqe, with_at_fdcwd(v_old_dir), old_path, with_at_fdcwd(v_new_dir), new_path, Int_val(v_flags));
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+
+  return Val_true;
+}
+
+value
+ocaml_uring_submit_renameat_byte(value* values, int argc) {
+  return ocaml_uring_submit_renameat_native(
+    values[0],
+    values[1],
+    values[2],
+    values[3],
+    values[4],
+    values[5],
+    values[6]
+  );
+}
+
+// Creates a symlink at v_link_path (relative to v_new_dir) whose contents are
+// v_target. v_target is not resolved relative to any directory.
+value /* noalloc */
+ocaml_uring_submit_symlinkat(value v_uring, value v_id,
+    value v_target, value v_new_dir, value v_link_path) {
+  struct io_uring *ring = Ring_val(v_uring);
+  char *target = Sketch_ptr_val(v_target);
+  char *link_path = Sketch_ptr_val(v_link_path);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+
+  if (!sqe)
+    return Val_false;
+
+  io_uring_prep_symlinkat(sqe, target, with_at_fdcwd(v_new_dir), link_path);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+
+  return Val_true;
 }
