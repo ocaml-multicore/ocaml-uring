@@ -97,6 +97,18 @@ module Setup_flags = struct
   include Config.Ioring_setup
 end
 
+module Fallocate_flags = struct
+  include Flags
+
+  let keep_size      = 0x01
+  let punch_hole     = 0x02
+  let collapse_range = 0x08
+  let zero_range     = 0x10
+  let insert_range   = 0x20
+  let unshare_range  = 0x40
+  let write_zeroes   = 0x80
+end
+
 module Statx = struct
   type t
 
@@ -350,6 +362,8 @@ module Uring = struct
   external submit_recv_msg : t -> id -> Unix.file_descr -> Msghdr.t -> Sketch.ptr -> bool = "ocaml_uring_submit_recv_msg" [@@noalloc]
   external submit_fsync : t -> id -> Unix.file_descr -> int64 -> int -> bool = "ocaml_uring_submit_fsync" [@@noalloc]
   external submit_fdatasync : t -> id -> Unix.file_descr -> int64 -> int -> bool = "ocaml_uring_submit_fdatasync" [@@noalloc]
+  external submit_fallocate : t -> id -> Unix.file_descr -> Fallocate_flags.t -> int64 -> int64 -> bool = "ocaml_uring_submit_fallocate_byte" "ocaml_uring_submit_fallocate_native" [@@noalloc]
+  external submit_ftruncate : t -> id -> Unix.file_descr -> int64 -> bool = "ocaml_uring_submit_ftruncate" [@@noalloc]
 
   type cqe_option = private
     | Cqe_none
@@ -719,6 +733,12 @@ let fsync t ?(off=0L) ?(len=0) fd user_data =
 
 let fdatasync t ?(off=0L) ?(len=0) fd user_data =
   with_id t (fun id -> Uring.submit_fdatasync t.uring id fd off len) user_data
+
+let fallocate t ?(mode=Fallocate_flags.empty) fd ~off ~len user_data =
+  with_id t (fun id -> Uring.submit_fallocate t.uring id fd mode off len) user_data
+
+let ftruncate t fd ~len user_data =
+  with_id t (fun id -> Uring.submit_ftruncate t.uring id fd len) user_data
 
 let cancel t job user_data =
   ignore (Heap.ptr job : Uring.id);  (* Check it's still valid *)
