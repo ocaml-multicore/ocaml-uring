@@ -237,6 +237,10 @@ val read : Uring.Res.t = 0
    | _ -> false);;
 - : bool = true
 
+# (* Do this just in case the previous test was EINVAL to get on-disk size right *)
+  Unix.ftruncate fd 9;;
+- : unit = ()
+
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
 
