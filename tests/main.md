@@ -207,31 +207,35 @@ val read : Uring.Res.t = 0
 - : [ `Create ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
-# let v, read = consume t;;
-val v : [ `Create ] = `Create
-val read : Uring.Res.t = 0
-# (Unix.fstat fd).Unix.st_size;;
-- : int = 4096
+# (let _, res = consume t in
+   match Uring.Res.int_result res with
+   | Ok 0 -> (Unix.fstat fd).Unix.st_size = 4096
+   | Error EINVAL -> true   (* IORING_OP_FALLOCATE unsupported on older kernels *)
+   | _ -> false);;
+- : bool = true
 
 # Uring.fallocate t fd ~mode:Uring.Fallocate_flags.keep_size ~off:0L ~len:8192L `Create;;
 - : [ `Create ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
-# let v, read = consume t;;
-val v : [ `Create ] = `Create
-val read : Uring.Res.t = 0
-# (Unix.fstat fd).Unix.st_size;;
-- : int = 4096
+# (let before = (Unix.fstat fd).Unix.st_size in
+   let _, res = consume t in
+   match Uring.Res.int_result res with
+   | Ok 0 -> (Unix.fstat fd).Unix.st_size = before   (* keep_size: file size unchanged *)
+   | Error EINVAL -> true
+   | _ -> false);;
+- : bool = true
 
 # Uring.ftruncate t fd ~len:9L `Create;;
 - : [ `Create ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
-# let v, read = consume t;;
-val v : [ `Create ] = `Create
-val read : Uring.Res.t = 0
-# (Unix.fstat fd).Unix.st_size;;
-- : int = 9
+# (let _, res = consume t in
+   match Uring.Res.int_result res with
+   | Ok 0 -> (Unix.fstat fd).Unix.st_size = 9
+   | Error EINVAL -> true   (* IORING_OP_FTRUNCATE unsupported before kernel 6.9 *)
+   | _ -> false);;
+- : bool = true
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
