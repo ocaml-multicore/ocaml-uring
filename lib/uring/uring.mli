@@ -101,11 +101,70 @@ module Setup_flags : sig
       This is an alternative to {!sqe128}. *)
 end
 
+module Errno : sig
+  (** Linux errno values. *)
+  type t = [
+    | `E2BIG | `EACCES | `EAGAIN | `EBADF | `EBUSY | `ECHILD | `EDEADLK
+    | `EDOM | `EEXIST | `EFAULT | `EFBIG | `EINTR | `EINVAL | `EIO
+    | `EISDIR | `EMFILE | `EMLINK | `ENAMETOOLONG | `ENFILE | `ENODEV
+    | `ENOENT | `ENOEXEC | `ENOLCK | `ENOMEM | `ENOSPC | `ENOSYS
+    | `ENOTDIR | `ENOTEMPTY | `ENOTTY | `ENXIO | `EPERM | `EPIPE
+    | `ERANGE | `EROFS | `ESPIPE | `ESRCH | `EXDEV | `EINPROGRESS
+    | `EALREADY | `ENOTSOCK | `EDESTADDRREQ | `EMSGSIZE | `EPROTOTYPE
+    | `ENOPROTOOPT | `EPROTONOSUPPORT | `ESOCKTNOSUPPORT | `EOPNOTSUPP
+    | `EPFNOSUPPORT | `EAFNOSUPPORT | `EADDRINUSE | `EADDRNOTAVAIL
+    | `ENETDOWN | `ENETUNREACH | `ENETRESET | `ECONNABORTED | `ECONNRESET
+    | `ENOBUFS | `EISCONN | `ENOTCONN | `ESHUTDOWN | `ETOOMANYREFS
+    | `ETIMEDOUT | `ECONNREFUSED | `EHOSTDOWN | `EHOSTUNREACH | `ELOOP
+    | `EOVERFLOW
+    | `ENOTBLK | `ETXTBSY | `ENOMSG | `EIDRM | `ECHRNG | `EL2NSYNC
+    | `EL3HLT | `EL3RST | `ELNRNG | `EUNATCH | `ENOCSI | `EL2HLT
+    | `EBADE | `EBADR | `EXFULL | `ENOANO | `EBADRQC | `EBADSLT
+    | `EBFONT | `ENOSTR | `ENODATA | `ETIME | `ENOSR | `ENONET
+    | `ENOPKG | `EREMOTE | `ENOLINK | `EADV | `ESRMNT | `ECOMM
+    | `EPROTO | `EMULTIHOP | `EDOTDOT | `EBADMSG | `ENOTUNIQ | `EBADFD
+    | `EREMCHG | `ELIBACC | `ELIBBAD | `ELIBSCN | `ELIBMAX | `ELIBEXEC
+    | `EILSEQ | `ERESTART | `ESTRPIPE | `EUSERS | `ESTALE | `EUCLEAN
+    | `ENOTNAM | `ENAVAIL | `EISNAM | `EREMOTEIO | `EDQUOT | `ENOMEDIUM
+    | `EMEDIUMTYPE | `ECANCELED | `ENOKEY | `EKEYEXPIRED | `EKEYREVOKED
+    | `EKEYREJECTED | `EOWNERDEAD | `ENOTRECOVERABLE | `ERFKILL | `EHWPOISON
+    | `EWOULDBLOCK | `EDEADLOCK | `EFSBADCRC | `EFSCORRUPTED
+    | `EUNKNOWN of int
+  ]
+
+  val of_int : int -> t
+  (** [of_int n] is the errno for code [n]. The sign is ignored, so a negative
+      or positive errno map to the same value.  Unrecognised codes become
+      [`EUNKNOWN c] with [c] positive. *)
+
+  val to_int : t -> int
+  (** [to_int t] is the positive Linux errno number for [t]. *)
+
+  val to_string : t -> string
+  (** [to_string t] is the symbolic name. *)
+
+  val pp : t Fmt.t
+
+  val of_unix : Unix.error -> t
+  (** [of_unix e] lifts a {!Unix.error} into a [t] value. *)
+
+  val to_unix : t -> Unix.error
+  (** [to_unix t] is the corresponding {!Unix.error}. Linux-specific codes
+      with no {!Unix.error} name become [EUNKNOWNERR n]. *)
+
+  val is_retry : t -> bool
+  (** [is_retry t] is [true] for codes indicating the operation should be
+      be reissued. *)
+end
+
 module Res : sig
   (** The result of a uring operation (typically the same as the return value of the corresponding syscall). *)
 
   type t = private int
   (** The return value. If negative, it is the negative errno value giving the error. *)
+
+  val errno : t -> Errno.t option
+  (** [errno t] is [Some e] if [t] is negative (an error), or [None] otherwise. *)
 
   val int_result : t -> (int, Unix.error) result
   (** [int_result t] is [Error _] if [t] is negative, or [Ok t] otherwise. *)

@@ -387,8 +387,164 @@ end
 let error_of_errno e =
   Uring.error_of_errno (abs e)
 
+module Errno = struct
+  type t = [
+    (* Codes that {!Unix.error} also names *)
+    | `E2BIG | `EACCES | `EAGAIN | `EBADF | `EBUSY | `ECHILD | `EDEADLK
+    | `EDOM | `EEXIST | `EFAULT | `EFBIG | `EINTR | `EINVAL | `EIO
+    | `EISDIR | `EMFILE | `EMLINK | `ENAMETOOLONG | `ENFILE | `ENODEV
+    | `ENOENT | `ENOEXEC | `ENOLCK | `ENOMEM | `ENOSPC | `ENOSYS
+    | `ENOTDIR | `ENOTEMPTY | `ENOTTY | `ENXIO | `EPERM | `EPIPE
+    | `ERANGE | `EROFS | `ESPIPE | `ESRCH | `EXDEV | `EINPROGRESS
+    | `EALREADY | `ENOTSOCK | `EDESTADDRREQ | `EMSGSIZE | `EPROTOTYPE
+    | `ENOPROTOOPT | `EPROTONOSUPPORT | `ESOCKTNOSUPPORT | `EOPNOTSUPP
+    | `EPFNOSUPPORT | `EAFNOSUPPORT | `EADDRINUSE | `EADDRNOTAVAIL
+    | `ENETDOWN | `ENETUNREACH | `ENETRESET | `ECONNABORTED | `ECONNRESET
+    | `ENOBUFS | `EISCONN | `ENOTCONN | `ESHUTDOWN | `ETOOMANYREFS
+    | `ETIMEDOUT | `ECONNREFUSED | `EHOSTDOWN | `EHOSTUNREACH | `ELOOP
+    | `EOVERFLOW
+    (* Linux-specific codes *)
+    | `ENOTBLK | `ETXTBSY | `ENOMSG | `EIDRM | `ECHRNG | `EL2NSYNC
+    | `EL3HLT | `EL3RST | `ELNRNG | `EUNATCH | `ENOCSI | `EL2HLT
+    | `EBADE | `EBADR | `EXFULL | `ENOANO | `EBADRQC | `EBADSLT
+    | `EBFONT | `ENOSTR | `ENODATA | `ETIME | `ENOSR | `ENONET
+    | `ENOPKG | `EREMOTE | `ENOLINK | `EADV | `ESRMNT | `ECOMM
+    | `EPROTO | `EMULTIHOP | `EDOTDOT | `EBADMSG | `ENOTUNIQ | `EBADFD
+    | `EREMCHG | `ELIBACC | `ELIBBAD | `ELIBSCN | `ELIBMAX | `ELIBEXEC
+    | `EILSEQ | `ERESTART | `ESTRPIPE | `EUSERS | `ESTALE | `EUCLEAN
+    | `ENOTNAM | `ENAVAIL | `EISNAM | `EREMOTEIO | `EDQUOT | `ENOMEDIUM
+    | `EMEDIUMTYPE | `ECANCELED | `ENOKEY | `EKEYEXPIRED | `EKEYREVOKED
+    | `EKEYREJECTED | `EOWNERDEAD | `ENOTRECOVERABLE | `ERFKILL | `EHWPOISON
+    (* Alias names that share a code with one of the above *)
+    | `EWOULDBLOCK | `EDEADLOCK | `EFSBADCRC | `EFSCORRUPTED
+    (* Any code we don't have a name for *)
+    | `EUNKNOWN of int
+  ]
+
+  (* The Linux asm-generic errno table deroived from 
+     [https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno.h]. *)
+  let table = [
+    1, `EPERM, "EPERM";       2, `ENOENT, "ENOENT";   3, `ESRCH, "ESRCH";
+    4, `EINTR, "EINTR";       5, `EIO, "EIO";         6, `ENXIO, "ENXIO";
+    7, `E2BIG, "E2BIG";       8, `ENOEXEC, "ENOEXEC"; 9, `EBADF, "EBADF";
+    10, `ECHILD, "ECHILD";    11, `EAGAIN, "EAGAIN";  12, `ENOMEM, "ENOMEM";
+    13, `EACCES, "EACCES";    14, `EFAULT, "EFAULT";  15, `ENOTBLK, "ENOTBLK";
+    16, `EBUSY, "EBUSY";      17, `EEXIST, "EEXIST";  18, `EXDEV, "EXDEV";
+    19, `ENODEV, "ENODEV";    20, `ENOTDIR, "ENOTDIR"; 21, `EISDIR, "EISDIR";
+    22, `EINVAL, "EINVAL";    23, `ENFILE, "ENFILE";  24, `EMFILE, "EMFILE";
+    25, `ENOTTY, "ENOTTY";    26, `ETXTBSY, "ETXTBSY"; 27, `EFBIG, "EFBIG";
+    28, `ENOSPC, "ENOSPC";    29, `ESPIPE, "ESPIPE";  30, `EROFS, "EROFS";
+    31, `EMLINK, "EMLINK";    32, `EPIPE, "EPIPE";    33, `EDOM, "EDOM";
+    34, `ERANGE, "ERANGE";    35, `EDEADLK, "EDEADLK"; 36, `ENAMETOOLONG, "ENAMETOOLONG";
+    37, `ENOLCK, "ENOLCK";    38, `ENOSYS, "ENOSYS";  39, `ENOTEMPTY, "ENOTEMPTY";
+    40, `ELOOP, "ELOOP";      42, `ENOMSG, "ENOMSG";  43, `EIDRM, "EIDRM";
+    44, `ECHRNG, "ECHRNG";    45, `EL2NSYNC, "EL2NSYNC"; 46, `EL3HLT, "EL3HLT";
+    47, `EL3RST, "EL3RST";    48, `ELNRNG, "ELNRNG";  49, `EUNATCH, "EUNATCH";
+    50, `ENOCSI, "ENOCSI";    51, `EL2HLT, "EL2HLT";  52, `EBADE, "EBADE";
+    53, `EBADR, "EBADR";      54, `EXFULL, "EXFULL";  55, `ENOANO, "ENOANO";
+    56, `EBADRQC, "EBADRQC";  57, `EBADSLT, "EBADSLT"; 59, `EBFONT, "EBFONT";
+    60, `ENOSTR, "ENOSTR";    61, `ENODATA, "ENODATA"; 62, `ETIME, "ETIME";
+    63, `ENOSR, "ENOSR";      64, `ENONET, "ENONET";  65, `ENOPKG, "ENOPKG";
+    66, `EREMOTE, "EREMOTE";  67, `ENOLINK, "ENOLINK"; 68, `EADV, "EADV";
+    69, `ESRMNT, "ESRMNT";    70, `ECOMM, "ECOMM";    71, `EPROTO, "EPROTO";
+    72, `EMULTIHOP, "EMULTIHOP"; 73, `EDOTDOT, "EDOTDOT"; 74, `EBADMSG, "EBADMSG";
+    75, `EOVERFLOW, "EOVERFLOW"; 76, `ENOTUNIQ, "ENOTUNIQ"; 77, `EBADFD, "EBADFD";
+    78, `EREMCHG, "EREMCHG";  79, `ELIBACC, "ELIBACC"; 80, `ELIBBAD, "ELIBBAD";
+    81, `ELIBSCN, "ELIBSCN";  82, `ELIBMAX, "ELIBMAX"; 83, `ELIBEXEC, "ELIBEXEC";
+    84, `EILSEQ, "EILSEQ";    85, `ERESTART, "ERESTART"; 86, `ESTRPIPE, "ESTRPIPE";
+    87, `EUSERS, "EUSERS";    88, `ENOTSOCK, "ENOTSOCK"; 89, `EDESTADDRREQ, "EDESTADDRREQ";
+    90, `EMSGSIZE, "EMSGSIZE"; 91, `EPROTOTYPE, "EPROTOTYPE"; 92, `ENOPROTOOPT, "ENOPROTOOPT";
+    93, `EPROTONOSUPPORT, "EPROTONOSUPPORT"; 94, `ESOCKTNOSUPPORT, "ESOCKTNOSUPPORT";
+    95, `EOPNOTSUPP, "EOPNOTSUPP"; 96, `EPFNOSUPPORT, "EPFNOSUPPORT";
+    97, `EAFNOSUPPORT, "EAFNOSUPPORT"; 98, `EADDRINUSE, "EADDRINUSE";
+    99, `EADDRNOTAVAIL, "EADDRNOTAVAIL"; 100, `ENETDOWN, "ENETDOWN";
+    101, `ENETUNREACH, "ENETUNREACH"; 102, `ENETRESET, "ENETRESET";
+    103, `ECONNABORTED, "ECONNABORTED"; 104, `ECONNRESET, "ECONNRESET";
+    105, `ENOBUFS, "ENOBUFS";  106, `EISCONN, "EISCONN"; 107, `ENOTCONN, "ENOTCONN";
+    108, `ESHUTDOWN, "ESHUTDOWN"; 109, `ETOOMANYREFS, "ETOOMANYREFS";
+    110, `ETIMEDOUT, "ETIMEDOUT"; 111, `ECONNREFUSED, "ECONNREFUSED";
+    112, `EHOSTDOWN, "EHOSTDOWN"; 113, `EHOSTUNREACH, "EHOSTUNREACH";
+    114, `EALREADY, "EALREADY"; 115, `EINPROGRESS, "EINPROGRESS";
+    116, `ESTALE, "ESTALE";    117, `EUCLEAN, "EUCLEAN"; 118, `ENOTNAM, "ENOTNAM";
+    119, `ENAVAIL, "ENAVAIL";  120, `EISNAM, "EISNAM";  121, `EREMOTEIO, "EREMOTEIO";
+    122, `EDQUOT, "EDQUOT";    123, `ENOMEDIUM, "ENOMEDIUM"; 124, `EMEDIUMTYPE, "EMEDIUMTYPE";
+    125, `ECANCELED, "ECANCELED"; 126, `ENOKEY, "ENOKEY"; 127, `EKEYEXPIRED, "EKEYEXPIRED";
+    128, `EKEYREVOKED, "EKEYREVOKED"; 129, `EKEYREJECTED, "EKEYREJECTED";
+    130, `EOWNERDEAD, "EOWNERDEAD"; 131, `ENOTRECOVERABLE, "ENOTRECOVERABLE";
+    132, `ERFKILL, "ERFKILL";  133, `EHWPOISON, "EHWPOISON";
+  ]
+
+  let aliases = [
+    11, `EWOULDBLOCK, "EWOULDBLOCK";  35, `EDEADLOCK, "EDEADLOCK";
+    74, `EFSBADCRC, "EFSBADCRC";      117, `EFSCORRUPTED, "EFSCORRUPTED";
+  ]
+
+  (* [table] (canonical only) drives [of_int]; [all] additionally resolves the
+     alias tags for [to_int]/[to_string]. Computed once, not per call. *)
+  let all = table @ aliases
+
+  let of_int n : t =
+    let c = abs n in
+    match List.find_opt (fun (n', _, _) -> n' = c) table with
+    | Some (_, e, _) -> e
+    | None -> `EUNKNOWN c
+
+  let to_int : t -> int = function
+    | `EUNKNOWN c -> c
+    | e ->
+      match List.find_opt (fun (_, e', _) -> e' = e) all with
+      | Some (n, _, _) -> n
+      | None -> 0       (* unreachable: every non-[`EUNKNOWN] tag is named *)
+
+  let to_string : t -> string = function
+    | `EUNKNOWN c -> Printf.sprintf "EUNKNOWN %d" c
+    | e ->
+      match List.find_opt (fun (_, e', _) -> e' = e) all with
+      | Some (_, _, s) -> s
+      | None -> "EUNKNOWN"
+
+  let pp f e = Fmt.string f (to_string e)
+
+  let is_retry : t -> bool = function
+    | `EINTR | `EAGAIN | `EWOULDBLOCK | `ETIME -> true
+    | _ -> false
+
+  let to_unix e : Unix.error = error_of_errno (to_int e)
+
+  let of_unix : Unix.error -> t = function
+    | E2BIG -> `E2BIG | EACCES -> `EACCES | EAGAIN -> `EAGAIN
+    | EBADF -> `EBADF | EBUSY -> `EBUSY | ECHILD -> `ECHILD
+    | EDEADLK -> `EDEADLK | EDOM -> `EDOM | EEXIST -> `EEXIST
+    | EFAULT -> `EFAULT | EFBIG -> `EFBIG | EINTR -> `EINTR
+    | EINVAL -> `EINVAL | EIO -> `EIO | EISDIR -> `EISDIR
+    | EMFILE -> `EMFILE | EMLINK -> `EMLINK | ENAMETOOLONG -> `ENAMETOOLONG
+    | ENFILE -> `ENFILE | ENODEV -> `ENODEV | ENOENT -> `ENOENT
+    | ENOEXEC -> `ENOEXEC | ENOLCK -> `ENOLCK | ENOMEM -> `ENOMEM
+    | ENOSPC -> `ENOSPC | ENOSYS -> `ENOSYS | ENOTDIR -> `ENOTDIR
+    | ENOTEMPTY -> `ENOTEMPTY | ENOTTY -> `ENOTTY | ENXIO -> `ENXIO
+    | EPERM -> `EPERM | EPIPE -> `EPIPE | ERANGE -> `ERANGE
+    | EROFS -> `EROFS | ESPIPE -> `ESPIPE | ESRCH -> `ESRCH
+    | EXDEV -> `EXDEV | EWOULDBLOCK -> `EWOULDBLOCK | EINPROGRESS -> `EINPROGRESS
+    | EALREADY -> `EALREADY | ENOTSOCK -> `ENOTSOCK | EDESTADDRREQ -> `EDESTADDRREQ
+    | EMSGSIZE -> `EMSGSIZE | EPROTOTYPE -> `EPROTOTYPE | ENOPROTOOPT -> `ENOPROTOOPT
+    | EPROTONOSUPPORT -> `EPROTONOSUPPORT | ESOCKTNOSUPPORT -> `ESOCKTNOSUPPORT
+    | EOPNOTSUPP -> `EOPNOTSUPP | EPFNOSUPPORT -> `EPFNOSUPPORT
+    | EAFNOSUPPORT -> `EAFNOSUPPORT | EADDRINUSE -> `EADDRINUSE
+    | EADDRNOTAVAIL -> `EADDRNOTAVAIL | ENETDOWN -> `ENETDOWN
+    | ENETUNREACH -> `ENETUNREACH | ENETRESET -> `ENETRESET
+    | ECONNABORTED -> `ECONNABORTED | ECONNRESET -> `ECONNRESET
+    | ENOBUFS -> `ENOBUFS | EISCONN -> `EISCONN | ENOTCONN -> `ENOTCONN
+    | ESHUTDOWN -> `ESHUTDOWN | ETOOMANYREFS -> `ETOOMANYREFS
+    | ETIMEDOUT -> `ETIMEDOUT | ECONNREFUSED -> `ECONNREFUSED
+    | EHOSTDOWN -> `EHOSTDOWN | EHOSTUNREACH -> `EHOSTUNREACH
+    | ELOOP -> `ELOOP | EOVERFLOW -> `EOVERFLOW
+    | EUNKNOWNERR n -> of_int n
+end
+
 module Res = struct
   type t = int
+
+  let errno t = if t >= 0 then None else Some (Errno.of_int t)
 
   let int_result t =
     if t >= 0 then Ok t
@@ -410,81 +566,7 @@ module Res = struct
 
   let pp f t =
     if t >= 0 then Fmt.int f t
-    else
-      Fmt.string f @@ match error_of_errno t with
-      | E2BIG -> "E2BIG"
-      | EACCES -> "EACCES"
-      | EAGAIN -> "EAGAIN"
-      | EBADF -> "EBADF"
-      | EBUSY -> "EBUSY"
-      | ECHILD -> "ECHILD"
-      | EDEADLK -> "EDEADLK"
-      | EDOM -> "EDOM"
-      | EEXIST -> "EEXIST"
-      | EFAULT -> "EFAULT"
-      | EFBIG -> "EFBIG"
-      | EINTR -> "EINTR"
-      | EINVAL -> "EINVAL"
-      | EIO -> "EIO"
-      | EISDIR -> "EISDIR"
-      | EMFILE -> "EMFILE"
-      | EMLINK -> "EMLINK"
-      | ENAMETOOLONG -> "ENAMETOOLONG"
-      | ENFILE -> "ENFILE"
-      | ENODEV -> "ENODEV"
-      | ENOENT -> "ENOENT"
-      | ENOEXEC -> "ENOEXEC"
-      | ENOLCK -> "ENOLCK"
-      | ENOMEM -> "ENOMEM"
-      | ENOSPC -> "ENOSPC"
-      | ENOSYS -> "ENOSYS"
-      | ENOTDIR -> "ENOTDIR"
-      | ENOTEMPTY -> "ENOTEMPTY"
-      | ENOTTY -> "ENOTTY"
-      | ENXIO -> "ENXIO"
-      | EPERM -> "EPERM"
-      | EPIPE -> "EPIPE"
-      | ERANGE -> "ERANGE"
-      | EROFS -> "EROFS"
-      | ESPIPE -> "ESPIPE"
-      | ESRCH -> "ESRCH"
-      | EXDEV -> "EXDEV"
-      | EWOULDBLOCK -> "EWOULDBLOCK"
-      | EINPROGRESS -> "EINPROGRESS"
-      | EALREADY -> "EALREADY"
-      | ENOTSOCK -> "ENOTSOCK"
-      | EDESTADDRREQ -> "EDESTADDRREQ"
-      | EMSGSIZE -> "EMSGSIZE"
-      | EPROTOTYPE -> "EPROTOTYPE"
-      | ENOPROTOOPT -> "ENOPROTOOPT"
-      | EPROTONOSUPPORT -> "EPROTONOSUPPORT"
-      | ESOCKTNOSUPPORT -> "ESOCKTNOSUPPORT"
-      | EOPNOTSUPP -> "EOPNOTSUPP"
-      | EPFNOSUPPORT -> "EPFNOSUPPORT"
-      | EAFNOSUPPORT -> "EAFNOSUPPORT"
-      | EADDRINUSE -> "EADDRINUSE"
-      | EADDRNOTAVAIL -> "EADDRNOTAVAIL"
-      | ENETDOWN -> "ENETDOWN"
-      | ENETUNREACH -> "ENETUNREACH"
-      | ENETRESET -> "ENETRESET"
-      | ECONNABORTED -> "ECONNABORTED"
-      | ECONNRESET -> "ECONNRESET"
-      | ENOBUFS -> "ENOBUFS"
-      | EISCONN -> "EISCONN"
-      | ENOTCONN -> "ENOTCONN"
-      | ESHUTDOWN -> "ESHUTDOWN"
-      | ETOOMANYREFS -> "ETOOMANYREFS"
-      | ETIMEDOUT -> "ETIMEDOUT"
-      | ECONNREFUSED -> "ECONNREFUSED"
-      | EHOSTDOWN -> "EHOSTDOWN"
-      | EHOSTUNREACH -> "EHOSTUNREACH"
-      | ELOOP -> "ELOOP"
-      | EOVERFLOW -> "EOVERFLOW"
-      | _ ->
-        match t with
-        | -62 -> "ETIME"
-        | -125 -> "ECANCELED"
-        | _ -> string_of_int t
+    else Errno.pp f (Errno.of_int t)
 end
 
 type 'a t = {
