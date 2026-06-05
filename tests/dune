@@ -44,10 +44,20 @@
  (modules socket_ops)
  (libraries unix uring))
 
+(executable
+ (name buffer_test)
+ (modules buffer_test)
+ (libraries unix uring optint))
+
 (rule
  (alias runtest)
  (package uring)
  (action (run ./poll_add.exe)))
+
+(rule
+ (alias runtest)
+ (package uring)
+ (action (run ./buffer_test.exe)))
 
 (rule
  (alias runbenchmark)
