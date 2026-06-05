@@ -885,16 +885,23 @@ extern const int caml_unix_socket_domain_table[];
 extern const int caml_unix_socket_type_table[];
 
 value /* noalloc */
-ocaml_uring_submit_socket(value v_uring, value v_id, value v_domain, value v_type, value v_protocol) {
+ocaml_uring_submit_socket_native(value v_uring, value v_id, value v_domain, value v_type, value v_protocol, value v_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe) return (Val_false);
+  /* SOCK_CLOEXEC / SOCK_NONBLOCK are OR'd into the type argument, matching the
+     socket(2) convention; the kernel rejects a non-zero io_uring flags field. */
   io_uring_prep_socket(sqe,
                        caml_unix_socket_domain_table[Int_val(v_domain)],
-                       caml_unix_socket_type_table[Int_val(v_type)],
+                       caml_unix_socket_type_table[Int_val(v_type)] | Int_val(v_flags),
                        Int_val(v_protocol), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
+}
+
+value /* noalloc */
+ocaml_uring_submit_socket_byte(value *argv, int argn __attribute__((unused))) {
+  return ocaml_uring_submit_socket_native(argv[0], argv[1], argv[2], argv[3], argv[4], argv[5]);
 }
 
 value /* noalloc */

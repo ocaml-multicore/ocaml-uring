@@ -289,6 +289,17 @@ module Open_flags : sig
       on other file types is unspecified. *)
 end
 
+(** Flags that can be passed to {!socket} when creating a socket. *)
+module Sock_flags : sig
+  include FLAGS
+
+  val cloexec : t
+  (** [cloexec] sets the close-on-exec flag on the new socket. *)
+
+  val nonblock : t
+  (** [nonblock] sets the [O_NONBLOCK] file status flag on the new socket. *)
+end
+
 (** Flags that can be passed to {!openat2} to control path resolution. *)
 module Resolve : sig
   include FLAGS
@@ -852,13 +863,17 @@ val shutdown : 'a t -> Unix.file_descr -> Unix.shutdown_command -> 'a -> 'a job 
 
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
-val socket : 'a t -> Unix.socket_domain -> Unix.socket_type -> int -> 'a -> 'a job option
+val socket : ?flags:Sock_flags.t -> 'a t -> Unix.socket_domain -> Unix.socket_type -> int -> 'a -> 'a job option
 (** [socket t domain ty protocol d] will submit a request to create a new socket,
     an asynchronous version of socket(2).
 
     The completion's [result] field contains the new file descriptor on success
     (retrieve it with {!Res.fd_exn} or {!Res.fd_result}), or a negative error code.
 
+    @param flags Socket creation flags such as {!Sock_flags.cloexec} or
+                 {!Sock_flags.nonblock} (defaults to none). Setting
+                 {!Sock_flags.cloexec} here avoids leaking the fd into child
+                 processes without a separate [set_close_on_exec] call.
     @param domain Protocol family (e.g. [Unix.PF_INET])
     @param ty Socket type (e.g. [Unix.SOCK_STREAM])
     @param protocol Protocol number, or 0 to select the default for the type
