@@ -609,6 +609,14 @@ let set_fixed_buffer t iobuf =
   | () -> t.fixed_iobuf <- Some iobuf; Ok ()
   | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
 
+let unregister_fixed_buffer t =
+  ensure_idle t "unregister_fixed_buffer";
+  match t.fixed_iobuf with
+  | None -> ()
+  | Some _ ->
+    Uring.unregister_buffers t.uring;
+    t.fixed_iobuf <- None
+
 let exit t =
   ensure_idle t "exit";
   Heap.release t.data;

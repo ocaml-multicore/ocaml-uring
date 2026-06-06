@@ -226,6 +226,16 @@ val set_fixed_buffer : 'a t -> bytes -> (unit, [> `ENOMEM]) result
             - The buffer is too large to pin in memory
     @raise Invalid_argument if there are any requests in progress. *)
 
+val unregister_fixed_buffer : 'a t -> unit
+(** [unregister_fixed_buffer t] removes the fixed buffer previously registered
+    with [t] (by [~fixed_buffer_size] or {!set_fixed_buffer}), releasing the
+    pinned memory back to the caller's [RLIMIT_MEMLOCK] budget immediately rather
+    than waiting for the ring's (asynchronous) teardown at {!exit}. It is a no-op
+    if no fixed buffer is set. After this, {!buf} is [None] and {!read_fixed} /
+    {!write_fixed} will fail until another buffer is registered.
+
+    @raise Invalid_argument if there are any requests in progress. *)
+
 val buf : 'a t -> bytes option
 (** [buf t] is the fixed buffer registered with uring [t] (via [~fixed_buffer_size]
     or {!set_fixed_buffer}), or [None] if none is set. *)

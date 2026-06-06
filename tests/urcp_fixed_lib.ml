@@ -169,5 +169,6 @@ let run_cp block_size queue_depth infile outfile () =
      ~finally:(fun () ->
         Unix.close infd;
         Unix.close outfd;
+        Uring.unregister_fixed_buffer uring;
         Uring.exit uring
      )
