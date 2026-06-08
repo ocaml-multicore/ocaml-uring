@@ -479,28 +479,36 @@ module Errno = struct
     74, `EFSBADCRC, "EFSBADCRC";      117, `EFSCORRUPTED, "EFSCORRUPTED";
   ]
 
-  (* [table] (canonical only) drives [of_int]; [all] additionally resolves the
-     alias tags for [to_int]/[to_string]. Computed once, not per call. *)
   let all = table @ aliases
+
+  let by_code : (int, t) Hashtbl.t =
+    let h = Hashtbl.create (List.length table) in
+    List.iter (fun (n, e, _) -> Hashtbl.replace h n e) table;
+    h
+
+  let by_tag : (t, int * string) Hashtbl.t =
+    let h = Hashtbl.create (List.length all) in
+    List.iter (fun (n, e, s) -> Hashtbl.replace h e (n, s)) all;
+    h
 
   let of_int n : t =
     let c = abs n in
-    match List.find_opt (fun (n', _, _) -> n' = c) table with
-    | Some (_, e, _) -> e
+    match Hashtbl.find_opt by_code c with
+    | Some e -> e
     | None -> `EUNKNOWN c
 
   let to_int : t -> int = function
     | `EUNKNOWN c -> c
     | e ->
-      match List.find_opt (fun (_, e', _) -> e' = e) all with
-      | Some (n, _, _) -> n
+      match Hashtbl.find_opt by_tag e with
+      | Some (n, _) -> n
       | None -> 0       (* unreachable: every non-[`EUNKNOWN] tag is named *)
 
   let to_string : t -> string = function
     | `EUNKNOWN c -> Printf.sprintf "EUNKNOWN %d" c
     | e ->
-      match List.find_opt (fun (_, e', _) -> e' = e) all with
-      | Some (_, _, s) -> s
+      match Hashtbl.find_opt by_tag e with
+      | Some (_, s) -> s
       | None -> "EUNKNOWN"
 
   let pp f e = Fmt.string f (to_string e)
