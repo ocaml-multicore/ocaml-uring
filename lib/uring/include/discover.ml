@@ -4,12 +4,15 @@ let include_dir = Filename.concat (Sys.getcwd ()) "include"
 
 let toplevel_defs c =
   C.C_define.import c ~c_flags:["-D_GNU_SOURCE"; "-I"; include_dir]
-    ~includes:["fcntl.h"; "poll.h"; "sys/uio.h"; "limits.h"; "liburing.h"]
+    ~includes:["fcntl.h"; "poll.h"; "sys/uio.h"; "sys/socket.h"; "limits.h"; "liburing.h"]
     C.C_define.Type.[
       "POLLIN", Int;
       "POLLOUT", Int;
       "POLLERR", Int;
       "POLLHUP", Int;
+
+      "SOCK_CLOEXEC", Int;
+      "SOCK_NONBLOCK", Int;
 
       "O_RDONLY", Int;
       "O_WRONLY", Int;

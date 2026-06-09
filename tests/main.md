@@ -970,6 +970,54 @@ val fd : unit = ()
 - : unit = ()
 ```
 
+[Uring.socket] accepts socket-creation flags. Passing
+{!Uring.Sock_flags.cloexec} sets the close-on-exec flag on the new fd directly,
+without a follow-up [set_close_on_exec] syscall. We read the close-on-exec bit
+back from [/proc/self/fdinfo] (where the kernel reports it as [O_CLOEXEC],
+octal [0o2000000]):
+
+```ocaml
+# let cloexec_set fd =
+    let ic = open_in (Printf.sprintf "/proc/self/fdinfo/%d" fd) in
+    Fun.protect ~finally:(fun () -> close_in ic) @@ fun () ->
+    let rec loop () =
+      match input_line ic with
+      | line ->
+        (match String.split_on_char ':' line with
+         | ["flags"; v] -> (int_of_string ("0o" ^ String.trim v)) land 0o2000000 <> 0
+         | _ -> loop ())
+      | exception End_of_file -> false
+    in
+    loop ();;
+val cloexec_set : int -> bool = <fun>
+```
+
+```ocaml
+# let t : [ `Socket ] Uring.t = Uring.create ~queue_depth:2 ();;
+val t : [ `Socket ] Uring.t = <abstr>
+
+# let make flags =
+    match Uring.socket ?flags t Unix.PF_INET Unix.SOCK_STREAM 0 `Socket with
+    | Some _ ->
+      assert (Uring.submit t = 1);
+      let _, result = consume t in
+      (* this will have the fd as a plain int so we dont need to Obj.magic it *)
+      let fdi = Uring.Res.int_exn result "make" "" in
+      let fd = Uring.Res.fd_exn result "make" "" in
+      fdi, fd
+    | None -> assert false;;
+val make : Uring.Sock_flags.t option -> int * Unix.file_descr = <fun>
+
+# let plain_i, plain_fd = make (Some Uring.Sock_flags.empty) in
+  let cloexec_i, cloexec_fd = make (Some Uring.Sock_flags.cloexec) in
+  let r = cloexec_set plain_i, cloexec_set cloexec_i in
+  Unix.close plain_fd; Unix.close cloexec_fd; r;;
+- : bool * bool = (false, true)
+
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Unlink and rmdir
 
 ```ocaml
