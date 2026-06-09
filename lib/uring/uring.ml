@@ -421,7 +421,7 @@ module Errno = struct
     | `EUNKNOWN of int
   ]
 
-  (* The Linux asm-generic errno table deroived from 
+  (* The Linux asm-generic errno table derived from
      [https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno.h]. *)
   let table = [
     1, `EPERM, "EPERM";       2, `ENOENT, "ENOENT";   3, `ESRCH, "ESRCH";
@@ -513,10 +513,6 @@ module Errno = struct
 
   let pp f e = Fmt.string f (to_string e)
 
-  let is_retry : t -> bool = function
-    | `EINTR | `EAGAIN | `EWOULDBLOCK | `ETIME -> true
-    | _ -> false
-
   let to_unix e : Unix.error = error_of_errno (to_int e)
 
   let of_unix : Unix.error -> t = function
@@ -549,6 +545,18 @@ module Errno = struct
     | EUNKNOWNERR n -> of_int n
 end
 
+exception Linux_error of Errno.t * string * string
+
+let to_unix_error = function
+  | Linux_error (e, fn, arg) -> Unix.Unix_error (Errno.to_unix e, fn, arg)
+  | exn -> exn
+
+let () =
+  Printexc.register_printer (function
+    | Linux_error (e, fn, arg) ->
+      Some (Printf.sprintf "Uring.Linux_error(%s, %S, %S)" (Errno.to_string e) fn arg)
+    | _ -> None)
+
 module Res = struct
   type t = int
 
@@ -556,21 +564,21 @@ module Res = struct
 
   let int_result t =
     if t >= 0 then Ok t
-    else Error (error_of_errno t)
+    else Error (Errno.of_int t)
 
   let int_exn t fn arg =
     if t >= 0 then t
-    else raise (Unix.Unix_error (error_of_errno t, fn, arg))
+    else raise (Linux_error (Errno.of_int t, fn, arg))
 
   let fd_of_int x : Unix.file_descr = Obj.magic (x : int)
 
   let fd_result t =
     if t >= 0 then Ok (fd_of_int t)
-    else Error (error_of_errno t)
+    else Error (Errno.of_int t)
 
   let fd_exn t fn arg =
     if t >= 0 then fd_of_int t
-    else raise (Unix.Unix_error (error_of_errno t, fn, arg))
+    else raise (Linux_error (Errno.of_int t, fn, arg))
 
   let pp f t =
     if t >= 0 then Fmt.int f t

@@ -210,7 +210,7 @@ val read : Uring.Res.t = 0
 # (let _, res = consume t in
    match Uring.Res.int_result res with
    | Ok 0 -> (Unix.fstat fd).Unix.st_size = 4096
-   | Error EINVAL -> true   (* IORING_OP_FALLOCATE unsupported on older kernels *)
+   | Error `EINVAL -> true   (* IORING_OP_FALLOCATE unsupported on older kernels *)
    | _ -> false);;
 - : bool = true
 
@@ -222,7 +222,7 @@ val read : Uring.Res.t = 0
    let _, res = consume t in
    match Uring.Res.int_result res with
    | Ok 0 -> (Unix.fstat fd).Unix.st_size = before   (* keep_size: file size unchanged *)
-   | Error EINVAL -> true
+   | Error `EINVAL -> true
    | _ -> false);;
 - : bool = true
 
@@ -233,7 +233,7 @@ val read : Uring.Res.t = 0
 # (let _, res = consume t in
    match Uring.Res.int_result res with
    | Ok 0 -> (Unix.fstat fd).Unix.st_size = 9
-   | Error EINVAL -> true   (* IORING_OP_FTRUNCATE unsupported before kernel 6.9 *)
+   | Error `EINVAL -> true   (* IORING_OP_FTRUNCATE unsupported before kernel 6.9 *)
    | _ -> false);;
 - : bool = true
 
@@ -435,7 +435,7 @@ Opened ".." OK
 - : unit = ()
 # get ~resolve:Uring.Resolve.beneath "..";;;
 Submitted 1
-Exception: Unix.Unix_error(Unix.EXDEV, "openat2", "..")
+Exception: Uring.Linux_error(EXDEV, "openat2", "..")
 
 # Uring.exit t;;
 - : unit = ()
@@ -692,10 +692,10 @@ val read : [ `Cancel | `Read ] Uring.job = <abstr>
     | _ -> assert false
   in
   begin match Uring.Res.int_result r_read, Uring.Res.int_result r_cancel with
-    | Error EINTR, Error EALREADY
+    | Error `EINTR, Error `EALREADY
       (* Occasionally, the read is actually busy just as we try to cancel.
          In that case it gets interrupted and the cancel returns EALREADY. *)
-    | Error (EUNKNOWNERR 125) (* ECANCELLED *), Ok 0 ->
+    | Error `ECANCELED, Ok 0 ->
       (* This is the common case. The read is blocked and can just be removed. *)
       ()
     | e1, e2 -> raise (Multiple [r_read; r_cancel])
@@ -738,9 +738,9 @@ val read : [ `Cancel | `Read ] Uring.job = <abstr>
     | _ -> assert false
   in
   match Uring.Res.int_result r_read, Uring.Res.int_result r_cancel with
-  | Ok 1, Error ENOENT -> ()
-  | Ok 1, Error e -> raise (Unix.Unix_error (e, "cancel", ""))
-  | Error (EUNKNOWNERR 125 (* ECANCELLED *)), Ok 0 ->
+  | Ok 1, Error `ENOENT -> ()
+  | Ok 1, Error e -> raise (Uring.Linux_error (e, "cancel", ""))
+  | Error `ECANCELED, Ok 0 ->
     (* This isn't the case we want to test, but it can happen sometimes. *)
     ()
   | _ -> raise (Multiple [r_read; r_cancel]);;

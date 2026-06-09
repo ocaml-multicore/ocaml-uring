@@ -27,7 +27,7 @@ let () =
             Uring.close t server_sock () |> ignore;
             Uring.submit t |> ignore;
             Uring.exit t;
-            Fmt.failwith "Bind failed: %s" (Unix.error_message err)
+            Fmt.failwith "Bind failed: %s" (Uring.Errno.to_string err)
   in
   printf "Bind completed with result: %d\n" bind_result;
 
@@ -47,7 +47,7 @@ let () =
             Uring.close t server_sock () |> ignore;
             Uring.submit t |> ignore;
             Uring.exit t;
-            Fmt.failwith "Listen failed: %s" (Unix.error_message err)
+            Fmt.failwith "Listen failed: %s" (Uring.Errno.to_string err)
   in
   printf "Listen completed with result: %d\n" listen_result;
 
@@ -78,7 +78,7 @@ let () =
         | Uring.None -> failwith "No completion for connect"
         | Uring.Some { result; data = _ } ->
           match Uring.Res.fd_result result with
-          | Ok _ | Error EINPROGRESS -> 
+          | Ok _ | Error `EINPROGRESS ->
             (* Connect may return -EINPROGRESS for non-blocking sockets, which is normal *)
             printf "Connect initiated successfully (result: %d)\n" (result :> int)
           | Error err ->
@@ -86,7 +86,7 @@ let () =
             Uring.close t server_sock () |> ignore;
             Uring.submit t |> ignore;
             Uring.exit t;
-            Fmt.failwith "Connect failed: %s (errno: %d)" (Unix.error_message err) (-(result :> int))
+            Fmt.failwith "Connect failed: %s (errno: %d)" (Uring.Errno.to_string err) (-(result :> int))
   end;
 
   (* Get the client socket's local port - Unix.getsockname is necessary for socket introspection *)
@@ -117,7 +117,7 @@ let () =
       | Uring.None -> failwith "No completion for close"
       | Uring.Some { result; data = _ } ->
           Uring.Res.int_result result |> Result.iter_error (fun e ->
-            printf "Close warning: %s\n" (Unix.error_message e);
+            printf "Close warning: %s\n" (Uring.Errno.to_string e);
           );
           wait_closes (pending - 1)
   in

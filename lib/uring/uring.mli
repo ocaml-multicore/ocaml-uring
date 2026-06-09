@@ -151,11 +151,16 @@ module Errno : sig
   val to_unix : t -> Unix.error
   (** [to_unix t] is the corresponding {!Unix.error}. Linux-specific codes
       with no {!Unix.error} name become [EUNKNOWNERR n]. *)
-
-  val is_retry : t -> bool
-  (** [is_retry t] is [true] for codes indicating the operation should be
-      be reissued. *)
 end
+
+exception Linux_error of Errno.t * string * string
+(** [Linux_error (errno, fn, arg)] is like {!Unix.Unix_error} except that
+    it has Linux-specific {!Errno.t} values.  [fn] is the name of the function
+    that failed and [arg] a related argument. *)
+
+val to_unix_error : exn -> exn
+(** [to_unix_error exn] converts a {!Linux_error} into the equivalent
+    {!Unix.Unix_error}. Any other exception is returned unchanged. *)
 
 module Res : sig
   (** The result of a uring operation (typically the same as the return value of the corresponding syscall). *)
@@ -166,13 +171,13 @@ module Res : sig
   val errno : t -> Errno.t option
   (** [errno t] is [Some e] if [t] is negative (an error), or [None] otherwise. *)
 
-  val int_result : t -> (int, Unix.error) result
+  val int_result : t -> (int, Errno.t) result
   (** [int_result t] is [Error _] if [t] is negative, or [Ok t] otherwise. *)
 
   val int_exn : t -> string -> string -> int
-  (** [int_exn t fn arg] raises {!Unix.Unix_error} if [t] is negative, and returns [t] otherwise. *)
+  (** [int_exn t fn arg] raises {!Linux_error} if [t] is negative, and returns [t] otherwise. *)
 
-  val fd_result : t -> (Unix.file_descr, Unix.error) result
+  val fd_result : t -> (Unix.file_descr, Errno.t) result
   (** [fd_result t] is like [int_result t], but returns [t] as a file descriptor. *)
 
   val fd_exn : t -> string -> string -> Unix.file_descr
