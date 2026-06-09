@@ -224,7 +224,7 @@ val exit : 'a t -> unit
     for the "fixed buffer" mode of io_uring to avoid data copying between
     userspace and the kernel. *)
 
-val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
+val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, Errno.t) result
 (** [set_fixed_buffer t buf] sets [buf] as the fixed buffer for [t].
 
     Fixed buffers allow zero-copy I/O operations using {!read_fixed} and {!write_fixed}.
@@ -234,10 +234,7 @@ val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
 
     If [t] already has a buffer set, the old one will be removed.
 
-    @return [Ok ()] on success, or [Error `ENOMEM] if:
-            - Insufficient kernel resources are available
-            - The caller's RLIMIT_MEMLOCK resource limit would be exceeded
-            - The buffer is too large to pin in memory
+    @return [Ok ()] on success, or [Error errno] if registration fails
     @raise Invalid_argument if there are any requests in progress *)
 
 val buf : 'a t -> Cstruct.buffer

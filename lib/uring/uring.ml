@@ -557,6 +557,14 @@ let () =
       Some (Printf.sprintf "Uring.Linux_error(%s, %S, %S)" (Errno.to_string e) fn arg)
     | _ -> None)
 
+(* The C stubs raise {!Unix.Unix_error} when an io_uring syscall fails, so we
+   rewrap them here for interface consistency. *)
+let raise_linux_error : exn -> 'a = function
+  | Unix.Unix_error (e, fn, arg) ->
+    Printexc.raise_with_backtrace
+      (Linux_error (Errno.of_unix e, fn, arg)) (Printexc.get_raw_backtrace ())
+  | e -> raise e
+
 module Res = struct
   type t = int
 
@@ -631,7 +639,10 @@ let unregister_gc_root t =
 
 let create ?(flags=Setup_flags.empty) ?polling_timeout ~queue_depth () =
   if queue_depth < 1 then Fmt.invalid_arg "Non-positive queue depth: %d" queue_depth;
-  let uring = Uring.create queue_depth polling_timeout flags in
+  let uring =
+    try Uring.create queue_depth polling_timeout flags
+    with Unix.Unix_error _ as e -> raise_linux_error e
+  in
   let data = Heap.create queue_depth in
   let id = object end in
   let fixed_iobuf = Cstruct.empty.buffer in
@@ -652,14 +663,13 @@ let ensure_idle t op =
 
 let set_fixed_buffer t iobuf =
   ensure_idle t "set_fixed_buffer";
-  if Bigarray.Array1.dim t.fixed_iobuf > 0 then
-    Uring.unregister_buffers t.uring;
-  t.fixed_iobuf <- iobuf;
-  if Bigarray.Array1.dim iobuf > 0 then (
-    match Uring.register_bigarray t.uring iobuf with
-    | () -> Ok ()
-    | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
-  ) else Ok ()
+  match
+    (if Bigarray.Array1.dim t.fixed_iobuf > 0 then Uring.unregister_buffers t.uring);
+    t.fixed_iobuf <- iobuf;
+    (if Bigarray.Array1.dim iobuf > 0 then Uring.register_bigarray t.uring iobuf)
+  with
+  | () -> Ok ()
+  | exception Unix.Unix_error (e, _, _) -> Error (Errno.of_unix e)
 
 let exit t =
   ensure_idle t "exit";
@@ -861,10 +871,12 @@ let gc_sketch t =
 let submit t =
   check t;
   let v =
-    if Uring.sq_ready t.uring > 0 then
-      Uring.submit t.uring
-    else
-      0
+    try
+      if Uring.sq_ready t.uring > 0 then
+        Uring.submit t.uring
+      else
+        0
+    with Unix.Unix_error _ as e -> raise_linux_error e
   in
   (* In non-polling mode, we will almost always be able to free the sketch buffer here.
      However, in polling mode it's unlikely the entries have been consumed by the kernel yet,
@@ -886,20 +898,24 @@ let fn_on_ring fn t =
 let get_cqe_nonblocking t =
   check t;
   gc_sketch t;
-  fn_on_ring Uring.peek_cqe t
+  try fn_on_ring Uring.peek_cqe t
+  with Unix.Unix_error _ as e -> raise_linux_error e
 
 let peek = get_cqe_nonblocking
 
 let register_eventfd t fd =
   check t;
-  Uring.register_eventfd t.uring fd
+  try Uring.register_eventfd t.uring fd
+  with Unix.Unix_error _ as e -> raise_linux_error e
 
 let wait ?timeout t =
   check t;
   let r =
-    match timeout with
-    | None -> fn_on_ring Uring.wait_cqe t
-    | Some timeout -> fn_on_ring (Uring.wait_cqe_timeout timeout) t
+    try
+      match timeout with
+      | None -> fn_on_ring Uring.wait_cqe t
+      | Some timeout -> fn_on_ring (Uring.wait_cqe_timeout timeout) t
+    with Unix.Unix_error _ as e -> raise_linux_error e
   in
   (* In polling mode, this is a good time to GC the sketch buffer, because the
      kernel has probably consumed all the enties while we were blocking. *)

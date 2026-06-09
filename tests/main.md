@@ -449,6 +449,7 @@ let set_fixed_buffer t size =
   match Uring.set_fixed_buffer t fbuf with
   | Ok () -> fbuf
   | Error `ENOMEM -> failwith "Resource limit exceeded"
+  | Error e -> failwith (Uring.Errno.to_string e)
 
 let () = Test_data.setup ()
 ```

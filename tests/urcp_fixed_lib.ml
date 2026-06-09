@@ -165,6 +165,7 @@ let run_cp block_size queue_depth infile outfile () =
         match Uring.set_fixed_buffer uring fbuf with
         | Ok () -> copy_file uring t
         | Error `ENOMEM -> failwith "Can't lock memory (check RLIMIT_MEMLOCK)"
+        | Error e -> failwith ("set_fixed_buffer: " ^ Uring.Errno.to_string e)
      )
      ~finally:(fun () ->
         Unix.close infd;
