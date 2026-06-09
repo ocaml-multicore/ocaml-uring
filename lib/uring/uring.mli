@@ -871,7 +871,7 @@ val socket : ?flags:Sock_flags.t -> 'a t -> Unix.socket_domain -> Unix.socket_ty
     (retrieve it with {!Res.fd_exn} or {!Res.fd_result}), or a negative error code.
 
     @param flags Socket creation flags such as {!Sock_flags.cloexec} or
-                 {!Sock_flags.nonblock} (defaults to none). Setting
+                 {!Sock_flags.nonblock} (defaults to {!Sock_flags.cloexec}). Setting
                  {!Sock_flags.cloexec} here avoids leaking the fd into child
                  processes without a separate [set_close_on_exec] call.
     @param domain Protocol family (e.g. [Unix.PF_INET])

@@ -1008,7 +1008,7 @@ val t : [ `Socket ] Uring.t = <abstr>
     | None -> assert false;;
 val make : Uring.Sock_flags.t option -> int * Unix.file_descr = <fun>
 
-# let plain_i, plain_fd = make None in
+# let plain_i, plain_fd = make (Some Uring.Sock_flags.empty) in
   let cloexec_i, cloexec_fd = make (Some Uring.Sock_flags.cloexec) in
   let r = cloexec_set plain_i, cloexec_set cloexec_i in
   Unix.close plain_fd; Unix.close cloexec_fd; r;;

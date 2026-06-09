@@ -716,7 +716,7 @@ let accept t fd addr user_data =
 let shutdown t fd command user_data =
   with_id t (fun id -> Uring.submit_shutdown t.uring id fd command) user_data
 
-let socket ?(flags=Sock_flags.empty) t domain socket_type protocol user_data =
+let socket ?(flags=Sock_flags.cloexec) t domain socket_type protocol user_data =
   with_id t (fun id -> Uring.submit_socket t.uring id domain socket_type protocol flags) user_data
 
 let send_msg ?(fds=[]) ?dst t fd buffers user_data =
