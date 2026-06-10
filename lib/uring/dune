@@ -2,7 +2,7 @@
  (name uring)
  (public_name uring)
  (foreign_archives uring)
- (libraries cstruct fmt optint unix)
+ (libraries fmt optint unix)
  (foreign_stubs
   (language c)
   (names uring_stubs)

@@ -20,8 +20,8 @@ let run_bechmark ~polling_timeout fd =
   let t = Uring.create ?polling_timeout ~queue_depth:(n_concurrent * 2) () in
   (* We start by submitting [n_concurrent] reads. *)
   for _ = 1 to n_concurrent do
-    let buf = Cstruct.create buffer_size in
-    let _job : _ Uring.job = Uring.readv t fd [buf] ~file_offset:Optint.Int63.zero [buf] |> Option.get in
+    let iov = [Uring.Iovec.create buffer_size] in
+    let _job : _ Uring.job = Uring.readv t fd iov ~file_offset:Optint.Int63.zero iov |> Option.get in
     ()
   done;
   assert (Uring.submit t = n_concurrent);

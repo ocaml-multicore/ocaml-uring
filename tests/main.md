@@ -1,6 +1,9 @@
 ```ocaml
 # #require "uring";;
 # #install_printer Uring.Res.pp;;
+# let pp_bbuf fmt (b : bytes) = Format.fprintf fmt "<bbuf %d>" (Bytes.length b);;
+val pp_bbuf : Format.formatter -> bytes -> unit = <fun>
+# #install_printer pp_bbuf;;
 ```
 
 # Uring tests
@@ -32,6 +35,20 @@ let consume_fd ?(fn="consume_fd") ?(arg="") t =
 
 let traceln fmt =
   Format.printf (fmt ^^ "@.")
+
+(* An io_uring buffer is just bytes; read its contents back as a string. *)
+let to_string ?(off = 0) ?len b =
+  let len = match len with Some l -> l | None -> Bytes.length b - off in
+  Bytes.sub_string b off len
+
+(* Allocate an immovable buffer of at least [n] bytes. *)
+let buf n = Bytes.create (max n Uring.min_buffer_size)
+
+(* Allocate an immovable buffer holding [s] (length tracked separately). *)
+let bbuf_of_string s =
+  let b = buf (String.length s) in
+  Bytes.blit_string s 0 b 0 (String.length s);
+  b
 ```
 
 ## Queue depth
@@ -49,8 +66,8 @@ val t : [ `Read ] Uring.t = <abstr>
 
 # let fd = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0;;
 val fd : Unix.file_descr = <abstr>
-# let b = Cstruct.create 1;;
-val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
+# let b = Uring.Iovec.of_bytes ~len:1 (buf 1);;
+val b : Uring.Iovec.t = {Uring.Iovec.buf = <bbuf 2048>; off = 0; len = 1}
 # Uring.read t fd b `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
@@ -445,7 +462,7 @@ Exception: Unix.Unix_error(Unix.EXDEV, "openat2", "..")
 
 ```ocaml
 let set_fixed_buffer t size =
-  let fbuf = Bigarray.(Array1.create char c_layout size) in
+  let fbuf = buf size in
   match Uring.set_fixed_buffer t fbuf with
   | Ok () -> fbuf
   | Error `ENOMEM -> failwith "Resource limit exceeded"
@@ -457,9 +474,7 @@ let () = Test_data.setup ()
 # let t : [ `Read ] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Read ] Uring.t = <abstr>
 # let fbuf = set_fixed_buffer t 1024;;
-val fbuf :
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
-  <abstr>
+val fbuf : bytes = <bbuf 2048>
 # let off = 3;;
 val off : int = 3
 # let len = 5;;
@@ -473,7 +488,7 @@ val fd : Unix.file_descr = <abstr>
 - : int = 1
 # consume t;;
 - : [ `Read ] * Uring.Res.t = (`Read, 5)
-# Cstruct.of_bigarray fbuf ~off ~len |> Cstruct.to_string;;
+# to_string ~off ~len fbuf;;
 - : string = "test "
 
 # let fd : unit = Unix.close fd;;
@@ -493,26 +508,26 @@ val fd : Unix.file_descr = <abstr>
 # let b1_len = 3 and b2_len = 7;;
 val b1_len : int = 3
 val b2_len : int = 7
-# let b1 = Cstruct.create b1_len and b2 = Cstruct.create b2_len;;
-val b1 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 3}
-val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
+# let b1 = buf b1_len and b2 = buf b2_len;;
+val b1 : bytes = <bbuf 2048>
+val b2 : bytes = <bbuf 2048>
 
-# Uring.read t fd b1 `Read ~file_offset:Int63.minus_one;;
+# Uring.read t fd (Uring.Iovec.of_bytes ~len:b1_len b1) `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # let `Read, read = consume t;;
 val read : Uring.Res.t = 3
-# Cstruct.to_string b1;;
+# to_string ~len:b1_len b1;;
 - : string = "A t"
 
-# Uring.read t fd b2 `Read ~file_offset:Int63.minus_one;;
+# Uring.read t fd (Uring.Iovec.of_bytes ~len:b2_len b2) `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # let `Read, read = consume t;;
 val read : Uring.Res.t = 7
-# Cstruct.to_string b2;;
+# to_string ~len:b2_len b2;;
 - : string = "est fil"
 
 # let fd : unit = Unix.close fd;;
@@ -525,14 +540,14 @@ Writing with write:
 # let t : [`Read | `Write] Uring.t =  Uring.create ~queue_depth:2 ();;
 val t : [ `Read | `Write ] Uring.t = <abstr>
 
-# let rb = Cstruct.create 10 and wb = Cstruct.of_string "Hello";;
-val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 10}
-val wb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
+# let rb = buf 10 and wb = bbuf_of_string "Hello";;
+val rb : bytes = <bbuf 2048>
+val wb : bytes = <bbuf 2048>
 # let r, w = Unix.pipe ();;
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
 
-# Uring.write t w wb `Write ~file_offset:Int63.minus_one;;
+# Uring.write t w (Uring.Iovec.of_bytes ~len:5 wb) `Write ~file_offset:Int63.minus_one;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
@@ -540,7 +555,7 @@ val w : Unix.file_descr = <abstr>
 val v : [ `Read | `Write ] = `Write
 val read : Uring.Res.t = 5
 
-# Uring.read t r rb `Read ~file_offset:Int63.minus_one;;
+# Uring.read t r (Uring.Iovec.of_bytes ~len:10 rb) `Read ~file_offset:Int63.minus_one;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
@@ -548,9 +563,7 @@ val read : Uring.Res.t = 5
 val v : [ `Read | `Write ] = `Read
 val read : Uring.Res.t = 5
 
-# let rb = Cstruct.sub rb 0 5;;
-val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
-# Cstruct.to_string rb;;
+# to_string ~len:5 rb;;
 - : string = "Hello"
 
 # let w : unit = Unix.close w;;
@@ -570,10 +583,10 @@ val fd : Unix.file_descr = <abstr>
 # let b1_len = 3 and b2_len = 7;;
 val b1_len : int = 3
 val b2_len : int = 7
-# let b1 = Cstruct.create b1_len and b2 = Cstruct.create b2_len;;
-val b1 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 3}
-val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
-# let iov = [b1; b2] in
+# let b1 = buf b1_len and b2 = buf b2_len;;
+val b1 : bytes = <bbuf 2048>
+val b2 : bytes = <bbuf 2048>
+# let iov = [Uring.Iovec.of_bytes ~len:b1_len b1; Uring.Iovec.of_bytes ~len:b2_len b2] in
   Uring.readv t fd iov `Readv ~file_offset:Int63.zero;;
 - : [ `Readv ] Uring.job option = Some <abstr>
 
@@ -582,31 +595,30 @@ val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
 
 # let `Readv, read = consume t;;
 val read : Uring.Res.t = 10
-# Cstruct.to_string b1;;
+# to_string ~len:b1_len b1;;
 - : string = "A t"
-# Cstruct.to_string b2;;
+# to_string ~len:b2_len b2;;
 - : string = "est fil"
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
 ```
 
-Test using cstructs with offsets:
+Scattering a read into sub-ranges of a single buffer:
 
 ```ocaml
 # let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
 val fd : Unix.file_descr = <abstr>
-# let b = Cstruct.of_string "Gathered [    ] and [   ]";;
-val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 25}
-# let b1 = Cstruct.sub b 10 4 and b2 = Cstruct.sub b 21 3 in
-  let iov = [b1; b2] in
+# let b = bbuf_of_string "Gathered [    ] and [   ]";;
+val b : bytes = <bbuf 2048>
+# let iov = [Uring.Iovec.of_bytes ~off:10 ~len:4 b; Uring.Iovec.of_bytes ~off:21 ~len:3 b] in
   Uring.readv t fd iov `Readv ~file_offset:Int63.zero;;
 - : [ `Readv ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume t;;
 - : [ `Readv ] * Uring.Res.t = (`Readv, 7)
-# Cstruct.to_string b;;
+# to_string ~len:25 b;;
 - : string = "Gathered [A te] and [st ]"
 
 # let fd : unit = Unix.close fd;;
@@ -615,34 +627,30 @@ val fd : unit = ()
 - : unit = ()
 ```
 
-## Regions
+## Fixed-buffer slicing
+
+There is no longer a `Region` allocator: the caller manages offsets into the
+registered fixed buffer directly. Read into a slice with {!Uring.read_fixed} and
+read the result straight out of the buffer's bytes:
 
 ```ocaml
 # let t : [ `Read ] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Read ] Uring.t = <abstr>
 
 # let fbuf = set_fixed_buffer t 64;;
-val fbuf :
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
-  <abstr>
-# Uring.Region.init fbuf ~block_size:0;;
-Exception: Invalid_argument "Region.init: block_size 0 must be positive".
-# let region = Uring.Region.init fbuf ~block_size:16;;
-val region : Uring.Region.t = <abstr>
-# let chunk = Uring.Region.alloc region;;
-val chunk : Uring.Region.chunk = <abstr>
-
+val fbuf : bytes = <bbuf 2048>
 # let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
 val fd : Unix.file_descr = <abstr>
-# Uring.read_chunk t fd chunk `Read ~file_offset:Int63.zero;;
+# Uring.read_fixed t fd ~off:0 ~len:16 `Read ~file_offset:Int63.zero;;
 - : [ `Read ] Uring.job option = Some <abstr>
 # let `Read, read = consume_int t;;
 val read : int = 11
-# Uring.Region.to_string ~len:read chunk;;
+# to_string ~off:0 ~len:read fbuf;;
 - : string = "A test file"
-# Uring.read_chunk ~len:17 t fd chunk `Read ~file_offset:Int63.zero;;
-Exception:
-Invalid_argument "to_cstruct: requested length 17 > block size 16".
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+# Uring.exit t;;
+- : unit = ()
 ```
 
 Attempt to use a chunk from one ring with another:
@@ -651,12 +659,16 @@ Attempt to use a chunk from one ring with another:
 # let t2 : [`Read] Uring.t = Uring.create ~queue_depth:1 ();;
 val t2 : [ `Read ] Uring.t = <abstr>
 # Uring.read_chunk ~len:16 t2 fd chunk `Read ~file_offset:Int63.zero;;
-Exception: Invalid_argument "Chunk does not belong to ring!".
+Line 1, characters 1-17:
+Error: Unbound value Uring.read_chunk
 
 # let fd = Unix.close fd;;
-val fd : unit = ()
+Line 1, characters 21-23:
+Error: The value fd has type unit but an expression was expected of type
+         Unix.file_descr
 # Uring.exit t;;
-- : unit = ()
+Exception:
+Invalid_argument "Can't use ring after Uring.exit has been called".
 ```
 
 ## Cancellation
@@ -671,8 +683,7 @@ exception Multiple of Uring.Res.t list
 val t : [ `Cancel | `Read ] Uring.t = <abstr>
 
 # set_fixed_buffer t 1024;;
-- : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
-<abstr>
+- : bytes = <bbuf 2048>
 # let r, w = Unix.pipe ();;
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
@@ -715,8 +726,7 @@ By the time we cancel, the request has already succeeded (we just didn't process
 # let t : [ `Read | `Cancel ] Uring.t = Uring.create ~queue_depth:5 ();;
 val t : [ `Cancel | `Read ] Uring.t = <abstr>
 # set_fixed_buffer t 102;;
-- : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
-<abstr>
+- : bytes = <bbuf 2048>
 # let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0;;
 val r : Unix.file_descr = <abstr>
 # let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get;;
@@ -758,8 +768,7 @@ By the time we cancel, we already knew the operation was over:
 # let t : [ `Read | `Cancel ] Uring.t = Uring.create ~queue_depth:5 ();;
 val t : [ `Cancel | `Read ] Uring.t = <abstr>
 # set_fixed_buffer t 1024;;
-- : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
-<abstr>
+- : bytes = <bbuf 2048>
 # let r = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0;;
 val r : Unix.file_descr = <abstr>
 # let read = Uring.read_fixed t ~file_offset:Int63.zero r ~off:0 ~len:1 `Read |> Option.get;;
@@ -788,8 +797,7 @@ We can't exit the ring while an operation is still pending:
 # let t : [ `Read | `Mkdir ] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Mkdir | `Read ] Uring.t = <abstr>
 # set_fixed_buffer t 1024;;
-- : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
-<abstr>
+- : bytes = <bbuf 2048>
 # let r, w = Unix.pipe ();;
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
@@ -853,8 +861,9 @@ val t : [ `Recv | `Send ] Uring.t = <abstr>
 # let a, b = Unix.(socketpair PF_UNIX SOCK_STREAM 0);;
 val a : Unix.file_descr = <abstr>
 val b : Unix.file_descr = <abstr>
-# let bufs = [Cstruct.of_string "hi"];;
-val bufs : Cstruct.t list = [{Cstruct.buffer = <abstr>; off = 0; len = 2}]
+# let bufs = [Uring.Iovec.of_string "hi"];;
+val bufs : Uring.Iovec.t list =
+  [{Uring.Iovec.buf = <bbuf 2048>; off = 0; len = 2}]
 # Uring.send_msg t a ~fds:[r; w] bufs `Send;;
 - : [ `Recv | `Send ] Uring.job option = Some <abstr>
 # Uring.submit t;;
@@ -866,9 +875,9 @@ val sent : [ `Recv | `Send ] * Uring.Res.t = (`Send, 2)
     | Ok 2 -> really_input_string
     | _ -> fun _ _ -> failwith "Send failed";;
 val really_input_string : in_channel -> int -> string = <fun>
-# let recv_buf = Cstruct.of_string "XX";;
-val recv_buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 2}
-# let recv = Uring.Msghdr.create ~n_fds:2 [recv_buf];;
+# let recv_buf = bbuf_of_string "XX";;
+val recv_buf : bytes = <bbuf 2048>
+# let recv = Uring.Msghdr.create ~n_fds:2 [Uring.Iovec.of_bytes ~len:2 recv_buf];;
 val recv : Uring.Msghdr.t = <abstr>
 # List.length (Uring.Msghdr.get_fds recv);;
 - : int = 0
@@ -878,7 +887,7 @@ val recv : Uring.Msghdr.t = <abstr>
 - : int = 1
 # consume t;;
 - : [ `Recv | `Send ] * Uring.Res.t = (`Recv, 2)
-# Cstruct.to_string recv_buf;;
+# to_string ~len:2 recv_buf;;
 - : string = "hi"
 # let r2, w2 =
     match Uring.Msghdr.get_fds recv with

@@ -13,7 +13,6 @@
  (synopsis "OCaml bindings for Linux io_uring")
  (description "Bindings to the Linux io_uring kernel IO interfaces. See https://github.com/ocaml-multicore/eio for a higher-level API using this.")
  (depends
-  (cstruct (>= 6.0.1))
   (ocaml (>= 5.2.0))
   dune-configurator
   (lwt (and :with-test (>= 5.0.0)))
