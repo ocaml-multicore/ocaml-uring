@@ -495,7 +495,53 @@ type offset := Optint.Int63.t
 (** For files, give the absolute offset, or use [Optint.Int63.minus_one] for the current position.
     For sockets, use an offset of [Optint.Int63.zero] ([minus_one] is not allowed here). *)
 
-val read : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
+(** Per-operation flags for read/write requests, as for [preadv2(2)]/[pwritev2(2)].
+
+    These modify the behaviour of a single submission, unlike the [O_*] flags
+    fixed at open time. The kernel rejects flags that it does not recognise,
+    or that the target file or filesystem does not support, by failing the
+    operation with [EOPNOTSUPP]; callers using the newer flags should be
+    prepared to fall back. *)
+module Rw_flags : sig
+  include FLAGS
+
+  val hipri : t
+  (** [RWF_HIPRI]: high-priority request; poll for completion where possible.
+      Only meaningful with [O_DIRECT] on block devices configured for polled I/O. *)
+
+  val dsync : t
+  (** [RWF_DSYNC]: per-write [O_DSYNC]. The write and its data-integrity sync
+      complete as a single operation, removing the need for a separate
+      [fdatasync] afterwards.*)
+
+  val sync : t
+  (** [RWF_SYNC]: per-write [O_SYNC]; as {!dsync} but also synchronising
+      file metadata.*)
+
+  val nowait : t
+  (** [RWF_NOWAIT]: fail with [EAGAIN] rather than waiting for data that is
+      not immediately available. This disables the kernel's retrymechanism,
+      so the completion may fail with [EAGAIN]. *)
+
+  val append : t
+  (** [RWF_APPEND]: per-write [O_APPEND].*)
+
+  val noappend : t
+  (** [RWF_NOAPPEND]: write at the given offset even if the file was opened
+      with [O_APPEND]. Since Linux 6.9. *)
+
+  val atomic : t
+  (** [RWF_ATOMIC]: the write is committed untorn — either fully written or
+      not at all. Requires filesystem and device support; see the
+      [stx_atomic_write_*] fields of [statx]. Since Linux 6.11. *)
+
+  val dontcache : t
+  (** [RWF_DONTCACHE]: buffered I/O that drops the affected pages from the
+      page cache once the operation completes, avoiding cache pollution in
+      streaming workloads. Requires filesystem support. Since Linux 6.14. *)
+end
+
+val read : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
 (** [read t ~file_offset fd buf d] will submit a [read(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [buf].  The user data [d] will
@@ -506,9 +552,10 @@ val read : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> '
 
     @param file_offset Use {!Optint.Int63.minus_one} for current file position,
                        or a specific offset for files. For sockets, use {!Optint.Int63.zero}
+    @param flags Per-operation flags defined in {!Rw_flags}; defaults to none
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
-val write : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
+val write : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
 (** [write t ~file_offset fd buf d] will submit a [write(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [buf].  The user data [d] will be returned by
@@ -520,12 +567,13 @@ val write : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t -> 'a -> 
 
     @param file_offset Use {!Optint.Int63.minus_one} for current file position,
                        or a specific offset for files. For sockets, use {!Optint.Int63.zero}
+    @param flags Per-operation flags defined in {!Rw_flags}; defaults to none
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val iov_max : int
 (** The maximum length of the list that can be passed to {!readv} and {!writev}. *)
 
-val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val readv : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
     the results into the memory pointed to by [iov].  The user data [d] will
@@ -536,11 +584,12 @@ val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> '
     read across all buffers, or a negative error code.
 
     @param file_offset File offset (see {!type:offset} for special values)
+    @param flags Per-operation flags as for [preadv2(2)] (see {!Rw_flags}); defaults to none
     @param iov List of buffers to read into
     @return [None] if the submission queue is full; otherwise [Some job]
     @raise Invalid_argument if [List.length iov > Uring.iov_max] *)
 
-val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val writev : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by
@@ -551,30 +600,35 @@ val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 
     written from all buffers, or a negative error code.
 
     @param file_offset File offset (see {!type:offset} for special values)
+    @param flags Per-operation flags as for [pwritev2(2)] (see {!Rw_flags}); defaults to none
     @param iov List of buffers to write from
     @return [None] if the submission queue is full; otherwise [Some job]
     @raise Invalid_argument if [List.length iov > Uring.iov_max] *)
 
-val read_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
+val read_fixed : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
 (** [read t ~file_offset fd ~off ~len d] will submit a [read(2)] request to uring [t].
     It reads up to [len] bytes from absolute [file_offset] on the [fd] file descriptor and
     writes the results into the fixed memory buffer associated with uring [t] at offset [off].
-    The user data [d] will be returned by {!wait} or {!peek} upon completion. *)
+    The user data [d] will be returned by {!wait} or {!peek} upon completion.
 
-val read_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
+    @param flags Per-operation flags as for [preadv2(2)] (see {!Rw_flags}); defaults to none *)
+
+val read_chunk : ?len:int -> 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
 (** [read_chunk] is like [read_fixed], but gets the offset from [chunk].
     @param len Restrict the read to the first [len] bytes of [chunk]. *)
 
-val write_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
+val write_fixed : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
 (** [write_fixed t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
     It writes up to [len] bytes into absolute [file_offset] on the [fd] file descriptor
     from the fixed memory buffer associated with uring [t] at offset [off].
     The user data [d] will be returned by {!wait} or {!peek} upon completion.
 
+    @param flags Per-operation flags as for [pwritev2(2)] (see {!Rw_flags}); defaults to none
+
     Warning: this can cause old versions of ZFS to hang
     (see {{:https://github.com/ocaml-multicore/ocaml-uring/issues/113)} issues/113}). *)
 
-val write_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
+val write_chunk : ?len:int -> 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
 (** [write_chunk] is like [write_fixed], but gets the offset from [chunk].
     @param len Restrict the write to the first [len] bytes of [chunk]. *)
 

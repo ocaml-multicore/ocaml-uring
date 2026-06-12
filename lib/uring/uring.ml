@@ -116,6 +116,20 @@ module Fallocate_flags = struct
   let write_zeroes   = 0x80
 end
 
+module Rw_flags = struct
+  include Flags
+  (* RWF_* flags from include/uapi/linux/fs.h.
+     Not auto-generated because older distros lack the definitions. *)
+  let hipri     = 0x00000001
+  let dsync     = 0x00000002
+  let sync      = 0x00000004
+  let nowait    = 0x00000008
+  let append    = 0x00000010
+  let noappend  = 0x00000020  (* Linux 6.9 *)
+  let atomic    = 0x00000040  (* Linux 6.11 *)
+  let dontcache = 0x00000080  (* Linux 6.14 *)
+end
+
 module Statx = struct
   type t
 
@@ -343,12 +357,12 @@ module Uring = struct
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> bool = "ocaml_uring_submit_timeout" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
-  external submit_read : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_read" [@@noalloc]
-  external submit_write : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> bool = "ocaml_uring_submit_write" [@@noalloc]
-  external submit_readv : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_readv" [@@noalloc]
-  external submit_writev : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_writev" [@@noalloc]
-  external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
-  external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
+  external submit_read : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_read_byte" "ocaml_uring_submit_read_native" [@@noalloc]
+  external submit_write : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_write_byte" "ocaml_uring_submit_write_native" [@@noalloc]
+  external submit_readv : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_readv_byte" "ocaml_uring_submit_readv_native" [@@noalloc]
+  external submit_writev : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_writev_byte" "ocaml_uring_submit_writev_native" [@@noalloc]
+  external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
+  external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
   external submit_statx : t -> id -> Unix.file_descr option -> Statx.t -> Sketch.ptr -> int -> int -> bool = "ocaml_uring_submit_statx_byte" "ocaml_uring_submit_statx_native" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
@@ -652,39 +666,39 @@ let mkdirat t ~mode ?fd path user_data =
       Uring.submit_mkdirat t.uring id fd buf mode
     ) user_data
 
-let read t ~file_offset fd (buf : Cstruct.t) user_data =
-  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset) user_data ~extra_data:buf
+let read t ~file_offset ?(flags=Rw_flags.empty) fd (buf : Cstruct.t) user_data =
+  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset flags) user_data ~extra_data:buf
 
-let write t ~file_offset fd (buf : Cstruct.t) user_data =
-  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset) user_data ~extra_data:buf
+let write t ~file_offset ?(flags=Rw_flags.empty) fd (buf : Cstruct.t) user_data =
+  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset flags) user_data ~extra_data:buf
 
 let iov_max = Config.iov_max
 
-let readv t ~file_offset fd buffers user_data =
+let readv t ~file_offset ?(flags=Rw_flags.empty) fd buffers user_data =
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
-      Uring.submit_readv t.uring fd id iovec file_offset) user_data ~extra_data:buffers
+      Uring.submit_readv t.uring fd id iovec file_offset flags) user_data ~extra_data:buffers
 
-let read_fixed t ~file_offset fd ~off ~len user_data =
-  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+let read_fixed t ~file_offset ?(flags=Rw_flags.empty) fd ~off ~len user_data =
+  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
 
-let read_chunk ?len t ~file_offset fd chunk user_data =
+let read_chunk ?len t ~file_offset ?(flags=Rw_flags.empty) fd chunk user_data =
   let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
   if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
-  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
 
-let write_fixed t ~file_offset fd ~off ~len user_data =
-  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+let write_fixed t ~file_offset ?(flags=Rw_flags.empty) fd ~off ~len user_data =
+  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
 
-let write_chunk ?len t ~file_offset fd chunk user_data =
+let write_chunk ?len t ~file_offset ?(flags=Rw_flags.empty) fd chunk user_data =
   let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
   if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
-  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
 
-let writev t ~file_offset fd buffers user_data =
+let writev t ~file_offset ?(flags=Rw_flags.empty) fd buffers user_data =
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
-      Uring.submit_writev t.uring fd id iovec file_offset) user_data ~extra_data:buffers
+      Uring.submit_writev t.uring fd id iovec file_offset flags) user_data ~extra_data:buffers
 
 let poll_add t fd poll_mask user_data =
   with_id t (fun id -> Uring.submit_poll_add t.uring fd id poll_mask) user_data
