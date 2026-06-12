@@ -308,7 +308,7 @@ ocaml_uring_set_iovec(value v_sketch_ptr, value v_csl)
 
 // Caller must ensure the buffers pointed to by v_sketch_ptr are not GC'd until the job is finished.
 value /* noalloc */
-ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff) {
+ocaml_uring_submit_readv_native(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
@@ -317,14 +317,25 @@ ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_sketch_p
   if (sqe == NULL)
     return (Val_false);
   dprintf("submit_readv: %zu ents len[0] %lu off %ld\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
-  io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff));
+  io_uring_prep_readv2(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff), Int_val(v_rw_flags));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
 
+value
+ocaml_uring_submit_readv_byte(value* values, int argc) {
+  return ocaml_uring_submit_readv_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5]);
+}
+
 // Caller must ensure the buffers pointed to by v_sketch_ptr are not GC'd until the job is finished.
 value /* noalloc */
-ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff) {
+ocaml_uring_submit_writev_native(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
@@ -333,20 +344,32 @@ ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_sketch_
   if (sqe == NULL)
     return (Val_false);
   dprintf("submit_writev: %zu ents len[0] %lu off %ld\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
-  io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff));
+  io_uring_prep_writev2(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff), Int_val(v_rw_flags));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
 
+value
+ocaml_uring_submit_writev_byte(value* values, int argc) {
+  return ocaml_uring_submit_writev_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5]);
+}
+
 // Caller must ensure the buffer is not released until this job completes.
 value /* noalloc */
-ocaml_uring_submit_read_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
+ocaml_uring_submit_read_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_read_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
+  sqe->rw_flags = Int_val(v_rw_flags);  /* no io_uring_prep_read_fixed2 in liburing */
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -360,12 +383,13 @@ ocaml_uring_submit_read_fixed_byte(value* values, int argc) {
 			  values[3],
 			  values[4],
 			  values[5],
-			  values[6]);
+			  values[6],
+			  values[7]);
 }
 
 // Caller must ensure the buffer is not released until this job completes.
 value /* noalloc */
-ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
+ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
@@ -373,6 +397,7 @@ ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, val
     return (Val_false);
   dprintf("submit_write_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
+  sqe->rw_flags = Int_val(v_rw_flags);  /* no io_uring_prep_write_fixed2 in liburing */
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -386,7 +411,8 @@ ocaml_uring_submit_write_fixed_byte(value* values, int argc) {
 			  values[3],
 			  values[4],
 			  values[5],
-			  values[6]);
+			  values[6],
+			  values[7]);
 }
 
 // Vectored read into registered (fixed) buffers at index 0.
@@ -428,7 +454,7 @@ ocaml_uring_submit_writev_fixed(value v_uring, value v_fd, value v_id, value v_s
 }
 
 value /* noalloc */
-ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff) {
+ocaml_uring_submit_read_native(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   value v_ba = Field(v_cstruct, 0);
@@ -439,12 +465,24 @@ ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_cstruct, 
   dprintf("submit_read: fd %d buff %p len %zd fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
+  sqe->rw_flags = Int_val(v_rw_flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
 
+value
+ocaml_uring_submit_read_byte(value* values, int argc) {
+  return ocaml_uring_submit_read_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5]);
+}
+
 value /* noalloc */
-ocaml_uring_submit_write(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff) {
+ocaml_uring_submit_write_native(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   value v_ba = Field(v_cstruct, 0);
@@ -455,8 +493,20 @@ ocaml_uring_submit_write(value v_uring, value v_fd, value v_id, value v_cstruct,
   dprintf("submit_write: fd %d buff %p len %zd fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_write(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
+  sqe->rw_flags = Int_val(v_rw_flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
+}
+
+value
+ocaml_uring_submit_write_byte(value* values, int argc) {
+  return ocaml_uring_submit_write_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5]);
 }
 
 value /* noalloc */
