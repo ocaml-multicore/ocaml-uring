@@ -76,6 +76,8 @@ CAMLprim value ocaml_uring_submit_read_fixed_native(value, value, value, value, 
 CAMLprim value ocaml_uring_submit_read_fixed_byte(value *, int);
 CAMLprim value ocaml_uring_submit_write_fixed_native(value, value, value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_write_fixed_byte(value *, int);
+CAMLprim value ocaml_uring_submit_readv_fixed(value, value, value, value, value);
+CAMLprim value ocaml_uring_submit_writev_fixed(value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_close(value, value, value);
 CAMLprim value ocaml_uring_submit_statx_native(value, value, value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_statx_byte(value *, int);

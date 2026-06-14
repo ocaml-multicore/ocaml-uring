@@ -389,6 +389,44 @@ ocaml_uring_submit_write_fixed_byte(value* values, int argc) {
 			  values[6]);
 }
 
+// Vectored read into registered (fixed) buffers at index 0.
+// Emits IORING_OP_READV_FIXED. The iovecs must point inside the registered
+// buffer. Caller must ensure the buffers pointed to by v_sketch_ptr are not
+// GC'd until the job is finished.
+value /* noalloc */
+ocaml_uring_submit_readv_fixed(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
+  size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
+
+  if (sqe == NULL)
+    return (Val_false);
+  dprintf("submit_readv_fixed: %zu ents len[0] %lu off %ld\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
+  io_uring_prep_readv_fixed(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff), 0, 0);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+// Vectored write from registered (fixed) buffers at index 0.
+// Emits IORING_OP_WRITEV_FIXED. The iovecs must point inside the registered
+// buffer. Caller must ensure the buffers pointed to by v_sketch_ptr are not
+// GC'd until the job is finished.
+value /* noalloc */
+ocaml_uring_submit_writev_fixed(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
+  size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
+
+  if (sqe == NULL)
+    return (Val_false);
+  dprintf("submit_writev_fixed: %zu ents len[0] %lu off %ld\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
+  io_uring_prep_writev_fixed(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff), 0, 0);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
 value /* noalloc */
 ocaml_uring_submit_read(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
