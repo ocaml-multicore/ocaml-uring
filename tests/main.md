@@ -482,6 +482,74 @@ val fd : unit = ()
 - : unit = ()
 ```
 
+## Vectored read/write with fixed buffer
+
+`readv_fixed` / `writev_fixed` are the vectored analogues of `read_fixed` /
+`write_fixed`: every buffer in the iovec must be a view onto the ring's
+registered fixed buffer.
+
+```ocaml
+# let t : [ `Read | `Write ] Uring.t = Uring.create ~queue_depth:2 ();;
+val t : [ `Read | `Write ] Uring.t = <abstr>
+# let fbuf = set_fixed_buffer t 1024;;
+val fbuf :
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t =
+  <abstr>
+# let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
+val fd : Unix.file_descr = <abstr>
+```
+
+Read "A test file" into two slices of the fixed buffer (at offsets 0 and 64):
+
+```ocaml
+# Uring.readv_fixed t ~file_offset:Int63.zero fd
+    [ Cstruct.of_bigarray fbuf ~off:0 ~len:4; Cstruct.of_bigarray fbuf ~off:64 ~len:7 ] `Read;;
+- : [ `Read | `Write ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume t;;
+- : [ `Read | `Write ] * Uring.Res.t = (`Read, 11)
+# Cstruct.to_string (Cstruct.of_bigarray fbuf ~off:0 ~len:4);;
+- : string = "A te"
+# Cstruct.to_string (Cstruct.of_bigarray fbuf ~off:64 ~len:7);;
+- : string = "st file"
+```
+
+Write those same two slices back out through a pipe with `writev_fixed`:
+
+```ocaml
+# let r, w = Unix.pipe ();;
+val r : Unix.file_descr = <abstr>
+val w : Unix.file_descr = <abstr>
+# Uring.writev_fixed t ~file_offset:Int63.minus_one w
+    [ Cstruct.of_bigarray fbuf ~off:0 ~len:4; Cstruct.of_bigarray fbuf ~off:64 ~len:7 ] `Write;;
+- : [ `Read | `Write ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume t;;
+- : [ `Read | `Write ] * Uring.Res.t = (`Write, 11)
+# let buf = Bytes.create 11 in let n = Unix.read r buf 0 11 in (n, Bytes.to_string buf);;
+- : int * string = (11, "A test file")
+```
+
+A buffer that is not a view onto the registered fixed buffer is rejected before
+submission:
+
+```ocaml
+# Uring.readv_fixed t ~file_offset:Int63.zero fd [ Cstruct.of_string "x" ] `Read;;
+Exception: Invalid_argument "Buffer does not belong to ring's fixed buffer!".
+# Uring.writev_fixed t ~file_offset:Int63.minus_one w [ Cstruct.of_string "x" ] `Write;;
+Exception: Invalid_argument "Buffer does not belong to ring's fixed buffer!".
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+# let r : unit = Unix.close r;;
+val r : unit = ()
+# let w : unit = Unix.close w;;
+val w : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 Reading with read:
 
 ```ocaml

@@ -338,22 +338,22 @@ ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_sketch_
   return (Val_true);
 }
 
-// Caller must ensure the buffers are not released until this job completes.
+// Caller must ensure the buffer is not released until this job completes.
 value /* noalloc */
-ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
+ocaml_uring_submit_read_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
-  dprintf("submit_readv_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
+  dprintf("submit_read_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
 
 value
-ocaml_uring_submit_readv_fixed_byte(value* values, int argc) {
-  return ocaml_uring_submit_readv_fixed_native(
+ocaml_uring_submit_read_fixed_byte(value* values, int argc) {
+  return ocaml_uring_submit_read_fixed_native(
 			  values[0],
 			  values[1],
 			  values[2],
@@ -363,23 +363,23 @@ ocaml_uring_submit_readv_fixed_byte(value* values, int argc) {
 			  values[6]);
 }
 
-// Caller must ensure the buffers are not released until this job completes.
+// Caller must ensure the buffer is not released until this job completes.
 value /* noalloc */
-ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
+ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe)
     return (Val_false);
-  dprintf("submit_writev_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
+  dprintf("submit_write_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
 
 value
-ocaml_uring_submit_writev_fixed_byte(value* values, int argc) {
-  return ocaml_uring_submit_writev_fixed_native(
+ocaml_uring_submit_write_fixed_byte(value* values, int argc) {
+  return ocaml_uring_submit_write_fixed_native(
 			  values[0],
 			  values[1],
 			  values[2],
@@ -387,6 +387,44 @@ ocaml_uring_submit_writev_fixed_byte(value* values, int argc) {
 			  values[4],
 			  values[5],
 			  values[6]);
+}
+
+// Vectored read into registered (fixed) buffers at index 0.
+// Emits IORING_OP_READV_FIXED. The iovecs must point inside the registered
+// buffer. Caller must ensure the buffers pointed to by v_sketch_ptr are not
+// GC'd until the job is finished.
+value /* noalloc */
+ocaml_uring_submit_readv_fixed(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
+  size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
+
+  if (sqe == NULL)
+    return (Val_false);
+  dprintf("submit_readv_fixed: %zu ents len[0] %lu off %ld\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
+  io_uring_prep_readv_fixed(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff), 0, 0);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
+}
+
+// Vectored write from registered (fixed) buffers at index 0.
+// Emits IORING_OP_WRITEV_FIXED. The iovecs must point inside the registered
+// buffer. Caller must ensure the buffers pointed to by v_sketch_ptr are not
+// GC'd until the job is finished.
+value /* noalloc */
+ocaml_uring_submit_writev_fixed(value v_uring, value v_fd, value v_id, value v_sketch_ptr, value v_fileoff) {
+  struct io_uring *ring = Ring_val(v_uring);
+  struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  struct iovec *iovs = Sketch_ptr_val(v_sketch_ptr);
+  size_t len = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(*iovs);
+
+  if (sqe == NULL)
+    return (Val_false);
+  dprintf("submit_writev_fixed: %zu ents len[0] %lu off %ld\n", len, iovs[0].iov_len, Int63_val(v_fileoff));
+  io_uring_prep_writev_fixed(sqe, Int_val(v_fd), iovs, len, Int63_val(v_fileoff), 0, 0);
+  io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  return (Val_true);
 }
 
 value /* noalloc */
