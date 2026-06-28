@@ -578,6 +578,28 @@ val write_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> R
 (** [write_chunk] is like [write_fixed], but gets the offset from [chunk].
     @param len Restrict the write to the first [len] bytes of [chunk]. *)
 
+val readv_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+(** [readv_fixed t ~file_offset fd iov d] is the vectored analogue of
+    {!read_fixed}.  Every buffer in [iov] must be a fixed buffer.
+    The completion's [result] field holds the total number of bytes read
+    across all buffers, or a negative error code.
+
+    @param file_offset File offset (see {!type:offset} for special values)
+    @param iov List of buffers, all inside the registered fixed buffer
+    @return [None] if the submission queue is full; otherwise [Some job]
+    @raise Invalid_argument if any buffer is not part of the fixed buffer *)
+
+val writev_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+(** [writev_fixed t ~file_offset fd iov d] is the vectored analogue of
+    {!write_fixed}.  Every buffer in [iov] must beregistered fixed buffer.
+    The completion's [result] field holds the total number of bytes written
+    across all buffers, or a negative error code.
+
+    @param file_offset File offset (see {!type:offset} for special values)
+    @param iov List of buffers, all inside the registered fixed buffer
+    @return [None] if the submission queue is full; otherwise [Some job]
+    @raise Invalid_argument if any buffer is not part of the fixed buffer *)
+
 val splice : 'a t -> src:Unix.file_descr -> dst:Unix.file_descr -> len:int -> 'a -> 'a job option
 (** [splice t ~src ~dst ~len d] will submit a request to copy [len] bytes from [src] to [dst].
 
