@@ -683,6 +683,66 @@ val fd : unit = ()
 - : unit = ()
 ```
 
+## RW flags (preadv2/pwritev2)
+
+Read/write submissions can carry per-operation `RWF_*` flags.
+`Rw_flags.dsync` makes a write durable as part of the operation itself,
+with no separate `fsync` submission needed:
+
+```ocaml
+# let t : [ `Read | `Write ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Read | `Write ] Uring.t = <abstr>
+# let fd = Unix.openfile "rwf.txt" Unix.[O_RDWR; O_CREAT; O_TRUNC] 0o644;;
+val fd : Unix.file_descr = <abstr>
+# let b = Cstruct.of_string "durable data";;
+val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 12}
+# Uring.writev t ~file_offset:Int63.zero ~flags:Uring.Rw_flags.dsync fd [b] `Write;;
+- : [ `Read | `Write ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"writev" t;;
+- : [ `Read | `Write ] * int = (`Write, 12)
+```
+
+Read it back, also passing flags through `readv`:
+
+```ocaml
+# let b2 = Cstruct.create 12;;
+val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 12}
+# Uring.readv t ~file_offset:Int63.zero ~flags:Uring.Rw_flags.empty fd [b2] `Read;;
+- : [ `Read | `Write ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"readv" t;;
+- : [ `Read | `Write ] * int = (`Read, 12)
+# Cstruct.to_string b2;;
+- : string = "durable data"
+```
+
+The kernel rejects flags that it doesn't recognise, or that the target file
+doesn't support by failing with `EOPNOTSUPP`. Callers using
+the newer flags need a fallback path so just test the return value with
+a high flag bit that we know wont be in Linux for aaaaages. If this fails
+in the year 2050 you know what to do.
+
+```ocaml
+# Uring.writev t ~file_offset:Int63.zero ~flags:(Uring.Rw_flags.of_int 0x40000000) fd [b] `Write;;
+- : [ `Read | `Write ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"writev" t;;
+Exception: Unix.Unix_error(Unix.EOPNOTSUPP, "writev", "")
+```
+
+```ocaml
+# let fd : unit = Unix.close fd;;
+val fd : unit = ()
+# Uring.exit t;;
+- : unit = ()
+# Unix.unlink "rwf.txt";;
+- : unit = ()
+```
+
 ## Regions
 
 ```ocaml
