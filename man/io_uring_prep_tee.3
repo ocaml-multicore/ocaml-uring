@@ -26,7 +26,7 @@ is setup to use as input the file descriptor
 .I fd_in
 and as output the file descriptor
 .I fd_out
-duplicating
+duplicating up to
 .I nbytes
 bytes worth of data.
 .I splice_flags
@@ -34,9 +34,9 @@ are modifier flags for the operation. See
 .BR tee (2)
 for the generic splice flags.
 
-If the
+If
 .I fd_out
-descriptor,
+is a direct descriptor,
 .B IOSQE_FIXED_FILE
 can be set in the SQE to indicate that. For the input file, the io_uring
 specific
@@ -66,6 +66,12 @@ Instead it returns the negated
 directly in the CQE
 .I res
 field.
+.SH NOTES
+Despite accepting an unsigned number of bytes, this function can transfer at most
+INT_MAX bytes per call (the maximum for the underlying syscall interface).
+In practice, limits as low as 65536 have been observed (just like with
+.BR tee (2)
+itself).
 .SH SEE ALSO
 .BR io_uring_get_sqe (3),
 .BR io_uring_submit (3),

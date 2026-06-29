@@ -264,3 +264,14 @@ LIBURING_2.13 {
 LIBURING_2.14 {
 
 } LIBURING_2.13;
+
+LIBURING_2.15 {
+	global:
+		io_uring_register_bpf_filter;
+		io_uring_register_bpf_filter_task;
+		io_uring_cqe_iter_init;
+		io_uring_cqe_iter_next;
+		__io_uring_peek_cqe;
+		io_uring_register_zcrx_ctrl;
+		io_uring_register_query;
+} LIBURING_2.14;

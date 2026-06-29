@@ -5,6 +5,10 @@ set -e
 cc=${CC:-gcc}
 cxx=${CXX:-g++}
 
+# Determine source directory (where this configure script lives)
+root=$(cd "$(dirname "$0")" && pwd)
+builddir=$(pwd)
+
 for opt do
   optarg=$(expr "x$opt" : 'x[^=]*=\(.*\)' || true)
   case "$opt" in
@@ -83,6 +87,20 @@ Options: [defaults in brackets after descriptions]
   --enable-sanitizer       compile liburing with the address and undefined behaviour sanitizers. (useful for debugging)
 EOF
 exit 0
+fi
+
+# Set up out-of-source build if needed
+if test "$root" != "$builddir"; then
+  mkdir -p src/include/liburing test examples
+
+  for dir in . src test examples; do
+    cat > "$dir/Makefile" << MEOF
+root := $root
+include \$(root)/$dir/Makefile
+MEOF
+  done
+else
+  mkdir -p src/include/liburing
 fi
 
 TMP_DIRECTORY="$(mktemp -d)"
@@ -170,7 +188,7 @@ do_cc() {
 }
 
 compile_prog() {
-  local_cflags="$1"
+  local_cflags="$1 -Wno-error=unused-variable"
   local_ldflags="$2 $LIBS"
   echo "Compiling test case $3" >> config.log
   do_cc $CFLAGS $local_cflags -o $TMPE $TMPC $LDFLAGS $local_ldflags
@@ -386,10 +404,12 @@ print_config "has_ucontext" "$has_ucontext"
 # check for memfd_create(2)
 has_memfd_create="no"
 cat > $TMPC << EOF
+#include <unistd.h>
 #include <sys/mman.h>
 int main(int argc, char **argv)
 {
   int memfd = memfd_create("test", 0);
+  close(memfd);
   return 0;
 }
 EOF
@@ -405,8 +425,6 @@ cat > $TMPC << EOF
 #include <linux/nvme_ioctl.h>
 int main(void)
 {
-  struct nvme_uring_cmd *cmd;
-
   return sizeof(struct nvme_uring_cmd);
 }
 EOF
@@ -459,6 +477,7 @@ cat > $TMPC << EOF
 int main(void)
 {
   idtype_t v;
+
   return 0;
 }
 EOF
@@ -466,6 +485,50 @@ if compile_prog "" "" "idtype_t"; then
   has_idtype_t="yes"
 fi
 print_config "has_idtype_t" "$has_idtype_t"
+
+##########################################
+# Check for BPF toolchain
+
+has_bpftool="no"
+if command -v bpftool >/dev/null 2>&1; then
+  has_bpftool="yes"
+elif command -v /usr/sbin/bpftool >/dev/null 2>&1; then
+  has_bpftool="yes"
+fi
+
+tmp_bpf=$(mktemp /tmp/test_bpf_XXXXXX)
+tmp_bpf_c="$tmp_bpf".c
+tmp_bpf_o="$tmp_bpf".o
+
+cat > "$tmp_bpf_c" << EOF
+int tmp = 0;
+EOF
+
+has_clang="no"
+if command -v clang >/dev/null 2>&1; then
+	has_clang="yes"
+fi
+
+has_bpf_clang="no"
+if clang -target bpf -mcpu=v4 -c "$tmp_bpf_c" -o "$tmp_bpf_o"; then
+  has_bpf_clang="yes"
+fi
+rm -f "$tmp_bpf_c" "$tmp_bpf_o"
+
+has_libbpf="no"
+if pkg-config --exists libbpf; then
+  has_libbpf="yes"
+fi
+
+print_config "has_clang" "$has_clang"
+print_config "has_bpftool" "$has_bpftool"
+print_config "has_bpf_clang" "$has_bpf_clang"
+print_config "has_libbpf" "$has_libbpf"
+
+has_bpf_loop_ops="no"
+if test "$has_clang" = "yes" && test "$has_bpftool" = "yes" && test "$has_bpf_clang" = "yes" && test "$has_libbpf" = "yes"; then
+  output_mak "bpf_toolchain" "y"
+fi
 
 #############################################################################
 liburing_nolibc="no"
@@ -591,11 +654,12 @@ print_config "CC" "$cc"
 echo "CXX=$cxx" >> $config_host_mak
 echo "BUILD_CFLAGS=$BUILD_CFLAGS" >> $config_host_mak
 print_config "CXX" "$cxx"
+echo "root=$root" >> $config_host_mak
 
 # generate io_uring_version.h
 # Reset MAKEFLAGS
 MAKEFLAGS=
-MAKE_PRINT_VARS="include Makefile.common\nprint-%%: ; @echo \$(\$*)\n"
+MAKE_PRINT_VARS="include $root/Makefile.common\nprint-%%: ; @echo \$(\$*)\n"
 VERSION_MAJOR=$(printf "$MAKE_PRINT_VARS" | make -s --no-print-directory -f - print-VERSION_MAJOR)
 VERSION_MINOR=$(printf "$MAKE_PRINT_VARS" | make -s --no-print-directory -f - print-VERSION_MINOR)
 io_uring_version_h="src/include/liburing/io_uring_version.h"
