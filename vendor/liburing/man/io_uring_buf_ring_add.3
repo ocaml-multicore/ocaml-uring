@@ -54,6 +54,9 @@ matters is that the application knows what a given buffer ID in time corresponds
 to in terms of virtual memory. There's no liburing or kernel assumption that
 these mappings are persistent over time, they can very well be different every
 time a given buffer ID is added to the provided buffer ring.
+
+Note that no uring functions can write more than INT_MAX bytes to a buffer in a
+single call.  For details, see the man pages for individual functions.
 .SH SEE ALSO
 .BR io_uring_register_buf_ring (3),
 .BR io_uring_buf_ring_mask (3),

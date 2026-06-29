@@ -665,6 +665,22 @@ must not be used with
 .in
 .PP
 
+.PP
+.in +7
+Since kernel 7.1,
+.B IORING_TIMEOUT_IMMEDIATE_ARG
+can be set in
+.IR timeout_flags ,
+which causes the
+.I addr
+field to be interpreted as a timeout value in nanoseconds rather than a
+pointer to a
+.B struct __kernel_timespec.
+This avoids the need to keep a timespec structure valid in user memory until
+the request is submitted.
+.in
+.PP
+
 .TP
 .B IORING_OP_TIMEOUT_REMOVE
 If
@@ -2112,13 +2128,6 @@ member of the submission queue entry is invalid.
 The
 .I personality
 field in a submission queue entry is invalid.
-.TP
-.B EINVAL
-.B IORING_OP_NOP
-was specified in the submission queue entry, but the io_uring context
-was setup for polling
-.RB ( IORING_SETUP_IOPOLL
-was specified in the call to io_uring_setup).
 .TP
 .B EINVAL
 .B IORING_OP_READV

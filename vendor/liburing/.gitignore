@@ -29,8 +29,10 @@
 /examples/kdigest
 /examples/reg-wait
 /examples/zcrx
+/examples/echo-server
 
 /test/*.t
+/test/*.tt
 /test/*.dmesg
 /test/output/
 

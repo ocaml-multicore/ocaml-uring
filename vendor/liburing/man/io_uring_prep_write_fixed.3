@@ -67,6 +67,9 @@ Instead it returns the negated
 directly in the CQE
 .I res
 field.
+.SH NOTES
+Despite accepting an unsigned number of bytes, this function can transfer at most
+INT_MAX bytes per call (the maximum for the underlying syscall interface).
 .SH SEE ALSO
 .BR io_uring_prep_write (3),
 .BR io_uring_register_buffers (3)
