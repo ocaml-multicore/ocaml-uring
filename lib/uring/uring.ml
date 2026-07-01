@@ -22,7 +22,7 @@ module Region = Region
 module Int63 = Optint.Int63
 
 module type FLAGS = sig
-  type t
+  type t = private int
   val empty : t
   val of_int : int -> t
   val to_int : t -> int

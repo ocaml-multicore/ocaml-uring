@@ -25,7 +25,7 @@ module Region = Region
 
 (** Type of flags that can be combined. *)
 module type FLAGS = sig
-  type t
+  type t = private int
   (** A set of flags. *)
 
   val empty : t
