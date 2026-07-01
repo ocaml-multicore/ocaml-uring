@@ -129,6 +129,9 @@ Increasing the limit may help
 .B -ENOMEM
 The kernel ran out of memory.
 .P
+.SH NOTES
+Despite accepting a size_t number of bytes, these functions can transfer at most
+INT_MAX bytes per call (the maximum for the underlying syscall interface).
 .SH SEE ALSO
 .BR io_uring_get_sqe (3),
 .BR io_uring_submit (3),

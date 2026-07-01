@@ -57,6 +57,10 @@ The CQE
 .I res
 field will contain the result of the operation, the number of bytes written
 on success. On error, a negative errno value is returned.
+.SH NOTES
+Despite accepting an array of iovec's with a size_t number of bytes each,
+this function can transfer at most INT_MAX bytes per call (the maximum
+for the underlying syscall interface).
 .SH SEE ALSO
 .BR io_uring_get_sqe (3),
 .BR io_uring_submit (3),

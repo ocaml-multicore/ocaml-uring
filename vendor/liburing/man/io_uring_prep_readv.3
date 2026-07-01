@@ -78,6 +78,13 @@ behavior by inspecting the
 .B IORING_FEAT_SUBMIT_STABLE
 flag passed back from
 .BR io_uring_queue_init_params (3).
+
+This function accepts an array of iovec's with a size_t number of bytes each,
+but io_uring_cqe's result code is an __s32 value, so in theory a short read
+with a large enough iov_len value could generate an ambiguous return.
+But the number of bytes actually transferred has the same limit as
+.BR read (2)
+so this cannot happen in practice.
 .SH SEE ALSO
 .BR io_uring_get_sqe (3),
 .BR io_uring_prep_read (3),
