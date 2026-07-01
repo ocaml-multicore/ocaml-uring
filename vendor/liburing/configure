@@ -496,7 +496,7 @@ elif command -v /usr/sbin/bpftool >/dev/null 2>&1; then
   has_bpftool="yes"
 fi
 
-tmp_bpf=$(mktemp /tmp/test_bpf_XXXXXX)
+tmp_bpf=$(mktemp test_bpf_XXXXXX)
 tmp_bpf_c="$tmp_bpf".c
 tmp_bpf_o="$tmp_bpf".o
 
