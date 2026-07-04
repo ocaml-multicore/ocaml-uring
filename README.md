@@ -148,7 +148,7 @@ The `tests` directory contains some more examples.
 
    <!-- $MDX skip -->
    ```sh
-   git subtree pull --prefix vendor/liburing https://github.com/axboe/liburing.git v2.14 --squash
+   git subtree pull --prefix vendor/liburing https://github.com/axboe/liburing.git liburing-2.15 --squash
    ```
 
 2. Edit `lib/uring/dune` to use the new version number.

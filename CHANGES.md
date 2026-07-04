@@ -1,3 +1,50 @@
+## v2.15.0
+
+Breaking changes:
+
+- Require OCaml >= 5.2 (@talex5 @avsm #144).
+
+Other new features:
+
+- Update to liburing 2.15 (@avsm #157).
+
+- Add `shutdown`, `socket`, `renameat` and `symlinkat` ops (@avsm #147).
+
+- Add `fallocate` and `ftruncate` ops (@avsm #149).
+
+- Allow setting socket flags on socket creation, and default the
+  `socket` binding to set `CLOEXEC` by default (@avsm #151).
+
+- Add per-operation `RWF` flags to `read`/`write` submissions (@avsm #154).
+
+- Add bindings for vectored `readv`/`writev` on fixed buffers (@avsm #155).
+
+Bug fixes:
+
+- Fix inverted mask check in `Statx.Attr.check` (@avsm @talex5 #142 #159).
+
+- Fix `dio_offset_align` statx getter returning the wrong field (@avsm #141).
+
+- Give `caml_uring_wait_cqe` the same null-cqe check as the timeout
+  variant and reuse the OCaml runtime's socket table. (@avsm #148).
+
+- Report errors from `io_uring_submit` rather than ignoring them (@talex5 #144).
+
+- Add a bounds check to `Region.init` and simplify the slot calculation
+  (@dra27 #128, @avsm #145).
+
+- Fix `URING_DEBUG` format-string warnings (@avsm #146).
+
+- Hardcode rename flags for compat with older musl versions (@avsm #147).
+
+Build and tests:
+
+- Don't use `/tmp` in the configure test, to work with sandboxed opam builds
+  (@talex5 #158).
+
+- Regenerate primops and make `lintcstubs-arity` a test dependency
+  (@avsm #143, based on @dra27 in #128).
+
 ## v2.14.0
 
 Breaking changes:
