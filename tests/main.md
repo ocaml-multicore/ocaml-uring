@@ -3,6 +3,12 @@
 # #install_printer Uring.Res.pp;;
 ```
 
+```ocaml
+let test_requires t op msg =
+  let probe = Uring.get_probe t in
+  if not (Uring.op_supported probe op) then mdx_skip msg
+```
+
 # Uring tests
 
 ```ocaml
@@ -502,6 +508,9 @@ val fd : Unix.file_descr = <abstr>
 Read "A test file" into two slices of the fixed buffer (at offsets 0 and 64):
 
 ```ocaml
+# test_requires t Uring.Op.readv_fixed "Need Linux >= 6.15 for readv_fixed";;
+- : unit = ()
+
 # Uring.readv_fixed t ~file_offset:Int63.zero fd
     [ Cstruct.of_bigarray fbuf ~off:0 ~len:4; Cstruct.of_bigarray fbuf ~off:64 ~len:7 ] `Read;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
@@ -518,6 +527,9 @@ Read "A test file" into two slices of the fixed buffer (at offsets 0 and 64):
 Write those same two slices back out through a pipe with `writev_fixed`:
 
 ```ocaml
+# test_requires t  Uring.Op.writev_fixed "Need Linux >= 6.15 for writev_fixed";;
+- : unit = ()
+
 # let r, w = Unix.pipe ();;
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
