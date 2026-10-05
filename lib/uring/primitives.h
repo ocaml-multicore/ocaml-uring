@@ -2,6 +2,8 @@
 #define CAML_NAME_SPACE
 #define _GNU_SOURCE
 #include <caml/mlvalues.h>
+CAMLprim value ocaml_uring_iovec_to_bigarray(value, value, value);
+CAMLprim value ocaml_uring_ba_family_refs(value);
 CAMLprim value ocaml_uring_make_statx(value);
 CAMLprim int64_t ocaml_uring_statx_blksize_native(value);
 CAMLprim value ocaml_uring_statx_blksize_bytes(value);
@@ -60,7 +62,7 @@ CAMLprim value ocaml_uring_get_msghdr_fds(value);
 CAMLprim value ocaml_uring_setup(value, value, value);
 CAMLprim value ocaml_uring_exit(value);
 CAMLprim value ocaml_uring_unregister_buffers(value);
-CAMLprim value ocaml_uring_register_ba(value, value);
+CAMLprim value ocaml_uring_register_buffer(value, value);
 CAMLprim value ocaml_uring_submit(value);
 CAMLprim value ocaml_uring_sq_ready(value);
 CAMLprim value ocaml_uring_get_probe_ring(value);
@@ -68,9 +70,9 @@ CAMLprim value ocaml_uring_opcode_supported(value, value);
 CAMLprim value ocaml_uring_submit_nop(value, value);
 CAMLprim value ocaml_uring_submit_timeout(value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_poll_add(value, value, value, value);
-CAMLprim value ocaml_uring_submit_read_native(value, value, value, value, value, value);
+CAMLprim value ocaml_uring_submit_read_native(value, value, value, value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_read_byte(value *, int);
-CAMLprim value ocaml_uring_submit_write_native(value, value, value, value, value, value);
+CAMLprim value ocaml_uring_submit_write_native(value, value, value, value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_write_byte(value *, int);
 CAMLprim value ocaml_uring_submit_readv_native(value, value, value, value, value, value);
 CAMLprim value ocaml_uring_submit_readv_byte(value *, int);

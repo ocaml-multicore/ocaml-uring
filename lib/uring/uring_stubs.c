@@ -21,12 +21,12 @@
 #include <endian.h>	/* liburing.h needs this for __BYTE_ORDER */
 #include <liburing.h>
 #include <caml/alloc.h>
-#include <caml/bigarray.h>
 #include <caml/callback.h>
 #include <caml/custom.h>
 #include <caml/fail.h>
 #include <caml/memory.h>
 #include <caml/mlvalues.h>
+#include <caml/bigarray.h>	/* the Sketch scratch arena is still a Bigarray */
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
 #include <caml/socketaddr.h>
@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <string.h>
 #include <poll.h>
+#include <stdatomic.h>
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -108,12 +109,13 @@ value ocaml_uring_setup(value entries, value polling_timeout, value v_flags) {
 }
 
 // Note that the ring must be idle when calling this.
-value ocaml_uring_register_ba(value v_uring, value v_ba) {
-  CAMLparam2(v_uring, v_ba);
+// v_bbuf is an immovable bytes buffer; the whole buffer is registered.
+value ocaml_uring_register_buffer(value v_uring, value v_bbuf) {
+  CAMLparam2(v_uring, v_bbuf);
   struct io_uring *ring = Ring_val(v_uring);
   struct iovec iov[1];
-  iov[0].iov_base = Caml_ba_data_val(v_ba);
-  iov[0].iov_len = Caml_ba_array_val(v_ba)->dim[0];
+  iov[0].iov_base = Bytes_val(v_bbuf);
+  iov[0].iov_len = caml_string_length(v_bbuf);
   dprintf("uring %p: registering iobuf base %p len %lu\n", ring, iov[0].iov_base, iov[0].iov_len);
   int ret = io_uring_register_buffers(ring, iov, 1);
   if (ret)
@@ -284,6 +286,64 @@ ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_
   io_uring_prep_poll_add(sqe, Int_val(v_fd), poll_mask);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
+
+}
+
+/* We need a custom bigarray here in order to alias an existing bytes buffer in
+ * the heap. We need to ensure that no copy of the bytes is made, but also that
+ * the bytes arent freed while the bigarray (and any slices thereof) are also
+ * still live.
+ *
+ * A 'normal' bigarray cant express this aliasing. A CAML_BA_EXTERNAL bigarray
+ * doesnt do any lifetime tracking, while a CAML_BA_MANAGED bigarray has the
+ * runtime call free() which would corrupt the heap when the storage is
+ * `bytes`.
+ * 
+ * We therefore allocate the bigarray as CAML_BA_MANAGED | CAML_BA_SUBARRAY
+ * with a hand-built proxy attached at creation. This is morally ok since the
+ * bigarray is indeed a subarray, just not of another bigarray!  Managed mode
+ * allows every derived bigarray slice to be tracked via the runtime's proxy.
+ * Pre-attaching the proxy with a NULL data pointer halts the free paths when
+ * the refcount reaches zero, while the BA_MANAGED status stops free being
+ * called on the bytes.
+ *
+ * Keeping the bytes alive is then done purely on the OCaml side. A finaliser
+ * closure that captures the bytes is attached to the original bigarray, and
+ * serves as the GC root. When the original becomes unreachable while the proxy
+ * refcount shows other family members are still live, the finaliser
+ * re-registers itself on the same value. The chain terminates when the
+ * refcount is 0, after which the bytes become collectable as normal since the
+ * bigarray will be GCed.
+ *
+ * This only works if the bytes themselves dont move, which is guaranteed by
+ * the OCaml 5 runtime minimum size. Phew! 
+ */
+
+value
+ocaml_uring_iovec_to_bigarray(value v_buf, value v_off, value v_len)
+{
+  CAMLparam1(v_buf);
+  CAMLlocal1(v_ba);
+  /* this must be malloc() as caml_ba_finalize will call free() on it */
+  struct caml_ba_proxy *proxy = malloc(sizeof(struct caml_ba_proxy));
+  if (proxy == NULL) caml_raise_out_of_memory();
+  v_ba = caml_ba_alloc_dims(CAML_BA_CHAR | CAML_BA_C_LAYOUT | CAML_BA_MANAGED | CAML_BA_SUBARRAY,
+                            1, Bytes_val(v_buf) + Long_val(v_off),
+                            (intnat) Long_val(v_len));
+  /* caml_ba_update_proxy isnt exposed by the ocaml runtime so do this by hand */
+  atomic_init(&proxy->refcount, 1);
+  proxy->data = NULL;
+  proxy->size = 0;
+  Caml_ba_array_val(v_ba)->proxy = proxy;
+  CAMLreturn(v_ba);
+}
+
+/* Number of bigarrays sharing [v_ba]'s data, the argument included. */
+value /* noalloc */
+ocaml_uring_ba_family_refs(value v_ba)
+{
+  struct caml_ba_proxy *proxy = Caml_ba_array_val(v_ba)->proxy;
+  return Val_long(proxy == NULL ? 1 : (intnat) atomic_load(&proxy->refcount));
 }
 
 value /* noalloc */
@@ -296,11 +356,11 @@ ocaml_uring_set_iovec(value v_sketch_ptr, value v_csl)
   for (i = 0, v_aux = v_csl;
        v_aux != Val_emptylist;
        v_aux = Field(v_aux, 1), i++) {
-    value v_cs = Field(v_aux, 0);
-    value v_ba = Field(v_cs, 0);
+    value v_cs = Field(v_aux, 0);     /* an Iovec.t record { buf; off; len } */
+    value v_buf = Field(v_cs, 0);
     value v_off = Field(v_cs, 1);
     value v_len = Field(v_cs, 2);
-    iovs[i].iov_base = Caml_ba_data_val(v_ba) + Long_val(v_off);
+    iovs[i].iov_base = Bytes_val(v_buf) + Long_val(v_off);
     iovs[i].iov_len = Long_val(v_len);
   }
   return Val_unit;
@@ -362,10 +422,10 @@ ocaml_uring_submit_writev_byte(value* values, int argc) {
 
 // Caller must ensure the buffer is not released until this job completes.
 value /* noalloc */
-ocaml_uring_submit_read_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
+ocaml_uring_submit_read_fixed_native(value v_uring, value v_fd, value v_id, value v_bbuf, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = Bytes_val(v_bbuf) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_read_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
@@ -389,10 +449,10 @@ ocaml_uring_submit_read_fixed_byte(value* values, int argc) {
 
 // Caller must ensure the buffer is not released until this job completes.
 value /* noalloc */
-ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
+ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, value v_bbuf, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = Bytes_val(v_bbuf) + Long_val(v_off);
   if (!sqe)
     return (Val_false);
   dprintf("submit_write_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
@@ -453,16 +513,14 @@ ocaml_uring_submit_writev_fixed(value v_uring, value v_fd, value v_id, value v_s
   return (Val_true);
 }
 
+// v_bbuf is an immovable bytes buffer; [off, off+len) is the active range.
 value /* noalloc */
-ocaml_uring_submit_read_native(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff, value v_rw_flags) {
+ocaml_uring_submit_read_native(value v_uring, value v_fd, value v_id, value v_bbuf, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  value v_ba = Field(v_cstruct, 0);
-  value v_off = Field(v_cstruct, 1);
-  value v_len = Field(v_cstruct, 2);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = Bytes_val(v_bbuf) + Long_val(v_off);
   if (!sqe) return (Val_false);
-  dprintf("submit_read: fd %d buff %p len %zd fileoff %ld\n",
+  dprintf("submit_read: fd %d buff %p len %ld fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   sqe->rw_flags = Int_val(v_rw_flags);
@@ -473,24 +531,17 @@ ocaml_uring_submit_read_native(value v_uring, value v_fd, value v_id, value v_cs
 value
 ocaml_uring_submit_read_byte(value* values, int argc) {
   return ocaml_uring_submit_read_native(
-			  values[0],
-			  values[1],
-			  values[2],
-			  values[3],
-			  values[4],
-			  values[5]);
+			  values[0], values[1], values[2], values[3],
+			  values[4], values[5], values[6], values[7]);
 }
 
 value /* noalloc */
-ocaml_uring_submit_write_native(value v_uring, value v_fd, value v_id, value v_cstruct, value v_fileoff, value v_rw_flags) {
+ocaml_uring_submit_write_native(value v_uring, value v_fd, value v_id, value v_bbuf, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  value v_ba = Field(v_cstruct, 0);
-  value v_off = Field(v_cstruct, 1);
-  value v_len = Field(v_cstruct, 2);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = Bytes_val(v_bbuf) + Long_val(v_off);
   if (!sqe) return (Val_false);
-  dprintf("submit_write: fd %d buff %p len %zd fileoff %ld\n",
+  dprintf("submit_write: fd %d buff %p len %ld fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_write(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
   sqe->rw_flags = Int_val(v_rw_flags);
@@ -501,12 +552,8 @@ ocaml_uring_submit_write_native(value v_uring, value v_fd, value v_id, value v_c
 value
 ocaml_uring_submit_write_byte(value* values, int argc) {
   return ocaml_uring_submit_write_native(
-			  values[0],
-			  values[1],
-			  values[2],
-			  values[3],
-			  values[4],
-			  values[5]);
+			  values[0], values[1], values[2], values[3],
+			  values[4], values[5], values[6], values[7]);
 }
 
 value /* noalloc */

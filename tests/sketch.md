@@ -1,5 +1,8 @@
 ```ocaml
 # #require "uring";;
+# let pp_bbuf fmt (b : bytes) = Format.fprintf fmt "<bbuf %d>" (Bytes.length b);;
+val pp_bbuf : Format.formatter -> bytes -> unit = <fun>
+# #install_printer pp_bbuf;;
 ```
 
 ## Sketch allocation
@@ -20,8 +23,8 @@ let rec consume t =
 val t : unit Uring.t = <abstr>
 # let fd = Unix.openfile "/dev/zero" [ O_RDONLY ] 0;;
 val fd : Unix.file_descr = <abstr>
-# let b = Cstruct.create 1;;
-val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
+# let b = Uring.Iovec.create 1;;
+val b : Uring.Iovec.t = {Uring.Iovec.buf = <bbuf 2048>; off = 0; len = 1}
 
 # Uring.readv t fd (ldup 1 b) () ~file_offset:Int63.zero;;
 - : unit Uring.job option = Some <abstr>

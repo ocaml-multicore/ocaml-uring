@@ -21,7 +21,60 @@
     aims to provide a thin type-safe layer for use in higher-level interfaces.
     @see <https://unixism.net/loti/what_is_io_uring.html#what-is-io-uring> What is Io_uring? *)
 
-module Region = Region
+val min_buffer_size : int
+(** [min_buffer_size] is the smallest [bytes] allocation the OCaml 5
+    runtime guarantees never to move. *)
+
+(** An IO buffer *)
+module Iovec : sig
+  type t = private {
+    buf : bytes;  (** Backing buffer, at least {!min_buffer_size} bytes long. *)
+    off : int;    (** Start of the live region within [buf]. *)
+    len : int;    (** Length of the live region ([off + len <= Bytes.length buf]). *)
+  }
+
+  val create : ?len:int -> int -> t
+  (** [create n] allocates a fresh zero-filled buffer with capacity for at least
+      [n] bytes (rounded up to {!min_buffer_size}) and a live region of
+      [\[0, len)].
+      @param len Length of the live region (default [n]). *)
+
+  val of_bytes : ?off:int -> ?len:int -> bytes -> t
+  (** [of_bytes buf] wraps an existing [buf] as an iovec covering the
+      region described by [off] and [len].
+      @param off Start of the region (default [0]).
+      @param len Length of the region (default [Bytes.length buf - off]).
+      @raise Invalid_argument if [Bytes.length buf < min_buffer_size], or if
+             [off]/[len] fall outside [buf]. *)
+
+  val of_string : string -> t
+  (** [of_string s] copies [s] into a fresh immovable buffer (see {!create}),
+      with the live region covering exactly the copied bytes. *)
+
+  val to_string : t -> string
+  (** [to_string t] copies [t]'s live region [\[off, off+len)] out as a string. *)
+
+  type buffer = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+  (** The type of {!Stdlib.Bigarray} buffers used for interop. *)
+
+  val to_bigarray : t -> buffer
+  (** [to_bigarray t] is a bigarray aliasing [t]'s data. This allows
+      bigarray-based interfaces to be used without copying, although for
+      performance you should stick to bytes if possible (since the bigarray
+      involves the allocation of a C struct as well). *)
+
+  val shift : t -> int -> t
+  (** [shift t n] is [t] with its live region advanced past the first [n] bytes,
+      sharing the same backing [buf]. Useful for resubmitting the tail after a
+      short read/write.
+      @raise Invalid_argument if [n] is outside [\[0, len\]]. *)
+
+  val shiftv : t list -> int -> t list
+  (** [shiftv ts n] drops the first [n] bytes spanning the iovecs [ts], returning
+      the unconsumed tail. Use it to advance a buffer list past the bytes already
+      transferred by a short {!writev}/{!readv}.
+      @raise Invalid_argument if [n] exceeds the total length of [ts]. *)
+end
 
 (** Type of flags that can be combined. *)
 module type FLAGS = sig
@@ -129,9 +182,10 @@ type 'a job
 (** A handle for a submitted job, which can be used to cancel it.
     If an operation returns [None], this means that submission failed because the ring is full. *)
 
-val create : ?flags:Setup_flags.t -> ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
+val create : ?flags:Setup_flags.t -> ?polling_timeout:int -> ?fixed_buffer_size:int -> queue_depth:int -> unit -> 'a t
 (** [create ~queue_depth] will return a fresh Io_uring structure [t].
-    Initially, [t] has no fixed buffer. Use {!set_fixed_buffer} if you want one.
+    By default [t] has no fixed buffer; use [~fixed_buffer_size] or
+    {!set_fixed_buffer} if you want one.
 
     The [queue_depth] determines the size of the submission queue (SQ) and completion
     queue (CQ) rings. The kernel may round this up to the next power of 2. The actual
@@ -140,6 +194,11 @@ val create : ?flags:Setup_flags.t -> ?polling_timeout:int -> queue_depth:int -> 
     @param flags Setup flags to configure ring behavior (see {!Setup_flags})
     @param polling_timeout If given, use polling mode with the given idle timeout (in ms).
                            This requires elevated privileges and enables {!Setup_flags.iopoll}.
+    @param fixed_buffer_size If given (and positive), allocate and register a fixed
+                           buffer of this many bytes up front, retrievable with {!buf}.
+                           Registration counts against [RLIMIT_MEMLOCK]; if it fails the
+                           ring is still created, just without a fixed buffer ([buf]
+                           returns [None]).
     @raise Unix.Unix_error if the io_uring_setup system call fails *)
 
 val queue_depth : 'a t -> int
@@ -160,13 +219,13 @@ val exit : 'a t -> unit
     for the "fixed buffer" mode of io_uring to avoid data copying between
     userspace and the kernel. *)
 
-val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
+val set_fixed_buffer : 'a t -> bytes -> (unit, [> `ENOMEM]) result
 (** [set_fixed_buffer t buf] sets [buf] as the fixed buffer for [t].
 
     Fixed buffers allow zero-copy I/O operations using {!read_fixed} and {!write_fixed}.
     The kernel pins the buffer in memory, avoiding the need to map user pages for each I/O.
-    You will normally want to wrap this with {!Region.alloc} or similar to divide the
-    buffer into chunks.
+    You manage the layout yourself: allocate one large [bytes] and address slices of it
+    by offset (e.g. with {!read_fixed}/{!write_fixed}, then read the buffer's bytes directly).
 
     If [t] already has a buffer set, the old one will be removed.
 
@@ -174,11 +233,21 @@ val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
             - Insufficient kernel resources are available
             - The caller's RLIMIT_MEMLOCK resource limit would be exceeded
             - The buffer is too large to pin in memory
-    @raise Invalid_argument if there are any requests in progress *)
+    @raise Invalid_argument if there are any requests in progress. *)
 
-val buf : 'a t -> Cstruct.buffer
-(** [buf t] is the fixed internal memory buffer associated with uring [t]
-    using {!set_fixed_buffer}, or a zero-length buffer if none is set. *)
+val unregister_fixed_buffer : 'a t -> unit
+(** [unregister_fixed_buffer t] removes the fixed buffer previously registered
+    with [t] (by [~fixed_buffer_size] or {!set_fixed_buffer}), releasing the
+    pinned memory back to the caller's [RLIMIT_MEMLOCK] budget immediately rather
+    than waiting for the ring's (asynchronous) teardown at {!exit}. It is a no-op
+    if no fixed buffer is set. After this, {!buf} is [None] and {!read_fixed} /
+    {!write_fixed} will fail until another buffer is registered.
+
+    @raise Invalid_argument if there are any requests in progress. *)
+
+val buf : 'a t -> bytes option
+(** [buf t] is the fixed buffer registered with uring [t] (via [~fixed_buffer_size]
+    or {!set_fixed_buffer}), or [None] if none is set. *)
 
 (** {2 Queueing operations} *)
 
@@ -541,11 +610,12 @@ module Rw_flags : sig
       streaming workloads. Requires filesystem support. Since Linux 6.14. *)
 end
 
-val read : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
-(** [read t ~file_offset fd buf d] will submit a [read(2)] request to uring [t].
+val read : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Iovec.t -> 'a -> 'a job option
+(** [read t ~file_offset fd iov d] will submit a [read(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
-    the results into the memory pointed to by [buf].  The user data [d] will
-    be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
+    the results into the region named by [iov] (see {!Iovec.create}/{!Iovec.of_bytes}).
+    The user data [d] will be returned by {!wait} or {!get_cqe_nonblocking} upon
+    completion.
 
     The completion's [result] field contains the number of bytes read on success,
     0 for end-of-file, or a negative error code on failure.
@@ -555,11 +625,11 @@ val read : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr ->
     @param flags Per-operation flags defined in {!Rw_flags}; defaults to none
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
-val write : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Cstruct.t -> 'a -> 'a job option
-(** [write t ~file_offset fd buf d] will submit a [write(2)] request to uring [t].
+val write : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Iovec.t -> 'a -> 'a job option
+(** [write t ~file_offset fd iov d] will submit a [write(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
-    the memory pointed to by [buf].  The user data [d] will be returned by
-    {!wait} or {!get_cqe_nonblocking} upon completion.
+    region named by [iov] (see {!Iovec.create}/{!Iovec.of_bytes}). The user data
+    [d] will be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
 
     The completion's [result] field contains the number of bytes written on success,
     or a negative error code on failure. Note that a short write (less than the
@@ -573,11 +643,13 @@ val write : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -
 val iov_max : int
 (** The maximum length of the list that can be passed to {!readv} and {!writev}. *)
 
-val readv : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val readv : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Iovec.t list -> 'a -> 'a job option
 (** [readv t ~file_offset fd iov d] will submit a [readv(2)] request to uring [t].
     It reads from absolute [file_offset] on the [fd] file descriptor and writes
-    the results into the memory pointed to by [iov].  The user data [d] will
-    be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
+    the results into the buffers given by [iov]. Each {!Iovec.t} names the region
+    of an immovable buffer to fill (see {!Iovec.create}/{!Iovec.of_bytes}). The
+    user data [d] will be returned by {!wait} or
+    {!get_cqe_nonblocking} upon completion.
 
     This performs a vectored read, reading data into multiple buffers in a single
     operation. The completion's [result] field contains the total number of bytes
@@ -589,11 +661,12 @@ val readv : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -
     @return [None] if the submission queue is full; otherwise [Some job]
     @raise Invalid_argument if [List.length iov > Uring.iov_max] *)
 
-val writev : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val writev : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Iovec.t list -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
-    the memory pointed to by [iov].  The user data [d] will be returned by
-    {!wait} or {!get_cqe_nonblocking} upon completion.
+    buffers given by [iov]. Each {!Iovec.t} names the region of an immovable
+    buffer to write (see {!Iovec.create}/{!Iovec.of_bytes}). The user data [d]
+    will be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
 
     This performs a vectored write, writing data from multiple buffers in a single
     operation. The completion's [result] field contains the total number of bytes
@@ -611,11 +684,8 @@ val read_fixed : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_de
     writes the results into the fixed memory buffer associated with uring [t] at offset [off].
     The user data [d] will be returned by {!wait} or {!peek} upon completion.
 
-    @param flags Per-operation flags as for [preadv2(2)] (see {!Rw_flags}); defaults to none *)
-
-val read_chunk : ?len:int -> 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
-(** [read_chunk] is like [read_fixed], but gets the offset from [chunk].
-    @param len Restrict the read to the first [len] bytes of [chunk]. *)
+    @param flags Per-operation flags as for [preadv2(2)] (see {!Rw_flags}); defaults to none
+    @raise Invalid_argument if no fixed buffer is registered *)
 
 val write_fixed : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
 (** [write_fixed t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
@@ -628,13 +698,10 @@ val write_fixed : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_d
     Warning: this can cause old versions of ZFS to hang
     (see {{:https://github.com/ocaml-multicore/ocaml-uring/issues/113)} issues/113}). *)
 
-val write_chunk : ?len:int -> 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_descr -> Region.chunk -> 'a -> 'a job option
-(** [write_chunk] is like [write_fixed], but gets the offset from [chunk].
-    @param len Restrict the write to the first [len] bytes of [chunk]. *)
-
-val readv_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val readv_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t list -> 'a -> 'a job option
 (** [readv_fixed t ~file_offset fd iov d] is the vectored analogue of
-    {!read_fixed}.  Every buffer in [iov] must be a fixed buffer.
+    {!read_fixed}.  Every {!Iovec.t} in [iov] must name a region inside the
+    ring's registered fixed buffer.
     The completion's [result] field holds the total number of bytes read
     across all buffers, or a negative error code.
 
@@ -643,9 +710,10 @@ val readv_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t lis
     @return [None] if the submission queue is full; otherwise [Some job]
     @raise Invalid_argument if any buffer is not part of the fixed buffer *)
 
-val writev_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val writev_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> Iovec.t list -> 'a -> 'a job option
 (** [writev_fixed t ~file_offset fd iov d] is the vectored analogue of
-    {!write_fixed}.  Every buffer in [iov] must beregistered fixed buffer.
+    {!write_fixed}.  Every {!Iovec.t} in [iov] must name a region inside the
+    ring's registered fixed buffer.
     The completion's [result] field holds the total number of bytes written
     across all buffers, or a negative error code.
 
@@ -981,7 +1049,7 @@ val cancel : 'a t -> 'a job -> 'a -> 'a job option
 module Msghdr : sig
   type t
 
-  val create : ?n_fds:int -> ?addr:Sockaddr.t -> Cstruct.t list -> t
+  val create : ?n_fds:int -> ?addr:Sockaddr.t -> Iovec.t list -> t
   (** [create buffs] makes a new [msghdr] using the [buffs]
       for the underlying [iovec].
 
@@ -994,7 +1062,7 @@ module Msghdr : sig
   val get_fds : t -> Unix.file_descr list
 end
 
-val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Iovec.t list -> 'a -> 'a job option
 (** [send_msg t fd buffs d] will submit a [sendmsg(2)] request. The [Msghdr] will be constructed
     from the FDs ([fds]), address ([dst]) and buffers ([buffs]).
 

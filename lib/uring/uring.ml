@@ -18,8 +18,81 @@ module Private = struct
   module Heap = Heap
 end
 
-module Region = Region
 module Int63 = Optint.Int63
+
+(* The OCaml 5 runtime never moves a heap block larger than [Max_young_wosize]
+   so any [bytes] at least this large can be handed to the kernel for
+   asynchronous I/O without copying. *)
+let min_buffer_size = 2048
+
+(* A single buffer slice for vectored I/O. Guarantees that [buf] will not be
+   relocated by the garbage collector. *)
+module Iovec = struct
+  type t = {
+    buf : bytes;
+    off : int;
+    len : int;
+  }
+
+  let[@inline] check_immovable op buf =
+    if Bytes.length buf < min_buffer_size then
+      Fmt.invalid_arg
+        "%s: buffer of %d bytes is below min_buffer_size (%d) and may be moved \
+         by the GC during async I/O" op (Bytes.length buf) min_buffer_size
+
+  let[@inline] check_bounds op buf off len =
+    if off < 0 || len < 0 || off + len > Bytes.length buf then
+      Fmt.invalid_arg "%s: off=%d len=%d out of bounds for buffer of %d bytes"
+        op off len (Bytes.length buf)
+
+  let[@inline] of_bytes ?(off=0) ?len buf =
+    let len = match len with Some l -> l | None -> Bytes.length buf - off in
+    check_immovable "Iovec.of_bytes" buf;
+    check_bounds "Iovec.of_bytes" buf off len;
+    { buf; off; len }
+
+  let create ?len n =
+    let buf = Bytes.create (max n min_buffer_size) in
+    let len = match len with Some l -> l | None -> n in
+    check_bounds "Iovec.create" buf 0 len;
+    { buf; off = 0; len }
+
+  let of_string s =
+    let len = String.length s in
+    let buf = Bytes.create (max len min_buffer_size) in
+    Bytes.blit_string s 0 buf 0 len;
+    { buf; off = 0; len }
+
+  let to_string { buf; off; len } = Bytes.sub_string buf off len
+
+  type buffer = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+  external unsafe_to_bigarray : bytes -> int -> int -> buffer = "ocaml_uring_iovec_to_bigarray"
+  external ba_family_refs : buffer -> int = "ocaml_uring_ba_family_refs" [@@noalloc]
+
+  let rec guard buf ba =
+    Gc.finalise (guard_check buf) ba
+  and guard_check buf ba =
+    if ba_family_refs ba > 1 then guard buf ba
+
+  let to_bigarray { buf; off; len } =
+    let ba = unsafe_to_bigarray buf off len in
+    guard buf ba;
+    ba
+
+  let shift t n =
+    if n < 0 || n > t.len then
+      Fmt.invalid_arg "Iovec.shift: %d out of range [0, %d]" n t.len;
+    { t with off = t.off + n; len = t.len - n }
+
+  let rec shiftv ts n =
+    match ts with
+    | [] -> if n = 0 then [] else invalid_arg "Iovec.shiftv: short buffer list"
+    | t :: ts' ->
+      if n >= t.len then shiftv ts' (n - t.len)
+      else if n = 0 then ts
+      else shift t n :: ts'
+end
 
 module type FLAGS = sig
   type t = private int
@@ -232,16 +305,6 @@ end
 
 module Op = Config.Op
 
-(* The C stubs rely on the layout of Cstruct.t, so we just check here that it hasn't changed. *)
-module Check_cstruct : sig
-  [@@@warning "-34"]
-  type t = private {
-    buffer: (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t;
-    off   : int;
-    len   : int;
-  }
-end = Cstruct
-
 (*
  * A Sketch buffer is an area used to hold objects that remain alive
  * until the next `Uring.submit`.
@@ -250,18 +313,20 @@ end = Cstruct
  * copied by the kernel and we can release them, which we do.
  *)
 module Sketch = struct
+  type bigstring = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
   type t = {
-    mutable buffer : Cstruct.buffer;
+    mutable buffer : bigstring;
     mutable off : int;
-    mutable old_buffers : Cstruct.buffer list;
+    mutable old_buffers : bigstring list;
   }
 
-  type ptr = Cstruct.buffer * int * int
+  type ptr = bigstring * int * int
 
   let create_buffer len = Bigarray.(Array1.create char c_layout len)
 
   let create () =
-    { buffer = Cstruct.empty.buffer; off = 0; old_buffers = [] }
+    { buffer = create_buffer 0; off = 0; old_buffers = [] }
 
   let length t = Bigarray.Array1.size_in_bytes t.buffer
 
@@ -285,15 +350,12 @@ module Sketch = struct
     t.off <- t.off + alloc_len;
     (t.buffer, off, alloc_len)
 
-  let _cstruct_of_ptr ((buf, off, len) : ptr) =
-    Cstruct.of_bigarray buf ~off ~len
-
   let release t =
     t.off <- 0;
     t.old_buffers <- []
 
   module Iovec = struct
-    external set : ptr -> Cstruct.t list -> unit = "ocaml_uring_set_iovec" [@@noalloc]
+    external set : ptr -> Iovec.t list -> unit = "ocaml_uring_set_iovec" [@@noalloc]
 
     let sizeof = Config.sizeof_iovec
 
@@ -316,7 +378,7 @@ end
 (* Used for the sendmsg/recvmsg calls. Liburing doesn't support sendto/recvfrom at the time of writing. *)
 module Msghdr = struct
   type msghdr
-  type t = msghdr * Sockaddr.t option * Cstruct.t list (* `Cstruct.t list` is here only for preventing it being GCed *)
+  type t = msghdr * Sockaddr.t option * Iovec.t list (* the iovec list is here only for preventing it being GCed *)
   external make_msghdr : int -> Unix.file_descr list -> Sockaddr.t option -> msghdr = "ocaml_uring_make_msghdr"
   external get_msghdr_fds : msghdr -> Unix.file_descr list = "ocaml_uring_get_msghdr_fds"
 
@@ -344,7 +406,7 @@ module Uring = struct
   external exit : t -> unit = "ocaml_uring_exit"
 
   external unregister_buffers : t -> unit = "ocaml_uring_unregister_buffers"
-  external register_bigarray : t ->  Cstruct.buffer -> unit = "ocaml_uring_register_ba"
+  external register_buffer : t -> bytes -> unit = "ocaml_uring_register_buffer"
   external submit : t -> int = "ocaml_uring_submit"
   external sq_ready : t -> int = "ocaml_uring_sq_ready" [@@noalloc]
 
@@ -357,12 +419,12 @@ module Uring = struct
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_timeout : t -> id -> Sketch.ptr -> clock -> bool -> bool = "ocaml_uring_submit_timeout" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
-  external submit_read : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_read_byte" "ocaml_uring_submit_read_native" [@@noalloc]
-  external submit_write : t -> Unix.file_descr -> id -> Cstruct.t -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_write_byte" "ocaml_uring_submit_write_native" [@@noalloc]
+  external submit_read : t -> Unix.file_descr -> id -> bytes -> int -> int -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_read_byte" "ocaml_uring_submit_read_native" [@@noalloc]
+  external submit_write : t -> Unix.file_descr -> id -> bytes -> int -> int -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_write_byte" "ocaml_uring_submit_write_native" [@@noalloc]
   external submit_readv : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_readv_byte" "ocaml_uring_submit_readv_native" [@@noalloc]
   external submit_writev : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_writev_byte" "ocaml_uring_submit_writev_native" [@@noalloc]
-  external submit_read_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_read_fixed_byte" "ocaml_uring_submit_read_fixed_native" [@@noalloc]
-  external submit_write_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_write_fixed_byte" "ocaml_uring_submit_write_fixed_native" [@@noalloc]
+  external submit_read_fixed : t -> Unix.file_descr -> id -> bytes -> int -> int -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_read_fixed_byte" "ocaml_uring_submit_read_fixed_native" [@@noalloc]
+  external submit_write_fixed : t -> Unix.file_descr -> id -> bytes -> int -> int -> offset -> Rw_flags.t -> bool = "ocaml_uring_submit_write_fixed_byte" "ocaml_uring_submit_write_fixed_native" [@@noalloc]
   external submit_readv_fixed : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_readv_fixed" [@@noalloc]
   external submit_writev_fixed : t -> Unix.file_descr -> id -> Sketch.ptr -> offset -> bool = "ocaml_uring_submit_writev_fixed" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
@@ -506,7 +568,7 @@ end
 type 'a t = {
   id : < >;
   uring: Uring.t;
-  mutable fixed_iobuf: Cstruct.buffer;
+  mutable fixed_iobuf: bytes option;
   data : 'a Heap.t;
   sketch : Sketch.t;
   queue_depth: int;
@@ -547,15 +609,24 @@ let register_gc_root t =
 let unregister_gc_root t =
   update_gc_roots (Ring_set.remove (Generic_ring.T t))
 
-let create ?(flags=Setup_flags.empty) ?polling_timeout ~queue_depth () =
+let create ?(flags=Setup_flags.empty) ?polling_timeout ?fixed_buffer_size ~queue_depth () =
   if queue_depth < 1 then Fmt.invalid_arg "Non-positive queue depth: %d" queue_depth;
   let uring = Uring.create queue_depth polling_timeout flags in
   let data = Heap.create queue_depth in
   let id = object end in
-  let fixed_iobuf = Cstruct.empty.buffer in
   let sketch = Sketch.create () in
-  let t = { id; uring; sketch; fixed_iobuf; data; queue_depth } in
+  let t = { id; uring; sketch; fixed_iobuf = None; data; queue_depth } in
   register_gc_root t;
+  (* Optionally allocate and register a fixed buffer up front. Registration
+     counts against RLIMIT_MEMLOCK; if it fails the ring is still created, just
+     without a fixed buffer (observable via {!buf}). *)
+  (match fixed_buffer_size with
+   | Some n when n > 0 ->
+     let b = Bytes.create (max n min_buffer_size) in
+     (match Uring.register_buffer t.uring b with
+      | () -> t.fixed_iobuf <- Some b
+      | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> ())
+   | _ -> ());
   t
 
 let check t =
@@ -570,14 +641,19 @@ let ensure_idle t op =
 
 let set_fixed_buffer t iobuf =
   ensure_idle t "set_fixed_buffer";
-  if Bigarray.Array1.dim t.fixed_iobuf > 0 then
+  (match t.fixed_iobuf with Some _ -> Uring.unregister_buffers t.uring | None -> ());
+  t.fixed_iobuf <- None;
+  match Uring.register_buffer t.uring iobuf with
+  | () -> t.fixed_iobuf <- Some iobuf; Ok ()
+  | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
+
+let unregister_fixed_buffer t =
+  ensure_idle t "unregister_fixed_buffer";
+  match t.fixed_iobuf with
+  | None -> ()
+  | Some _ ->
     Uring.unregister_buffers t.uring;
-  t.fixed_iobuf <- iobuf;
-  if Bigarray.Array1.dim iobuf > 0 then (
-    match Uring.register_bigarray t.uring iobuf with
-    | () -> Ok ()
-    | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
-  ) else Ok ()
+    t.fixed_iobuf <- None
 
 let exit t =
   ensure_idle t "exit";
@@ -668,11 +744,11 @@ let mkdirat t ~mode ?fd path user_data =
       Uring.submit_mkdirat t.uring id fd buf mode
     ) user_data
 
-let read t ~file_offset ?(flags=Rw_flags.empty) fd (buf : Cstruct.t) user_data =
-  with_id_full t (fun id -> Uring.submit_read t.uring fd id buf file_offset flags) user_data ~extra_data:buf
+let read t ~file_offset ?(flags=Rw_flags.empty) fd (iov : Iovec.t) user_data =
+  with_id_full t (fun id -> Uring.submit_read t.uring fd id iov.buf iov.off iov.len file_offset flags) user_data ~extra_data:iov
 
-let write t ~file_offset ?(flags=Rw_flags.empty) fd (buf : Cstruct.t) user_data =
-  with_id_full t (fun id -> Uring.submit_write t.uring fd id buf file_offset flags) user_data ~extra_data:buf
+let write t ~file_offset ?(flags=Rw_flags.empty) fd (iov : Iovec.t) user_data =
+  with_id_full t (fun id -> Uring.submit_write t.uring fd id iov.buf iov.off iov.len file_offset flags) user_data ~extra_data:iov
 
 let iov_max = Config.iov_max
 
@@ -681,21 +757,18 @@ let readv t ~file_offset ?(flags=Rw_flags.empty) fd buffers user_data =
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
       Uring.submit_readv t.uring fd id iovec file_offset flags) user_data ~extra_data:buffers
 
-let read_fixed t ~file_offset ?(flags=Rw_flags.empty) fd ~off ~len user_data =
-  with_id t (fun id -> Uring.submit_read_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
+let fixed_buffer t op =
+  match t.fixed_iobuf with
+  | Some b -> b
+  | None -> Fmt.invalid_arg "%s: no fixed buffer registered" op
 
-let read_chunk ?len t ~file_offset ?(flags=Rw_flags.empty) fd chunk user_data =
-  let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
-  if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
-  with_id t (fun id -> Uring.submit_read_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
+let read_fixed t ~file_offset ?(flags=Rw_flags.empty) fd ~off ~len user_data =
+  let iobuf = fixed_buffer t "read_fixed" in
+  with_id t (fun id -> Uring.submit_read_fixed t.uring fd id iobuf off len file_offset flags) user_data
 
 let write_fixed t ~file_offset ?(flags=Rw_flags.empty) fd ~off ~len user_data =
-  with_id t (fun id -> Uring.submit_write_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
-
-let write_chunk ?len t ~file_offset ?(flags=Rw_flags.empty) fd chunk user_data =
-  let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
-  if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
-  with_id t (fun id -> Uring.submit_write_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
+  let iobuf = fixed_buffer t "write_fixed" in
+  with_id t (fun id -> Uring.submit_write_fixed t.uring fd id iobuf off len file_offset flags) user_data
 
 let writev t ~file_offset ?(flags=Rw_flags.empty) fd buffers user_data =
   with_id_full t (fun id ->
@@ -704,20 +777,21 @@ let writev t ~file_offset ?(flags=Rw_flags.empty) fd buffers user_data =
 
 (* All buffers in a vectored fixed op must lie inside the ring's single
    registered buffer (index 0), so validate before building the iovec. *)
-let check_fixed t buffers =
-  List.iter (fun (c : Cstruct.t) ->
-      if c.Cstruct.buffer != t.fixed_iobuf then
+let check_fixed t op buffers =
+  let iobuf = fixed_buffer t op in
+  List.iter (fun (iov : Iovec.t) ->
+      if iov.buf != iobuf then
         invalid_arg "Buffer does not belong to ring's fixed buffer!")
     buffers
 
 let readv_fixed t ~file_offset fd buffers user_data =
-  check_fixed t buffers;
+  check_fixed t "readv_fixed" buffers;
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
       Uring.submit_readv_fixed t.uring fd id iovec file_offset) user_data ~extra_data:buffers
 
 let writev_fixed t ~file_offset fd buffers user_data =
-  check_fixed t buffers;
+  check_fixed t "writev_fixed" buffers;
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
       Uring.submit_writev_fixed t.uring fd id iovec file_offset) user_data ~extra_data:buffers

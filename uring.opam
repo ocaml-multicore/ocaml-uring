@@ -10,7 +10,6 @@ doc: "https://ocaml-multicore.github.io/ocaml-uring/"
 bug-reports: "https://github.com/ocaml-multicore/ocaml-uring/issues"
 depends: [
   "dune" {>= "3.0"}
-  "cstruct" {>= "6.0.1"}
   "ocaml" {>= "5.2.0"}
   "dune-configurator"
   "lwt" {with-test & >= "5.0.0"}
