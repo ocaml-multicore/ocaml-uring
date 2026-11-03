@@ -992,6 +992,12 @@ module Msghdr : sig
       @param n_fds Reserve space to receive this many FDs (default 0) *)
 
   val get_fds : t -> Unix.file_descr list
+
+  val get_msg_name : t -> Unix.sockaddr
+  (** Get the sender address as an OCaml value. This must only be used after
+      the operation to set it has succeeded.
+      
+      @raise Invalid_argument if [t] did not reserve space for the address. *)
 end
 
 val send_msg : ?fds:Unix.file_descr list -> ?dst:Unix.sockaddr -> 'a t -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option

@@ -759,7 +759,7 @@ ocaml_uring_make_sockaddr(value v_sockaddr) {
   data = (struct sock_addr_data *) caml_stat_alloc(sizeof(struct sock_addr_data));
   Sock_addr_val(v) = data;
   // If this raises, the GC will free [v], which will free [data]:
-  get_sockaddr(v_sockaddr, &data->sock_addr_addr, &data->sock_addr_len);
+  caml_unix_get_sockaddr(v_sockaddr, &data->sock_addr_addr, &data->sock_addr_len);
   CAMLreturn(v);
 }
 
@@ -768,7 +768,7 @@ ocaml_uring_extract_sockaddr(value v) {
   CAMLparam1(v);
   CAMLlocal1(v_sockaddr);
   struct sock_addr_data *data = Sock_addr_val(v);
-  v_sockaddr = alloc_sockaddr(&data->sock_addr_addr, data->sock_addr_len, -1);
+  v_sockaddr = caml_unix_alloc_sockaddr(&data->sock_addr_addr, data->sock_addr_len, -1);
   CAMLreturn(v_sockaddr);
 }
 
@@ -847,6 +847,19 @@ ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt) {
     }
   }
   CAMLreturn(v);
+}
+
+value
+ocaml_uring_get_msghdr_msg_name(value v_msghdr) {
+  CAMLparam1(v_msghdr);
+  CAMLlocal1(v_sockaddr);
+  struct msghdr *msg = Msghdr_val(v_msghdr);
+
+  if (msg->msg_name == NULL)
+    caml_invalid_argument("No msg_name buffer in msghdr");
+
+  v_sockaddr = caml_unix_alloc_sockaddr(msg->msg_name, msg->msg_namelen, -1);
+  CAMLreturn(v_sockaddr);
 }
 
 value
