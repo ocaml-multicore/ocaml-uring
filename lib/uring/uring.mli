@@ -982,13 +982,15 @@ module Msghdr : sig
   type t
 
   val create : ?n_fds:int -> ?addr:Sockaddr.t -> Cstruct.t list -> t
-  (** [create buffs] makes a new [msghdr] using the [buffs]
-      for the underlying [iovec].
+  [@@deprecated "Use Msghdr.create_recv instead"]
+
+  val create_recv : ?n_fds:int -> msg_name:bool -> Cstruct.t list -> t
+  (** [create_recv ~msg_name:true buffs] makes a new [msghdr] for {!recv_msg}
+      using the [buffs] for the underlying [iovec].
 
       Requires [List.length buffs <= Uring.iov_max]
 
-      @param addr The remote address.
-                  Use {!Sockaddr.create} to create a dummy address that will be filled when data is received.
+      @param msg_name Whether to allocate space to receive the sender's address (see {!get_msg_name}).
       @param n_fds Reserve space to receive this many FDs (default 0) *)
 
   val get_fds : t -> Unix.file_descr list

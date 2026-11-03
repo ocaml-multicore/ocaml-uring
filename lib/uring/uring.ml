@@ -331,6 +331,13 @@ module Msghdr = struct
 
   let create ?(n_fds=0) ?addr buffs =
     create_with_addr ~n_fds ~fds:[] ?addr buffs
+
+  let create_recv ?(n_fds=0) ~msg_name buffs =
+    let addr =
+      if msg_name then Some (Sockaddr.create ())
+      else None
+    in
+    create_with_addr ~n_fds ~fds:[] ?addr buffs
 end
 
 type 'a job = 'a Heap.entry

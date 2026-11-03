@@ -1008,7 +1008,7 @@ val sent : [ `Recv | `Send ] * Uring.Res.t = (`Send, 2)
 val really_input_string : in_channel -> int -> string = <fun>
 # let recv_buf = Cstruct.of_string "XX";;
 val recv_buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 2}
-# let recv = Uring.Msghdr.create ~n_fds:2 [recv_buf];;
+# let recv = Uring.Msghdr.create_recv ~msg_name:false ~n_fds:2 [recv_buf];;
 val recv : Uring.Msghdr.t = <abstr>
 # List.length (Uring.Msghdr.get_fds recv);;
 - : int = 0
@@ -1083,9 +1083,7 @@ val sent : bool = true
 
 # let buf = Cstruct.of_string "XXXX";;
 val buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 4}
-# let addr = Uring.Sockaddr.create ();;
-val addr : Uring.Sockaddr.t = <abstr>
-# let msg = Uring.Msghdr.create ~addr [buf];;
+# let msg = Uring.Msghdr.create_recv ~msg_name:true [buf];;
 val msg : Uring.Msghdr.t = <abstr>
 
 # Uring.recv_msg t b msg `Recv;;
