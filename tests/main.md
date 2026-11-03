@@ -1074,9 +1074,7 @@ val b_addr : Unix.sockaddr = Unix.ADDR_UNIX "\000ocaml-uring-test-b.sock"
 # let t : [ `Recv | `Send ] Uring.t = Uring.create ~queue_depth:2 ();;
 val t : [ `Recv | `Send ] Uring.t = <abstr>
 
-# Unix.connect a b_addr;;
-- : unit = ()
-# Uring.send_msg t a [Cstruct.of_string "Test"] `Send;;
+# Uring.send_msg t a ~dst:b_addr [Cstruct.of_string "Test"] `Send;;
 - : [ `Recv | `Send ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
