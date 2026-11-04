@@ -319,8 +319,10 @@ module Msghdr = struct
   type t = msghdr * Sockaddr.t option * Cstruct.t list (* `Cstruct.t list` is here only for preventing it being GCed *)
   external make_msghdr : int -> Unix.file_descr list -> Sockaddr.t option -> msghdr = "ocaml_uring_make_msghdr"
   external get_msghdr_fds : msghdr -> Unix.file_descr list = "ocaml_uring_get_msghdr_fds"
+  external get_msghdr_msg_name : msghdr -> Unix.sockaddr = "ocaml_uring_get_msghdr_msg_name"
 
   let get_fds (hdr, _, _) = get_msghdr_fds hdr
+  let get_msg_name (hdr, _, _) = get_msghdr_msg_name hdr
 
   (* Create a value with space for [n_fds] file descriptors.
      When sending, [fds] is used to fill those slots. When receiving, they can be left blank. *)
@@ -328,6 +330,13 @@ module Msghdr = struct
     make_msghdr n_fds fds addr, addr, buffs
 
   let create ?(n_fds=0) ?addr buffs =
+    create_with_addr ~n_fds ~fds:[] ?addr buffs
+
+  let create_recv ?(n_fds=0) ~msg_name buffs =
+    let addr =
+      if msg_name then Some (Sockaddr.create ())
+      else None
+    in
     create_with_addr ~n_fds ~fds:[] ?addr buffs
 end
 
