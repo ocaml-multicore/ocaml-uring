@@ -4,8 +4,13 @@
 ```
 
 ```ocaml
-let test_requires t op msg =
+let probe =
+  let t = Uring.create ~queue_depth:1 () in
   let probe = Uring.get_probe t in
+  Uring.exit t;
+  probe
+
+let test_requires op msg =
   if not (Uring.op_supported probe op) then mdx_skip msg
 ```
 
@@ -508,7 +513,7 @@ val fd : Unix.file_descr = <abstr>
 Read "A test file" into two slices of the fixed buffer (at offsets 0 and 64):
 
 ```ocaml
-# test_requires t Uring.Op.readv_fixed "Need Linux >= 6.15 for readv_fixed";;
+# test_requires Uring.Op.readv_fixed "Need Linux >= 6.15 for readv_fixed";;
 - : unit = ()
 
 # Uring.readv_fixed t ~file_offset:Int63.zero fd
@@ -524,15 +529,16 @@ Read "A test file" into two slices of the fixed buffer (at offsets 0 and 64):
 - : string = "st file"
 ```
 
+```ocaml
+let r, w = Unix.pipe ()
+```
+
 Write those same two slices back out through a pipe with `writev_fixed`:
 
 ```ocaml
-# test_requires t  Uring.Op.writev_fixed "Need Linux >= 6.15 for writev_fixed";;
+# test_requires Uring.Op.writev_fixed "Need Linux >= 6.15 for writev_fixed";;
 - : unit = ()
 
-# let r, w = Unix.pipe ();;
-val r : Unix.file_descr = <abstr>
-val w : Unix.file_descr = <abstr>
 # Uring.writev_fixed t ~file_offset:Int63.minus_one w
     [ Cstruct.of_bigarray fbuf ~off:0 ~len:4; Cstruct.of_bigarray fbuf ~off:64 ~len:7 ] `Write;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
@@ -985,6 +991,9 @@ Invalid_argument "Can't use ring after Uring.exit has been called".
 ## Send_msg
 
 ```ocaml
+# test_requires Uring.Op.mkdirat "Test fails with EINVAL on very old systems";;
+- : unit = ()
+
 # let r, w = Unix.pipe ();;
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
@@ -1104,6 +1113,9 @@ val msg : Uring.Msghdr.t = <abstr>
 ## Shutdown
 
 ```ocaml
+# test_requires Uring.Op.shutdown "Test requires shutdown";;
+- : unit = ()
+
 # let t : [ `Shutdown ] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Shutdown ] Uring.t = <abstr>
 # let a, b = Unix.(socketpair PF_UNIX SOCK_STREAM 0);;
@@ -1128,6 +1140,9 @@ val b : unit = ()
 Create a socket on the ring and retrieve its file descriptor:
 
 ```ocaml
+# test_requires Uring.Op.socket "Test requires socket";;
+- : unit = ()
+
 # let t : [ `Socket ] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Socket ] Uring.t = <abstr>
 # Uring.socket t Unix.PF_INET Unix.SOCK_STREAM 0 `Socket;;
@@ -1143,6 +1158,9 @@ The returned fd is a `Unix.file_descr` so connect it over loopback to a
 listener and exchange a message.
 
 ```ocaml
+# test_requires Uring.Op.socket "Test requires socket";;
+- : unit = ()
+
 # let roundtrip fd =
     let server = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
     Fun.protect ~finally:(fun () -> Unix.close server) @@ fun () ->
@@ -1188,6 +1206,9 @@ val cloexec_set : int -> bool = <fun>
 ```
 
 ```ocaml
+# test_requires Uring.Op.socket "Test requires socket";;
+- : unit = ()
+
 # let t : [ `Socket ] Uring.t = Uring.create ~queue_depth:2 ();;
 val t : [ `Socket ] Uring.t = <abstr>
 
@@ -1216,6 +1237,9 @@ val make : Uring.Sock_flags.t option -> int * Unix.file_descr = <fun>
 ## Unlink and rmdir
 
 ```ocaml
+# test_requires Uring.Op.mkdirat "Test requires mkdirat";;
+- : unit = ()
+
 # let t : unit Uring.t = Uring.create ~queue_depth:2 ();;
 val t : unit Uring.t = <abstr>
 
@@ -1249,6 +1273,9 @@ val check : unit -> bool * bool = <fun>
 ## Linkat
 
 ```ocaml
+# test_requires Uring.Op.linkat "Test requires linkat";;
+- : unit = ()
+
 # close_out (open_out "test-file");;
 - : unit = ()
 # Unix.symlink "test-file" "old-path";;
@@ -1269,6 +1296,9 @@ val t : unit Uring.t = <abstr>
 but now works.
 
 ```ocaml
+# test_requires Uring.Op.linkat "Test requires linkat";;
+- : unit = ()
+
 # Uring.linkat t ~old_path:"old-path" ~new_path:"new-file" ~flags:Uring.Linkat_flags.symlink_follow ();;
 - : unit Uring.job option = Some <abstr>
 # Uring.submit t;;
@@ -1286,6 +1316,9 @@ but now works.
 ## Renameat
 
 ```ocaml
+# test_requires Uring.Op.renameat "Test requires renameat";;
+- : unit = ()
+
 # let t : unit Uring.t = Uring.create ~queue_depth:1 ();;
 val t : unit Uring.t = <abstr>
 # close_out (open_out "rename-src");;
@@ -1303,6 +1336,9 @@ val t : unit Uring.t = <abstr>
 With [noreplace], renaming onto an existing path fails with [EEXIST]:
 
 ```ocaml
+# test_requires Uring.Op.renameat "Test requires renameat";;
+- : unit = ()
+
 # close_out (open_out "rename-src");;
 - : unit = ()
 # Uring.renameat t ~flags:Uring.Rename_flags.noreplace ~old_path:"rename-src" ~new_path:"rename-dst" ();;
@@ -1320,6 +1356,9 @@ Resolving [old_path] and [new_path] against [old_dir_fd] / [new_dir_fd]
 moves a file between two open directories:
 
 ```ocaml
+# test_requires Uring.Op.renameat "Test requires renameat";;
+- : unit = ()
+
 # Unix.mkdir "rn-src-dir" 0o700; Unix.mkdir "rn-dst-dir" 0o700;;
 - : unit = ()
 # close_out (open_out "rn-src-dir/a");;
@@ -1352,6 +1391,9 @@ val dst_dir : unit = ()
 ## Symlinkat
 
 ```ocaml
+# test_requires Uring.Op.symlinkat "Test requires symlinkat";;
+- : unit = ()
+
 # let t : unit Uring.t = Uring.create ~queue_depth:1 ();;
 val t : unit Uring.t = <abstr>
 # Uring.symlinkat t ~target:"the-target" ~link_path:"the-link" ();;
@@ -1372,6 +1414,9 @@ With [dir_fd], [link_path] is resolved against an open directory (note that
 [target] is stored verbatim and is never resolved against [dir_fd]):
 
 ```ocaml
+# test_requires Uring.Op.symlinkat "Test requires symlinkat";;
+- : unit = ()
+
 # Unix.mkdir "sl-dir" 0o700;;
 - : unit = ()
 # let dir = Unix.openfile "sl-dir" [ O_RDONLY ] 0;;
@@ -1397,6 +1442,9 @@ val dir : unit = ()
 ## Mkdirat
 
 ```ocaml
+# test_requires Uring.Op.mkdirat "Test requires mkdirat";;
+- : unit = ()
+
 # let t : [ `Mkdir of int ] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Mkdir of int ] Uring.t = <abstr>
 # Uring.mkdirat t ~mode:0o755 "mkdir" (`Mkdir 0);;
@@ -1424,6 +1472,9 @@ Uring.Some {Uring.result = EEXIST; data = `Mkdir 1}
 Timeout should return (-ETIME). This is defined in https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno.h#L45
 
 ```ocaml
+# test_requires Uring.Op.mkdirat "Test fails with EINVAL on very old systems";;
+- : unit = ()
+
 # let t : [`Timeout] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Timeout ] Uring.t = <abstr>
 
@@ -1461,6 +1512,9 @@ val timeout : Uring.Res.t = ETIME
 If there is a timeout but we did submit something, `io_uring_submit_and_wait_timeout` returns success instead:
 
 ```ocaml
+# test_requires Uring.Op.mkdirat "Test fails with EINVAL on very old systems";;
+- : unit = ()
+
 # let t : [`Timeout | `Cancel] Uring.t = Uring.create ~queue_depth:1 ();;
 val t : [ `Cancel | `Timeout ] Uring.t = <abstr>
 
