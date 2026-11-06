@@ -791,6 +791,8 @@ static struct custom_operations msghdr_ops = {
 };
 
 struct msghdr_with_cmsg {
+  // Note: if msg.msg_name is not NULL then it points to memory large enough for any address,
+  // even if msg.msg_namelen is currently less than that.
   struct msghdr msg;
   struct cmsghdr cmsg;
 };
@@ -818,7 +820,7 @@ ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt) {
     struct sock_addr_data *addr = Sock_addr_val(Some_val(v_sockaddr_opt));
     // Store the address data in the message
     msg->msg_name = &(addr->sock_addr_addr);
-    msg->msg_namelen = sizeof(addr->sock_addr_addr);
+    msg->msg_namelen = addr->sock_addr_len;
   } else {
     msg->msg_name = NULL;
     msg->msg_namelen = 0;
@@ -947,6 +949,9 @@ ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghd
   if (sqe == NULL) return (Val_false);
   msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
   msg->msg_iovlen = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(struct iovec);
+  if (msg->msg_name) {
+    msg->msg_namelen = sizeof(union sock_addr_union);
+  }
   dprintf("submit_recvmsg:msghdr %p: registering iobuf base %p len %lu\n", msg, msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
   io_uring_prep_recvmsg(sqe, Int_val(v_fd), msg, MSG_CMSG_CLOEXEC);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
