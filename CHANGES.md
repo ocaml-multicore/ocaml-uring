@@ -1,3 +1,18 @@
+## v2.15.1
+
+- Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  
+  We previously gave the total size of the buffer, not the number of bytes actually used.
+  For IP addresses this doesn't matter as they have a known fixed size, but for Unix-domain addresses
+  this resulted in `EINVAL` errors.
+
+- Fix `Uring.Msghdr` API for receiving an address (@talex5 #163).  
+  `Uring.recv_msg` doesn't update the length field in `Sockaddr.t`.
+  As above, this doesn't matter for IP addresses, but does for Unix-domain ones.
+  Instead, use the new `Msghdr.get_msg_name` function.
+  The old API has been marked as deprecated and will be removed soon.
+
+- Use `mdx_skip` to skip tests that require newer kernels (@talex5 #162 #164, reported by @glondu).
+
 ## v2.15.0
 
 Breaking changes:
