@@ -10,6 +10,8 @@ Bug fixes:
   Linux overwrites the control-data length with the number of bytes received.
   The buffer is now cleared on every submission so a failed receive no longer reports
   the previous receive's FDs from `Msghdr.get_fds`.
+
+- `Uring.accept` no longer modifies its `Sockaddr.t` if the submission queue is full (@avsm).
 ## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  

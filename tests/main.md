@@ -1328,6 +1328,55 @@ val make : Uring.Sock_flags.t option -> int * Unix.file_descr = <fun>
 - : unit = ()
 ```
 
+## Accept
+
+```ocaml
+# test_requires Uring.Op.accept "Test requires accept";;
+- : unit = ()
+
+# let t : [ `Accept | `Noop ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Accept | `Noop ] Uring.t = <abstr>
+# let server = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0;;
+val server : Unix.file_descr = <abstr>
+# Unix.bind server (Unix.ADDR_INET (Unix.inet_addr_loopback, 0)); Unix.listen server 1;;
+- : unit = ()
+# let client = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0;;
+val client : Unix.file_descr = <abstr>
+# Unix.connect client (Unix.getsockname server);;
+- : unit = ()
+
+# let addr = Uring.Sockaddr.create ();;
+val addr : Uring.Sockaddr.t = <abstr>
+# Uring.accept t server addr `Accept;;
+- : [ `Accept | `Noop ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let token, conn = consume_fd t;;
+val token : [ `Accept | `Noop ] = `Accept
+val conn : Unix.file_descr = <abstr>
+# Uring.Sockaddr.get addr = Unix.getsockname client;;
+- : bool = true
+```
+
+If the submission queue is full, the address is left untouched:
+
+```ocaml
+# Uring.noop t `Noop;;
+- : [ `Accept | `Noop ] Uring.job option = Some <abstr>
+# Uring.accept t server addr `Accept;;
+- : [ `Accept | `Noop ] Uring.job option = None
+# Uring.Sockaddr.get addr = Unix.getsockname client;;
+- : bool = true
+# Uring.submit t;;
+- : int = 1
+# consume t;;
+- : [ `Accept | `Noop ] * Uring.Res.t = (`Noop, 0)
+# List.iter Unix.close [conn; client; server];;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Unlink and rmdir
 
 ```ocaml

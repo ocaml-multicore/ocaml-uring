@@ -982,9 +982,9 @@ ocaml_uring_submit_accept(value v_uring, value v_id, value v_fd, value v_sockadd
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe;
   struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
-  addr->sock_addr_len = sizeof(union sock_addr_union);
   sqe = io_uring_get_sqe(ring);
   if (!sqe) return (Val_false);
+  addr->sock_addr_len = sizeof(union sock_addr_union);
   io_uring_prep_accept(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), &addr->sock_addr_len, SOCK_CLOEXEC);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
