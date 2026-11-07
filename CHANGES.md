@@ -1,3 +1,11 @@
+## Unreleased
+
+Bug fixes:
+
+- Fix reusing a `Uring.Msghdr.t` for several `Uring.recv_msg` calls (@avsm).
+  Linux overwrites the control-data length with the number of bytes received.
+  The buffer is now cleared on every submission so a failed receive no longer reports
+  the previous receive's FDs from `Msghdr.get_fds`.
 ## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  

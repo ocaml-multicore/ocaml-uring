@@ -988,17 +988,25 @@ module Msghdr : sig
   (** [create_recv ~msg_name:true buffs] makes a new [msghdr] for {!recv_msg}
       using the [buffs] for the underlying [iovec].
 
-      Requires [List.length buffs <= Uring.iov_max]
+      The same [t] can be passed to {!recv_msg} any number of times (one at a time);
+      each successful receive overwrites the data, FDs and address stored by the previous one.
 
       @param msg_name Whether to allocate space to receive the sender's address (see {!get_msg_name}).
       @param n_fds Reserve space to receive this many FDs (default 0) *)
 
   val get_fds : t -> Unix.file_descr list
+  (** Get the file descriptors received by the last {!recv_msg} on [t].
+      This must only be used after the operation has succeeded; after a
+      failed receive (or before any receive) it returns the empty list. *)
 
   val get_msg_name : t -> Unix.sockaddr
   (** Get the sender address as an OCaml value. This must only be used after
       the operation to set it has succeeded.
-      
+
+      If the kernel did not provide an address (e.g. for a connected stream
+      socket, or a Unix-domain peer that is not bound to a name) then this
+      returns [Unix.ADDR_UNIX ""].
+
       @raise Invalid_argument if [t] did not reserve space for the address. *)
 end
 
@@ -1032,7 +1040,9 @@ val recv_msg : 'a t -> Unix.file_descr -> Msghdr.t -> 'a -> 'a job option
     or a negative error code. Use {!Msghdr.get_fds} to retrieve any received file
     descriptors.
 
-    @param msghdr Pre-allocated message header created with {!Msghdr.create}
+    The [msghdr] must not be used by another request until this one has completed.
+
+    @param msghdr Pre-allocated message header created with {!Msghdr.create_recv}
     @return [None] if the submission queue is full; otherwise [Some job] *)
 
 val fsync : 'a t -> ?off:int64 -> ?len:int -> Unix.file_descr -> 'a -> 'a job option

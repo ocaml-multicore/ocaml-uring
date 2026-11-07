@@ -1055,6 +1055,102 @@ val w : unit = ()
 - : unit = ()
 ```
 
+A `Msghdr.t` can be reused for several receives. The kernel overwrites the
+control length with the amount received, so after a receive with no FDs we
+must still have room for FDs on the next one:
+
+```ocaml
+# test_requires Uring.Op.mkdirat "Test fails with EINVAL on very old systems";;
+- : unit = ()
+
+# let r, w = Unix.pipe ();;
+val r : Unix.file_descr = <abstr>
+val w : Unix.file_descr = <abstr>
+# let t : [ `Recv | `Send | `Cancel ] Uring.t = Uring.create ~queue_depth:2 ();;
+val t : [ `Cancel | `Recv | `Send ] Uring.t = <abstr>
+# let a, b = Unix.(socketpair PF_UNIX SOCK_DGRAM 0);;
+val a : Unix.file_descr = <abstr>
+val b : Unix.file_descr = <abstr>
+# let recv_buf = Cstruct.of_string "XX";;
+val recv_buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 2}
+# let recv = Uring.Msghdr.create_recv ~msg_name:true ~n_fds:1 [recv_buf];;
+val recv : Uring.Msghdr.t = <abstr>
+
+# Uring.send_msg t a [Cstruct.of_string "m1"] `Send;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"send_msg" t;;
+- : [ `Cancel | `Recv | `Send ] * int = (`Send, 2)
+# Uring.recv_msg t b recv `Recv;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"recv_msg" t;;
+- : [ `Cancel | `Recv | `Send ] * int = (`Recv, 2)
+# Cstruct.to_string recv_buf;;
+- : string = "m1"
+# Uring.Msghdr.get_fds recv;;
+- : Unix.file_descr list = []
+# Uring.Msghdr.get_msg_name recv;;
+- : Unix.sockaddr = Unix.ADDR_UNIX ""
+
+# Uring.send_msg t a ~fds:[w] [Cstruct.of_string "m2"] `Send;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"send_msg" t;;
+- : [ `Cancel | `Recv | `Send ] * int = (`Send, 2)
+# Uring.recv_msg t b recv `Recv;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"recv_msg" t;;
+- : [ `Cancel | `Recv | `Send ] * int = (`Recv, 2)
+# Cstruct.to_string recv_buf;;
+- : string = "m2"
+# let w2 =
+    match Uring.Msghdr.get_fds recv with
+    | [w2] -> w2
+    | _ -> failwith "Expected one FD!";;
+val w2 : Unix.file_descr = <abstr>
+# Unix.write_substring w2 "to-w2" 0 5;;
+- : int = 5
+# really_input_string (Unix.in_channel_of_descr r) 5;;
+- : string = "to-w2"
+```
+
+After a failed receive (here: a cancelled one) the header must not report the
+FDs from the previous successful receive again:
+
+```ocaml
+# let job = Uring.recv_msg t b recv `Recv |> Option.get;;
+val job : [ `Cancel | `Recv | `Send ] Uring.job = <abstr>
+# Uring.cancel t job `Cancel;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 2
+# let r1 = consume t in
+  let r2 = consume t in
+  let r_recv, r_cancel =
+    match r1, r2 with
+    | (`Recv, a), (`Cancel, b) | (`Cancel, b), (`Recv, a) -> a, b
+    | _ -> assert false
+  in
+  match Uring.Res.int_result r_recv, Uring.Res.int_result r_cancel with
+  | Error (EUNKNOWNERR 125) (* ECANCELED *), Ok 0
+  | Error EINTR, Error EALREADY -> ()
+  | _ -> raise (Multiple [r_recv; r_cancel]);;
+- : unit = ()
+# Uring.Msghdr.get_fds recv;;
+- : Unix.file_descr list = []
+
+# List.iter Unix.close [r; w; w2; a; b];;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 Test getting the (variable-length) sender address for a Unix-domain socket:
 
 ```ocaml
