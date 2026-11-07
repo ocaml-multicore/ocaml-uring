@@ -772,7 +772,12 @@ ocaml_uring_extract_sockaddr(value v) {
   CAMLreturn(v_sockaddr);
 }
 
-#define Msghdr_val(v) (*((struct msghdr **) Data_custom_val(v)))
+struct msghdr_base {
+  struct msghdr msg;
+  size_t controllen;                    // Bytes allocated for [msg.msg_control]
+};
+
+#define Msghdr_val(v) (*((struct msghdr_base **) Data_custom_val(v)))
 
 static void finalize_msghdr(value v) {
   caml_stat_free(Msghdr_val(v));
@@ -794,12 +799,12 @@ static struct custom_operations msghdr_ops = {
 // space allocated for an address:
 
 struct msghdr_with_cmsg {
-  struct msghdr msg;                    // msg.msg_name is NULL in this case
+  struct msghdr_base base;            // msg.msg_name is NULL in this case
   struct cmsghdr cmsg;
 };
 
 struct msghdr_with_addr_and_cmsg {
-  struct msghdr msg;                    // msg.msg_name points to msg_name below
+  struct msghdr_base base;            // msg.msg_name points to msg_name below
   struct sockaddr_storage msg_name;
   struct cmsghdr cmsg;
 };
@@ -809,33 +814,35 @@ ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_msg_name) {
   CAMLparam1(v_fds);
   CAMLlocal1(v);
   struct msghdr *msg;
+  struct msghdr_base *base;
   int n_fds = Int_val(v_n_fds);
-  int cmsg_offset, controllen, total_size;
+  size_t cmsg_offset;
   if (Bool_val(v_msg_name)) {
     cmsg_offset = offsetof(struct msghdr_with_addr_and_cmsg, cmsg);
   } else {
     cmsg_offset = offsetof(struct msghdr_with_cmsg, cmsg);
   }
-  controllen = n_fds > 0 ? CMSG_SPACE(sizeof(int) * n_fds) : 0;
-  total_size = cmsg_offset + controllen;
+  size_t controllen = n_fds > 0 ? CMSG_SPACE(sizeof(int) * n_fds) : 0;
+  size_t total_size = cmsg_offset + controllen;
   //dprintf("using %d bytes to hold %d FDs\n", total_size, n_fds);
   // Allocate a pointer on the OCaml heap for the msghdr
   v = caml_alloc_custom_mem(&msghdr_ops, sizeof(struct msghdr *), total_size);
   Msghdr_val(v) = NULL;
-  msg = (struct msghdr *) caml_stat_alloc(total_size);
-  // The msghdr and cmsghdr must zero-ed to avoid unwanted errors
-  memset(msg, 0, total_size);
-  Msghdr_val(v) = msg;
+  base = caml_stat_calloc_noexc(1, total_size);
+  if (base == NULL) caml_raise_out_of_memory();
+  base->controllen = controllen;
+  Msghdr_val(v) = base;
+  msg = &base->msg;
   msg->msg_namelen = 0;
   msg->msg_controllen = controllen;
   if (Bool_val(v_msg_name)) {
-    struct msghdr_with_addr_and_cmsg *outer = (struct msghdr_with_addr_and_cmsg *) msg;
+    struct msghdr_with_addr_and_cmsg *outer = (struct msghdr_with_addr_and_cmsg *) base;
     msg->msg_name = &outer->msg_name;
     if (n_fds > 0) {
       msg->msg_control = &outer->cmsg;
     }
   } else {
-    struct msghdr_with_cmsg *outer = (struct msghdr_with_cmsg *) msg;
+    struct msghdr_with_cmsg *outer = (struct msghdr_with_cmsg *) base;
     msg->msg_name = NULL;
     if (n_fds > 0) {
       msg->msg_control = &outer->cmsg;
@@ -867,7 +874,7 @@ value
 ocaml_uring_get_msghdr_msg_name(value v_msghdr) {
   CAMLparam1(v_msghdr);
   CAMLlocal1(v_sockaddr);
-  struct msghdr *msg = Msghdr_val(v_msghdr);
+  struct msghdr *msg = &Msghdr_val(v_msghdr)->msg;
 
   if (msg->msg_name == NULL)
     caml_invalid_argument("No msg_name buffer in msghdr");
@@ -879,7 +886,7 @@ ocaml_uring_get_msghdr_msg_name(value v_msghdr) {
 value
 ocaml_uring_set_msghdr_msg_name(value v_msghdr, value v_sockaddr) {
   CAMLparam2(v_msghdr, v_sockaddr);
-  struct msghdr *msg = Msghdr_val(v_msghdr);
+  struct msghdr *msg = &Msghdr_val(v_msghdr)->msg;
 
   if (msg->msg_name == NULL)
     caml_invalid_argument("No msg_name buffer in msghdr");
@@ -893,7 +900,7 @@ value
 ocaml_uring_get_msghdr_fds(value v_msghdr) {
   CAMLparam1(v_msghdr);
   CAMLlocal2(v_list, v_cons);
-  struct msghdr *msg = Msghdr_val(v_msghdr);
+  struct msghdr *msg = &Msghdr_val(v_msghdr)->msg;
   struct cmsghdr *cm;
   v_list = Val_int(0);
   for (cm = CMSG_FIRSTHDR(msg); cm; cm = CMSG_NXTHDR(msg, cm)) {
@@ -902,7 +909,7 @@ ocaml_uring_get_msghdr_fds(value v_msghdr) {
       int n_fds = (cm->cmsg_len - CMSG_LEN(0)) / sizeof(int);
       int i;
       for (i = n_fds - 1; i >= 0; i--) {
-	int fd = Val_int(fds[i]);
+	value fd = Val_int(fds[i]);
 	v_cons = caml_alloc_tuple(2);
 	Store_field(v_cons, 0, fd);
 	Store_field(v_cons, 1, v_list);
@@ -954,7 +961,7 @@ ocaml_uring_submit_connect(value v_uring, value v_id, value v_fd, value v_sockad
 value /* noalloc */
 ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghdr, value v_sketch_ptr) {
   struct io_uring *ring = Ring_val(v_uring);
-  struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
+  struct msghdr *msg = &Msghdr_val(Field(v_msghdr, 0))->msg;
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (sqe == NULL) return (Val_false);
   msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
@@ -969,14 +976,22 @@ ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghd
 value /* noalloc */
 ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghdr, value v_sketch_ptr) {
   struct io_uring *ring = Ring_val(v_uring);
-  struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
+  struct msghdr_base *base = Msghdr_val(Field(v_msghdr, 0));
+  struct msghdr *msg = &base->msg;
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (sqe == NULL) return (Val_false);
   msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
   msg->msg_iovlen = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(struct iovec);
+  // A successful receive overwrites these lengths (and the kernel leaves the
+  // control data alone on failure), so reset them in case this is a reuse.
   if (msg->msg_name) {
     msg->msg_namelen = sizeof(union sock_addr_union);
   }
+  if (msg->msg_control) {
+    msg->msg_controllen = base->controllen;
+    memset(msg->msg_control, 0, base->controllen);
+  }
+  msg->msg_flags = 0;
   dprintf("submit_recvmsg:msghdr %p: registering iobuf base %p len %lu\n", msg, msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
   io_uring_prep_recvmsg(sqe, Int_val(v_fd), msg, MSG_CMSG_CLOEXEC);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
