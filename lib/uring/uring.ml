@@ -266,7 +266,7 @@ module Sketch = struct
   let length t = Bigarray.Array1.size_in_bytes t.buffer
 
   let round a x = (x + (a - 1)) land (lnot (a - 1))
-  let round = round (Sys.word_size / 8)
+  let round = round 8   (* [__kernel_timespec] needs this even on 32-bit *)
 
   let avail t = (length t) - t.off
 
