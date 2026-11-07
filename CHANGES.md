@@ -12,6 +12,9 @@ Bug fixes:
   the previous receive's FDs from `Msghdr.get_fds`.
 
 - `Uring.accept` no longer modifies its `Sockaddr.t` if the submission queue is full (@avsm).
+
+- `Uring.set_fixed_buffer` only records a buffer once the kernel has accepted it (@avsm).
+   A retry after `Error ENOMEM` no longer fails with `ENXIO`.
 ## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  
