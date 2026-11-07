@@ -40,6 +40,7 @@
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <assert.h>
+#include <limits.h>
 // Check for something related to statx
 // this is needed for Alpine.
 #ifndef STATX_TYPE
@@ -62,6 +63,17 @@
 #endif
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
+
+/* SQE lengths are 32-bit and the kernel never transfers more than 2 GiB per
+   operation anyway, so clamp rather than letting a larger value wrap. */
+static unsigned clamp_rw_len(intnat len) {
+  return len > INT_MAX ? (unsigned) INT_MAX : (unsigned) len;
+}
+
+/* For fsync, 0 means "to end of file", a safe over-approximation. */
+static unsigned fsync_len(intnat len) {
+  return (len < 0 || len > UINT_MAX) ? 0 : (unsigned) len;
+}
 #define Sketch_ptr_val(vsp) (Caml_ba_data_val(Field(vsp, 0)) + Long_val(Field(vsp, 1)))
 #define Sketch_ptr_len_val(vsp) Long_val(Field(vsp, 2))
 
@@ -368,7 +380,7 @@ ocaml_uring_submit_read_fixed_native(value v_uring, value v_fd, value v_id, valu
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_read_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
-  io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
+  io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, clamp_rw_len(Long_val(v_len)), Int63_val(v_fileoff), 0);
   sqe->rw_flags = Int_val(v_rw_flags);  /* no io_uring_prep_read_fixed2 in liburing */
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -396,7 +408,7 @@ ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, val
   if (!sqe)
     return (Val_false);
   dprintf("submit_write_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
-  io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
+  io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, clamp_rw_len(Long_val(v_len)), Int63_val(v_fileoff), 0);
   sqe->rw_flags = Int_val(v_rw_flags);  /* no io_uring_prep_write_fixed2 in liburing */
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -464,7 +476,7 @@ ocaml_uring_submit_read_native(value v_uring, value v_fd, value v_id, value v_cs
   if (!sqe) return (Val_false);
   dprintf("submit_read: fd %d buff %p len %zd fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
-  io_uring_prep_read(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
+  io_uring_prep_read(sqe, Int_val(v_fd), buf, clamp_rw_len(Long_val(v_len)), Int63_val(v_fileoff));
   sqe->rw_flags = Int_val(v_rw_flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -492,7 +504,7 @@ ocaml_uring_submit_write_native(value v_uring, value v_fd, value v_id, value v_c
   if (!sqe) return (Val_false);
   dprintf("submit_write: fd %d buff %p len %zd fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
-  io_uring_prep_write(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
+  io_uring_prep_write(sqe, Int_val(v_fd), buf, clamp_rw_len(Long_val(v_len)), Int63_val(v_fileoff));
   sqe->rw_flags = Int_val(v_rw_flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -517,7 +529,7 @@ ocaml_uring_submit_splice(value v_uring, value v_id, value v_fd_in, value v_fd_o
   io_uring_prep_splice(sqe,
 		       Int_val(v_fd_in), (int64_t) -1,
 		       Int_val(v_fd_out), (int64_t) -1,
-		       Int_val(v_nbytes), 0);
+		       clamp_rw_len(Long_val(v_nbytes)), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -547,7 +559,8 @@ ocaml_uring_make_statx(value v_unit) {
   struct statx *data;
   v = caml_alloc_custom_mem(&statx_ops, sizeof(struct statx *), sizeof(struct statx));
   Statx_val(v) = NULL;
-  data = (struct statx *) caml_stat_alloc(sizeof(struct statx));
+  data = caml_stat_calloc_noexc(1, sizeof(struct statx));
+  if (data == NULL) caml_raise_out_of_memory();
   Statx_val(v) = data;
   CAMLreturn(v);
 }
@@ -794,7 +807,8 @@ struct msghdr_with_cmsg {
   // Note: if msg.msg_name is not NULL then it points to memory large enough for any address,
   // even if msg.msg_namelen is currently less than that.
   struct msghdr msg;
-  struct cmsghdr cmsg;
+  size_t controllen;    // Bytes allocated for [cmsg]
+  struct cmsghdr cmsg;  // Actually [controllen] bytes
 };
 
 // v_sockaddr must not be freed before the msghdr as it contains pointers to them
@@ -802,19 +816,19 @@ value /* v_n_fds can go away, count ourselves */
 ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt) {
   CAMLparam2(v_fds, v_sockaddr_opt);
   CAMLlocal1(v);
+  struct msghdr_with_cmsg *hdr;
   struct msghdr *msg;
   int n_fds = Int_val(v_n_fds);
-  int cmsg_offset, controllen, total_size;
-  cmsg_offset = sizeof(struct msghdr_with_cmsg) - sizeof(struct cmsghdr);
-  controllen = n_fds > 0 ? CMSG_SPACE(sizeof(int) * n_fds) : 0;
-  total_size = cmsg_offset + controllen;
-  //dprintf("using %d bytes to hold %d FDs\n", total_size, n_fds);
+  size_t controllen = n_fds > 0 ? CMSG_SPACE(sizeof(int) * n_fds) : 0;
+  size_t total_size = offsetof(struct msghdr_with_cmsg, cmsg) + controllen;
+  //dprintf("using %zu bytes to hold %d FDs\n", total_size, n_fds);
   // Allocate a pointer on the OCaml heap for the msghdr
   v = caml_alloc_custom_mem(&msghdr_ops, sizeof(struct msghdr *), total_size);
   Msghdr_val(v) = NULL;
-  msg = (struct msghdr *) caml_stat_alloc(total_size);
-  // The msghdr and cmsghdr must zero-ed to avoid unwanted errors
-  memset(msg, 0, total_size);
+  hdr = caml_stat_calloc_noexc(1, total_size);
+  if (hdr == NULL) caml_raise_out_of_memory();
+  hdr->controllen = controllen;
+  msg = &hdr->msg;
   Msghdr_val(v) = msg;
   if (Is_some(v_sockaddr_opt)) {
     struct sock_addr_data *addr = Sock_addr_val(Some_val(v_sockaddr_opt));
@@ -831,7 +845,7 @@ ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt) {
   if (n_fds > 0) {
     int i;
     struct cmsghdr *cm;
-    msg->msg_control = &(((struct msghdr_with_cmsg *) msg)->cmsg);
+    msg->msg_control = &hdr->cmsg;
     msg->msg_controllen = controllen;
     if (Is_block(v_fds)) {
       cm = CMSG_FIRSTHDR(msg);
@@ -856,11 +870,20 @@ ocaml_uring_get_msghdr_msg_name(value v_msghdr) {
   CAMLparam1(v_msghdr);
   CAMLlocal1(v_sockaddr);
   struct msghdr *msg = Msghdr_val(v_msghdr);
+  union sock_addr_union addr;
+  socklen_param_type len;
 
   if (msg->msg_name == NULL)
     caml_invalid_argument("No msg_name buffer in msghdr");
 
-  v_sockaddr = caml_unix_alloc_sockaddr(msg->msg_name, msg->msg_namelen, -1);
+  /* msg_name belongs to a separate Sockaddr.t that is not rooted here, so it
+     could be finalized by a GC in caml_unix_alloc_sockaddr: copy it out first. */
+  len = msg->msg_namelen;
+  if (len > sizeof(addr))
+    len = sizeof(addr);
+  memcpy(&addr, msg->msg_name, len);
+
+  v_sockaddr = caml_unix_alloc_sockaddr(&addr, len, -1);
   CAMLreturn(v_sockaddr);
 }
 
@@ -877,7 +900,7 @@ ocaml_uring_get_msghdr_fds(value v_msghdr) {
       int n_fds = (cm->cmsg_len - CMSG_LEN(0)) / sizeof(int);
       int i;
       for (i = n_fds - 1; i >= 0; i--) {
-	int fd = Val_int(fds[i]);
+	value fd = Val_int(fds[i]);
 	v_cons = caml_alloc_tuple(2);
 	Store_field(v_cons, 0, fd);
 	Store_field(v_cons, 1, v_list);
@@ -944,14 +967,22 @@ ocaml_uring_submit_send_msg(value v_uring, value v_id, value v_fd, value v_msghd
 value /* noalloc */
 ocaml_uring_submit_recv_msg(value v_uring, value v_id, value v_fd, value v_msghdr, value v_sketch_ptr) {
   struct io_uring *ring = Ring_val(v_uring);
-  struct msghdr *msg = Msghdr_val(Field(v_msghdr, 0));
+  struct msghdr_with_cmsg *hdr = (struct msghdr_with_cmsg *) Msghdr_val(Field(v_msghdr, 0));
+  struct msghdr *msg = &hdr->msg;
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (sqe == NULL) return (Val_false);
   msg->msg_iov = Sketch_ptr_val(v_sketch_ptr);
   msg->msg_iovlen = Sketch_ptr_len_val(v_sketch_ptr) / sizeof(struct iovec);
+  // A successful receive overwrites these lengths (and the kernel leaves the
+  // control data alone on failure), so reset them in case this is a reuse.
   if (msg->msg_name) {
     msg->msg_namelen = sizeof(union sock_addr_union);
   }
+  if (msg->msg_control) {
+    msg->msg_controllen = hdr->controllen;
+    memset(msg->msg_control, 0, hdr->controllen);
+  }
+  msg->msg_flags = 0;
   dprintf("submit_recvmsg:msghdr %p: registering iobuf base %p len %lu\n", msg, msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
   io_uring_prep_recvmsg(sqe, Int_val(v_fd), msg, MSG_CMSG_CLOEXEC);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
@@ -964,9 +995,9 @@ ocaml_uring_submit_accept(value v_uring, value v_id, value v_fd, value v_sockadd
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe;
   struct sock_addr_data *addr = Sock_addr_val(v_sockaddr);
-  addr->sock_addr_len = sizeof(union sock_addr_union);
   sqe = io_uring_get_sqe(ring);
   if (!sqe) return (Val_false);
+  addr->sock_addr_len = sizeof(union sock_addr_union);
   io_uring_prep_accept(sqe, Int_val(v_fd), &(addr->sock_addr_addr.s_gen), &addr->sock_addr_len, SOCK_CLOEXEC);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -1010,12 +1041,14 @@ ocaml_uring_submit_socket_byte(value *argv, int argn __attribute__((unused))) {
   return ocaml_uring_submit_socket_native(argv[0], argv[1], argv[2], argv[3], argv[4], argv[5]);
 }
 
+// Returns false if v_string contains a NUL (the copy would be truncated).
 value /* noalloc */
 ocaml_uring_set_string(value v_sketch_ptr, value v_string)
 {
   char *dst = Sketch_ptr_val(v_sketch_ptr);
-  strcpy(dst, String_val(v_string));
-  return (Val_unit);
+  mlsize_t len = caml_string_length(v_string);
+  char *end = memccpy(dst, String_val(v_string), 0, len + 1);
+  return Val_bool(end == dst + len + 1);
 }
 
 // Caller must ensure the path pointed to by v_sketch_ptr is not GC'd until the job is finished.
@@ -1050,7 +1083,7 @@ ocaml_uring_submit_fsync(value v_uring, value v_id, value v_fd, value v_off, val
   if (!sqe) return (Val_false);
   io_uring_prep_fsync(sqe, Int_val(v_fd), 0);
   sqe->off = Int64_val(v_off);
-  sqe->len = Int_val(v_len);
+  sqe->len = fsync_len(Long_val(v_len));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -1063,7 +1096,7 @@ ocaml_uring_submit_fdatasync(value v_uring, value v_id, value v_fd, value v_off,
   if (!sqe) return (Val_false);
   io_uring_prep_fsync(sqe, Int_val(v_fd), IORING_FSYNC_DATASYNC);
   sqe->off = Int64_val(v_off);
-  sqe->len = Int_val(v_len);
+  sqe->len = fsync_len(Long_val(v_len));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }

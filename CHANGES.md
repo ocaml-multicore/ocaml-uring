@@ -1,3 +1,37 @@
+## Unreleased
+
+Bug fixes:
+
+- Fix a use-after-free in `Uring.Msghdr.get_msg_name` (@avsm).
+  The address was read from the `Sockaddr.t` buffer after an allocation that could
+  trigger a OCaml GC.
+
+- Fix reusing a `Uring.Msghdr.t` for several `Uring.recv_msg` calls (@avsm).
+  Linux overwrites the control-data length with the number of bytes received.
+  The buffer is now cleared on every submission so a failed receive no longer reports
+  the previous receive's FDs from `Msghdr.get_fds`.
+
+- `Uring.accept` no longer modifies its `Sockaddr.t` if the submission queue is full (@avsm).
+
+- `Uring.set_fixed_buffer` only records a buffer once the kernel has accepted it (@avsm).
+   A retry after `Error ENOMEM` no longer fails with `ENXIO`.
+
+- Clamp I/O lengths to what the kernel's 32-bit field can hold (@avsm)
+  Since individual transfers are limited to 2GiB, we limit them instead of letting larger values
+  wrap and perform a short I/O. `fsync` ranges that don't fit sync to the end of the file.
+
+Argument validation:
+
+- Raise `Invalid_argument` if a path (or symlink target) contains a NUL byte (@avsm).
+- Raise `Invalid_argument` if more than `Uring.iov_max` buffers are passed to a vector op (@avsm).
+
+Other:
+
+- `Uring.Statx.create` zero-initialises the buffer (@avsm).
+
+- Align sketch-buffer allocations to 8 bytes on 32-bit platforms too (@avsm).
+
+
 ## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  

@@ -267,6 +267,8 @@ val t : [ `Open_path | `Statx ] Uring.t = <abstr>
 
 # let statx = Uring.Statx.create ();;
 val statx : Uring.Statx.t = <abstr>
+# Uring.Statx.size statx;;
+- : int64 = 0L
 # Uring.statx t
     ~mask:Uring.Statx.Mask.basic_stats
     "test-openat"
@@ -737,6 +739,15 @@ val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 12}
 - : string = "durable data"
 ```
 
+More than `iov_max` buffers are rejected before anything is queued:
+
+```ocaml
+# Uring.readv t ~file_offset:Int63.zero fd (List.init (Uring.iov_max + 1) (Fun.const b2)) `Read;;
+Exception: Invalid_argument "Too many buffers (1025 > iov_max 1024)".
+# Uring.active_ops t;;
+- : int = 0
+```
+
 The kernel rejects flags that it doesn't recognise, or that the target file
 doesn't support by failing with `EOPNOTSUPP`. Callers using
 the newer flags need a fallback path so just test the return value with
@@ -1055,6 +1066,102 @@ val w : unit = ()
 - : unit = ()
 ```
 
+A `Msghdr.t` can be reused for several receives. The kernel overwrites the
+control length with the amount received, so after a receive with no FDs we
+must still have room for FDs on the next one:
+
+```ocaml
+# test_requires Uring.Op.mkdirat "Test fails with EINVAL on very old systems";;
+- : unit = ()
+
+# let r, w = Unix.pipe ();;
+val r : Unix.file_descr = <abstr>
+val w : Unix.file_descr = <abstr>
+# let t : [ `Recv | `Send | `Cancel ] Uring.t = Uring.create ~queue_depth:2 ();;
+val t : [ `Cancel | `Recv | `Send ] Uring.t = <abstr>
+# let a, b = Unix.(socketpair PF_UNIX SOCK_DGRAM 0);;
+val a : Unix.file_descr = <abstr>
+val b : Unix.file_descr = <abstr>
+# let recv_buf = Cstruct.of_string "XX";;
+val recv_buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 2}
+# let recv = Uring.Msghdr.create_recv ~msg_name:true ~n_fds:1 [recv_buf];;
+val recv : Uring.Msghdr.t = <abstr>
+
+# Uring.send_msg t a [Cstruct.of_string "m1"] `Send;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"send_msg" t;;
+- : [ `Cancel | `Recv | `Send ] * int = (`Send, 2)
+# Uring.recv_msg t b recv `Recv;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"recv_msg" t;;
+- : [ `Cancel | `Recv | `Send ] * int = (`Recv, 2)
+# Cstruct.to_string recv_buf;;
+- : string = "m1"
+# Uring.Msghdr.get_fds recv;;
+- : Unix.file_descr list = []
+# Uring.Msghdr.get_msg_name recv;;
+- : Unix.sockaddr = Unix.ADDR_UNIX ""
+
+# Uring.send_msg t a ~fds:[w] [Cstruct.of_string "m2"] `Send;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"send_msg" t;;
+- : [ `Cancel | `Recv | `Send ] * int = (`Send, 2)
+# Uring.recv_msg t b recv `Recv;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# consume_int ~fn:"recv_msg" t;;
+- : [ `Cancel | `Recv | `Send ] * int = (`Recv, 2)
+# Cstruct.to_string recv_buf;;
+- : string = "m2"
+# let w2 =
+    match Uring.Msghdr.get_fds recv with
+    | [w2] -> w2
+    | _ -> failwith "Expected one FD!";;
+val w2 : Unix.file_descr = <abstr>
+# Unix.write_substring w2 "to-w2" 0 5;;
+- : int = 5
+# really_input_string (Unix.in_channel_of_descr r) 5;;
+- : string = "to-w2"
+```
+
+After a failed receive (here: a cancelled one) the header must not report the
+FDs from the previous successful receive again:
+
+```ocaml
+# let job = Uring.recv_msg t b recv `Recv |> Option.get;;
+val job : [ `Cancel | `Recv | `Send ] Uring.job = <abstr>
+# Uring.cancel t job `Cancel;;
+- : [ `Cancel | `Recv | `Send ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 2
+# let r1 = consume t in
+  let r2 = consume t in
+  let r_recv, r_cancel =
+    match r1, r2 with
+    | (`Recv, a), (`Cancel, b) | (`Cancel, b), (`Recv, a) -> a, b
+    | _ -> assert false
+  in
+  match Uring.Res.int_result r_recv, Uring.Res.int_result r_cancel with
+  | Error (EUNKNOWNERR 125) (* ECANCELED *), Ok 0
+  | Error EINTR, Error EALREADY -> ()
+  | _ -> raise (Multiple [r_recv; r_cancel]);;
+- : unit = ()
+# Uring.Msghdr.get_fds recv;;
+- : Unix.file_descr list = []
+
+# List.iter Unix.close [r; w; w2; a; b];;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 Test getting the (variable-length) sender address for a Unix-domain socket:
 
 ```ocaml
@@ -1232,6 +1339,55 @@ val make : Uring.Sock_flags.t option -> int * Unix.file_descr = <fun>
 - : unit = ()
 ```
 
+## Accept
+
+```ocaml
+# test_requires Uring.Op.accept "Test requires accept";;
+- : unit = ()
+
+# let t : [ `Accept | `Noop ] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Accept | `Noop ] Uring.t = <abstr>
+# let server = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0;;
+val server : Unix.file_descr = <abstr>
+# Unix.bind server (Unix.ADDR_INET (Unix.inet_addr_loopback, 0)); Unix.listen server 1;;
+- : unit = ()
+# let client = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0;;
+val client : Unix.file_descr = <abstr>
+# Unix.connect client (Unix.getsockname server);;
+- : unit = ()
+
+# let addr = Uring.Sockaddr.create ();;
+val addr : Uring.Sockaddr.t = <abstr>
+# Uring.accept t server addr `Accept;;
+- : [ `Accept | `Noop ] Uring.job option = Some <abstr>
+# Uring.submit t;;
+- : int = 1
+# let token, conn = consume_fd t;;
+val token : [ `Accept | `Noop ] = `Accept
+val conn : Unix.file_descr = <abstr>
+# Uring.Sockaddr.get addr = Unix.getsockname client;;
+- : bool = true
+```
+
+If the submission queue is full, the address is left untouched:
+
+```ocaml
+# Uring.noop t `Noop;;
+- : [ `Accept | `Noop ] Uring.job option = Some <abstr>
+# Uring.accept t server addr `Accept;;
+- : [ `Accept | `Noop ] Uring.job option = None
+# Uring.Sockaddr.get addr = Unix.getsockname client;;
+- : bool = true
+# Uring.submit t;;
+- : int = 1
+# consume t;;
+- : [ `Accept | `Noop ] * Uring.Res.t = (`Noop, 0)
+# List.iter Unix.close [conn; client; server];;
+- : unit = ()
+# Uring.exit t;;
+- : unit = ()
+```
+
 ## Unlink and rmdir
 
 ```ocaml
@@ -1252,6 +1408,11 @@ val check : unit -> bool * bool = <fun>
 # Uring.unlink t ~dir:false "test-file" ();;
 - : unit Uring.job option = Some <abstr>
 
+# Uring.unlink t ~dir:false "test-file\000suffix" ();;
+Exception:
+Invalid_argument "Uring: string \"test-file\\000suffix\" contains a NUL byte".
+# Uring.active_ops t;;
+- : int = 1
 # Uring.unlink t ~dir:true "test-dir" ();;
 - : unit Uring.job option = Some <abstr>
 

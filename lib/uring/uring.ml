@@ -266,7 +266,7 @@ module Sketch = struct
   let length t = Bigarray.Array1.size_in_bytes t.buffer
 
   let round a x = (x + (a - 1)) land (lnot (a - 1))
-  let round = round (Sys.word_size / 8)
+  let round = round 8   (* [__kernel_timespec] needs this even on 32-bit *)
 
   let avail t = (length t) - t.off
 
@@ -298,17 +298,22 @@ module Sketch = struct
     let sizeof = Config.sizeof_iovec
 
     let alloc t csl =
-      let ptr = alloc t (List.length csl * sizeof) in
+      let n = List.length csl in
+      if n > Config.iov_max then
+        Fmt.invalid_arg "Too many buffers (%d > iov_max %d)" n Config.iov_max;
+      let ptr = alloc t (n * sizeof) in
       set ptr csl;
       ptr
   end
 
   module String = struct
-    external set : ptr -> string -> unit = "ocaml_uring_set_string" [@@noalloc]
+    (* Returns [false] if [s] contains a NUL byte *)
+    external set : ptr -> string -> bool = "ocaml_uring_set_string" [@@noalloc]
 
     let alloc t s =
       let ptr = alloc t (String.length s + 1) in
-      set ptr s;
+      if not (set ptr s) then
+        Fmt.invalid_arg "Uring: string %S contains a NUL byte" s;
       ptr
   end
 end
@@ -579,12 +584,14 @@ let ensure_idle t op =
 
 let set_fixed_buffer t iobuf =
   ensure_idle t "set_fixed_buffer";
-  if Bigarray.Array1.dim t.fixed_iobuf > 0 then
+  (* Invariant: [t.fixed_iobuf] is non-empty iff a buffer is registered. *)
+  if Bigarray.Array1.dim t.fixed_iobuf > 0 then (
     Uring.unregister_buffers t.uring;
-  t.fixed_iobuf <- iobuf;
+    t.fixed_iobuf <- Cstruct.empty.buffer
+  );
   if Bigarray.Array1.dim iobuf > 0 then (
     match Uring.register_bigarray t.uring iobuf with
-    | () -> Ok ()
+    | () -> t.fixed_iobuf <- iobuf; Ok ()
     | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
   ) else Ok ()
 
@@ -600,7 +607,11 @@ let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a 
   | exception (Invalid_argument _ as ex) -> check t; raise ex
   | entry ->
  let ptr = Heap.ptr entry in
- let has_space = fn ptr in
+ let has_space =
+   match fn ptr with
+   | has_space -> has_space
+   | exception ex -> ignore (Heap.free t.data ptr : a); raise ex
+ in
  if has_space then
    Some entry
  else (
