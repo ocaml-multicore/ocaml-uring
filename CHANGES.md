@@ -15,6 +15,10 @@ Bug fixes:
 
 - `Uring.set_fixed_buffer` only records a buffer once the kernel has accepted it (@avsm).
    A retry after `Error ENOMEM` no longer fails with `ENXIO`.
+
+- Clamp I/O lengths to what the kernel's 32-bit field can hold (@avsm)
+  Since individual transfers are limited to 2GiB, we limit them instead of letting larger values
+  wrap and perform a short I/O. `fsync` ranges that don't fit sync to the end of the file.
 ## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  
