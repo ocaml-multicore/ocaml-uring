@@ -22,7 +22,9 @@ Bug fixes:
 
 Argument validation:
 
-- Raise `Invalid_argument` if a path (or symlink target) contains a NUL byte (@avsm).## v2.15.1
+- Raise `Invalid_argument` if a path (or symlink target) contains a NUL byte (@avsm).
+- Raise `Invalid_argument` if more than `Uring.iov_max` buffers are passed to a vector op (@avsm).
+## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  
   We previously gave the total size of the buffer, not the number of bytes actually used.

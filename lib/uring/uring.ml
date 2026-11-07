@@ -298,7 +298,10 @@ module Sketch = struct
     let sizeof = Config.sizeof_iovec
 
     let alloc t csl =
-      let ptr = alloc t (List.length csl * sizeof) in
+      let n = List.length csl in
+      if n > Config.iov_max then
+        Fmt.invalid_arg "Too many buffers (%d > iov_max %d)" n Config.iov_max;
+      let ptr = alloc t (n * sizeof) in
       set ptr csl;
       ptr
   end

@@ -737,6 +737,15 @@ val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 12}
 - : string = "durable data"
 ```
 
+More than `iov_max` buffers are rejected before anything is queued:
+
+```ocaml
+# Uring.readv t ~file_offset:Int63.zero fd (List.init (Uring.iov_max + 1) (Fun.const b2)) `Read;;
+Exception: Invalid_argument "Too many buffers (1025 > iov_max 1024)".
+# Uring.active_ops t;;
+- : int = 0
+```
+
 The kernel rejects flags that it doesn't recognise, or that the target file
 doesn't support by failing with `EOPNOTSUPP`. Callers using
 the newer flags need a fallback path so just test the return value with
