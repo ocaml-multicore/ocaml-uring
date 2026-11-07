@@ -2,6 +2,10 @@
 
 Bug fixes:
 
+- Fix a use-after-free in `Uring.Msghdr.get_msg_name` (@avsm).
+  The address was read from the `Sockaddr.t` buffer after an allocation that could
+  trigger a OCaml GC.
+
 - Fix reusing a `Uring.Msghdr.t` for several `Uring.recv_msg` calls (@avsm).
   Linux overwrites the control-data length with the number of bytes received.
   The buffer is now cleared on every submission so a failed receive no longer reports

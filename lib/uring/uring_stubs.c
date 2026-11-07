@@ -857,11 +857,20 @@ ocaml_uring_get_msghdr_msg_name(value v_msghdr) {
   CAMLparam1(v_msghdr);
   CAMLlocal1(v_sockaddr);
   struct msghdr *msg = Msghdr_val(v_msghdr);
+  union sock_addr_union addr;
+  socklen_param_type len;
 
   if (msg->msg_name == NULL)
     caml_invalid_argument("No msg_name buffer in msghdr");
 
-  v_sockaddr = caml_unix_alloc_sockaddr(msg->msg_name, msg->msg_namelen, -1);
+  /* msg_name belongs to a separate Sockaddr.t that is not rooted here, so it
+     could be finalized by a GC in caml_unix_alloc_sockaddr: copy it out first. */
+  len = msg->msg_namelen;
+  if (len > sizeof(addr))
+    len = sizeof(addr);
+  memcpy(&addr, msg->msg_name, len);
+
+  v_sockaddr = caml_unix_alloc_sockaddr(&addr, len, -1);
   CAMLreturn(v_sockaddr);
 }
 
