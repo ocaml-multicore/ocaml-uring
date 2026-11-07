@@ -1397,6 +1397,11 @@ val check : unit -> bool * bool = <fun>
 # Uring.unlink t ~dir:false "test-file" ();;
 - : unit Uring.job option = Some <abstr>
 
+# Uring.unlink t ~dir:false "test-file\000suffix" ();;
+Exception:
+Invalid_argument "Uring: string \"test-file\\000suffix\" contains a NUL byte".
+# Uring.active_ops t;;
+- : int = 1
 # Uring.unlink t ~dir:true "test-dir" ();;
 - : unit Uring.job option = Some <abstr>
 

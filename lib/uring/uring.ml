@@ -304,11 +304,13 @@ module Sketch = struct
   end
 
   module String = struct
-    external set : ptr -> string -> unit = "ocaml_uring_set_string" [@@noalloc]
+    (* Returns [false] if [s] contains a NUL byte *)
+    external set : ptr -> string -> bool = "ocaml_uring_set_string" [@@noalloc]
 
     let alloc t s =
       let ptr = alloc t (String.length s + 1) in
-      set ptr s;
+      if not (set ptr s) then
+        Fmt.invalid_arg "Uring: string %S contains a NUL byte" s;
       ptr
   end
 end
@@ -602,7 +604,11 @@ let with_id_full : type a. a t -> (Heap.ptr -> bool) -> a -> extra_data:'b -> a 
   | exception (Invalid_argument _ as ex) -> check t; raise ex
   | entry ->
  let ptr = Heap.ptr entry in
- let has_space = fn ptr in
+ let has_space =
+   match fn ptr with
+   | has_space -> has_space
+   | exception ex -> ignore (Heap.free t.data ptr : a); raise ex
+ in
  if has_space then
    Some entry
  else (

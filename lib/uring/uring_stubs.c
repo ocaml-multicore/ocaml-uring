@@ -1040,12 +1040,14 @@ ocaml_uring_submit_socket_byte(value *argv, int argn __attribute__((unused))) {
   return ocaml_uring_submit_socket_native(argv[0], argv[1], argv[2], argv[3], argv[4], argv[5]);
 }
 
+// Returns false if v_string contains a NUL (the copy would be truncated).
 value /* noalloc */
 ocaml_uring_set_string(value v_sketch_ptr, value v_string)
 {
   char *dst = Sketch_ptr_val(v_sketch_ptr);
-  strcpy(dst, String_val(v_string));
-  return (Val_unit);
+  mlsize_t len = caml_string_length(v_string);
+  char *end = memccpy(dst, String_val(v_string), 0, len + 1);
+  return Val_bool(end == dst + len + 1);
 }
 
 // Caller must ensure the path pointed to by v_sketch_ptr is not GC'd until the job is finished.

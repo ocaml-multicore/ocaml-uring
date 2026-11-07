@@ -19,7 +19,10 @@ Bug fixes:
 - Clamp I/O lengths to what the kernel's 32-bit field can hold (@avsm)
   Since individual transfers are limited to 2GiB, we limit them instead of letting larger values
   wrap and perform a short I/O. `fsync` ranges that don't fit sync to the end of the file.
-## v2.15.1
+
+Argument validation:
+
+- Raise `Invalid_argument` if a path (or symlink target) contains a NUL byte (@avsm).## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  
   We previously gave the total size of the buffer, not the number of bytes actually used.
