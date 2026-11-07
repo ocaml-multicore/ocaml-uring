@@ -988,7 +988,8 @@ module Msghdr : sig
       Requires [List.length buffs <= Uring.iov_max]
 
       @param msg_name Whether to allocate space to receive the sender's address (see {!get_msg_name}).
-      @param n_fds Reserve space to receive this many FDs (default 0) *)
+      @param n_fds Reserve space to receive this many FDs (default 0)
+      @raise Invalid_argument if [List.length buffs > Uring.iov_max] *)
 
   val get_fds : t -> Unix.file_descr list
 
