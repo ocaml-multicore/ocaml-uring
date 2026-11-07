@@ -267,6 +267,8 @@ val t : [ `Open_path | `Statx ] Uring.t = <abstr>
 
 # let statx = Uring.Statx.create ();;
 val statx : Uring.Statx.t = <abstr>
+# Uring.Statx.size statx;;
+- : int64 = 0L
 # Uring.statx t
     ~mask:Uring.Statx.Mask.basic_stats
     "test-openat"

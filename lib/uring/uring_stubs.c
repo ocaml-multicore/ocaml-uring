@@ -559,7 +559,8 @@ ocaml_uring_make_statx(value v_unit) {
   struct statx *data;
   v = caml_alloc_custom_mem(&statx_ops, sizeof(struct statx *), sizeof(struct statx));
   Statx_val(v) = NULL;
-  data = (struct statx *) caml_stat_alloc(sizeof(struct statx));
+  data = caml_stat_calloc_noexc(1, sizeof(struct statx));
+  if (data == NULL) caml_raise_out_of_memory();
   Statx_val(v) = data;
   CAMLreturn(v);
 }

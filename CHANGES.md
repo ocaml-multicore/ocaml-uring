@@ -24,6 +24,10 @@ Argument validation:
 
 - Raise `Invalid_argument` if a path (or symlink target) contains a NUL byte (@avsm).
 - Raise `Invalid_argument` if more than `Uring.iov_max` buffers are passed to a vector op (@avsm).
+
+Other:
+
+- `Uring.Statx.create` zero-initialises the buffer (@avsm).
 ## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  
