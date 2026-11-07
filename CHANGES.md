@@ -28,6 +28,10 @@ Argument validation:
 Other:
 
 - `Uring.Statx.create` zero-initialises the buffer (@avsm).
+
+- Align sketch-buffer allocations to 8 bytes on 32-bit platforms too (@avsm).
+
+
 ## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  
