@@ -329,9 +329,6 @@ module Msghdr = struct
   let create_with_addr ~n_fds ~fds ?addr buffs =
     make_msghdr n_fds fds addr, addr, buffs
 
-  let create ?(n_fds=0) ?addr buffs =
-    create_with_addr ~n_fds ~fds:[] ?addr buffs
-
   let create_recv ?(n_fds=0) ~msg_name buffs =
     let addr =
       if msg_name then Some (Sockaddr.create ())
@@ -836,8 +833,6 @@ let get_cqe_nonblocking t =
   check t;
   gc_sketch t;
   fn_on_ring Uring.peek_cqe t
-
-let peek = get_cqe_nonblocking
 
 let register_eventfd t fd =
   check t;
