@@ -1,8 +1,7 @@
 open Bechamel
 
 let noop_run queue_depth =
-  let t = Uring.create ~queue_depth () in
-  Staged.stage (fun () ->
+  Staged.stage (fun t ->
       for i = 1 to queue_depth do
         let r = Uring.noop t i in
         assert (r <> None)
@@ -14,9 +13,14 @@ let noop_run queue_depth =
       done)
 
 let suite =
-  Test.make_indexed ~name:"noop" ~fmt:"%s %7d"
-    ~args:[ 10; 30; 100; 300; 1_000; 3_000; 10000 ]
-    noop_run
+  let noop =
+    Test.make_indexed_with_resource ~name:"noop" Test.uniq ~fmt:"%s %7d"
+      ~args:[ 10; 30; 100; 300; 1_000; 3_000; 10000 ]
+      ~allocate:(fun queue_depth -> Uring.create ~queue_depth ())
+      ~free:Uring.exit
+      noop_run
+  in
+  Test.make_grouped ~name:"uring" [noop]
 
 let metrics =
   Toolkit.Instance.[ minor_allocated; major_allocated; monotonic_clock ]
