@@ -790,22 +790,32 @@ static struct custom_operations msghdr_ops = {
   custom_fixed_length_default
 };
 
+// There are two possible layouts for a msghdr, depending on whether we have
+// space allocated for an address:
+
 struct msghdr_with_cmsg {
-  // Note: if msg.msg_name is not NULL then it points to memory large enough for any address,
-  // even if msg.msg_namelen is currently less than that.
-  struct msghdr msg;
+  struct msghdr msg;                    // msg.msg_name is NULL in this case
   struct cmsghdr cmsg;
 };
 
-// v_sockaddr must not be freed before the msghdr as it contains pointers to them
+struct msghdr_with_addr_and_cmsg {
+  struct msghdr msg;                    // msg.msg_name points to msg_name below
+  struct sockaddr_storage msg_name;
+  struct cmsghdr cmsg;
+};
+
 value /* v_n_fds can go away, count ourselves */
-ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt) {
-  CAMLparam2(v_fds, v_sockaddr_opt);
+ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_msg_name) {
+  CAMLparam1(v_fds);
   CAMLlocal1(v);
   struct msghdr *msg;
   int n_fds = Int_val(v_n_fds);
   int cmsg_offset, controllen, total_size;
-  cmsg_offset = sizeof(struct msghdr_with_cmsg) - sizeof(struct cmsghdr);
+  if (Bool_val(v_msg_name)) {
+    cmsg_offset = offsetof(struct msghdr_with_addr_and_cmsg, cmsg);
+  } else {
+    cmsg_offset = offsetof(struct msghdr_with_cmsg, cmsg);
+  }
   controllen = n_fds > 0 ? CMSG_SPACE(sizeof(int) * n_fds) : 0;
   total_size = cmsg_offset + controllen;
   //dprintf("using %d bytes to hold %d FDs\n", total_size, n_fds);
@@ -816,36 +826,38 @@ ocaml_uring_make_msghdr(value v_n_fds, value v_fds, value v_sockaddr_opt) {
   // The msghdr and cmsghdr must zero-ed to avoid unwanted errors
   memset(msg, 0, total_size);
   Msghdr_val(v) = msg;
-  if (Is_some(v_sockaddr_opt)) {
-    struct sock_addr_data *addr = Sock_addr_val(Some_val(v_sockaddr_opt));
-    // Store the address data in the message
-    msg->msg_name = &(addr->sock_addr_addr);
-    msg->msg_namelen = addr->sock_addr_len;
+  msg->msg_namelen = 0;
+  msg->msg_controllen = controllen;
+  if (Bool_val(v_msg_name)) {
+    struct msghdr_with_addr_and_cmsg *outer = (struct msghdr_with_addr_and_cmsg *) msg;
+    msg->msg_name = &outer->msg_name;
+    if (n_fds > 0) {
+      msg->msg_control = &outer->cmsg;
+    }
   } else {
+    struct msghdr_with_cmsg *outer = (struct msghdr_with_cmsg *) msg;
     msg->msg_name = NULL;
-    msg->msg_namelen = 0;
+    if (n_fds > 0) {
+      msg->msg_control = &outer->cmsg;
+    }
   }
   msg->msg_iov = NULL;          /* will be filled in sendmsg or recvmsg */
   msg->msg_iovlen = 0;          /* will be filled in sendmsg or recvmsg */
   // Add the FDs to the message
-  if (n_fds > 0) {
+  if (n_fds > 0 && Is_block(v_fds)) {
     int i;
     struct cmsghdr *cm;
-    msg->msg_control = &(((struct msghdr_with_cmsg *) msg)->cmsg);
-    msg->msg_controllen = controllen;
-    if (Is_block(v_fds)) {
-      cm = CMSG_FIRSTHDR(msg);
-      cm->cmsg_level = SOL_SOCKET;
-      cm->cmsg_type = SCM_RIGHTS;
-      cm->cmsg_len = CMSG_LEN(n_fds * sizeof(int));
-      for (i = 0; i < n_fds; i++) {
-	int fd = -1;
-	if (Is_block(v_fds)) {
-	  fd = Int_val(Field(v_fds, 0));
-	  v_fds = Field(v_fds, 1);
-	}
-	((int *)CMSG_DATA(cm))[i] = fd;
+    cm = CMSG_FIRSTHDR(msg);
+    cm->cmsg_level = SOL_SOCKET;
+    cm->cmsg_type = SCM_RIGHTS;
+    cm->cmsg_len = CMSG_LEN(n_fds * sizeof(int));
+    for (i = 0; i < n_fds; i++) {
+      int fd = -1;
+      if (Is_block(v_fds)) {
+        fd = Int_val(Field(v_fds, 0));
+        v_fds = Field(v_fds, 1);
       }
+      ((int *)CMSG_DATA(cm))[i] = fd;
     }
   }
   CAMLreturn(v);
@@ -862,6 +874,19 @@ ocaml_uring_get_msghdr_msg_name(value v_msghdr) {
 
   v_sockaddr = caml_unix_alloc_sockaddr(msg->msg_name, msg->msg_namelen, -1);
   CAMLreturn(v_sockaddr);
+}
+
+value
+ocaml_uring_set_msghdr_msg_name(value v_msghdr, value v_sockaddr) {
+  CAMLparam2(v_msghdr, v_sockaddr);
+  struct msghdr *msg = Msghdr_val(v_msghdr);
+
+  if (msg->msg_name == NULL)
+    caml_invalid_argument("No msg_name buffer in msghdr");
+
+  // From OCaml 5.5, we can cast to (struct sockaddr_storage *) instead.
+  caml_unix_get_sockaddr(v_sockaddr, (union sock_addr_union *) msg->msg_name, &msg->msg_namelen);
+  CAMLreturn(Val_unit);
 }
 
 value
