@@ -579,12 +579,14 @@ let ensure_idle t op =
 
 let set_fixed_buffer t iobuf =
   ensure_idle t "set_fixed_buffer";
-  if Bigarray.Array1.dim t.fixed_iobuf > 0 then
+  (* Invariant: [t.fixed_iobuf] is non-empty iff a buffer is registered. *)
+  if Bigarray.Array1.dim t.fixed_iobuf > 0 then (
     Uring.unregister_buffers t.uring;
-  t.fixed_iobuf <- iobuf;
+    t.fixed_iobuf <- Cstruct.empty.buffer
+  );
   if Bigarray.Array1.dim iobuf > 0 then (
     match Uring.register_bigarray t.uring iobuf with
-    | () -> Ok ()
+    | () -> t.fixed_iobuf <- iobuf; Ok ()
     | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
   ) else Ok ()
 
