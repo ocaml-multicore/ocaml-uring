@@ -1,6 +1,9 @@
 ```ocaml
 # #require "uring";;
 # #install_printer Uring.Res.pp;;
+# let pp_cstruct f x = Fmt.pf f "%S" (Cstruct.to_string x);;
+val pp_cstruct : Format.formatter -> Cstruct.t -> unit = <fun>
+# #install_printer pp_cstruct;;
 ```
 
 ```ocaml
@@ -61,7 +64,7 @@ val t : [ `Read ] Uring.t = <abstr>
 # let fd = Unix.openfile "/dev/zero" Unix.[O_RDONLY] 0;;
 val fd : Unix.file_descr = <abstr>
 # let b = Cstruct.create 1;;
-val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 1}
+val b : Cstruct.t = "\000"
 # Uring.read t fd b `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
 # Uring.submit t;;
@@ -484,8 +487,8 @@ val fd : Unix.file_descr = <abstr>
 - : int = 1
 # consume t;;
 - : [ `Read ] * Uring.Res.t = (`Read, 5)
-# Cstruct.of_bigarray fbuf ~off ~len |> Cstruct.to_string;;
-- : string = "test "
+# Cstruct.of_bigarray fbuf ~off ~len;;
+- : Cstruct.t = "test "
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
@@ -523,10 +526,10 @@ Read "A test file" into two slices of the fixed buffer (at offsets 0 and 64):
 - : int = 1
 # consume t;;
 - : [ `Read | `Write ] * Uring.Res.t = (`Read, 11)
-# Cstruct.to_string (Cstruct.of_bigarray fbuf ~off:0 ~len:4);;
-- : string = "A te"
-# Cstruct.to_string (Cstruct.of_bigarray fbuf ~off:64 ~len:7);;
-- : string = "st file"
+# Cstruct.of_bigarray fbuf ~off:0 ~len:4;;
+- : Cstruct.t = "A te"
+# Cstruct.of_bigarray fbuf ~off:64 ~len:7;;
+- : Cstruct.t = "st file"
 ```
 
 ```ocaml
@@ -580,8 +583,8 @@ val fd : Unix.file_descr = <abstr>
 val b1_len : int = 3
 val b2_len : int = 7
 # let b1 = Cstruct.create b1_len and b2 = Cstruct.create b2_len;;
-val b1 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 3}
-val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
+val b1 : Cstruct.t = "\000\000\000"
+val b2 : Cstruct.t = "\000\000\000\000\000\000\000"
 
 # Uring.read t fd b1 `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
@@ -589,8 +592,8 @@ val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
 - : int = 1
 # let `Read, read = consume t;;
 val read : Uring.Res.t = 3
-# Cstruct.to_string b1;;
-- : string = "A t"
+# b1;;
+- : Cstruct.t = "A t"
 
 # Uring.read t fd b2 `Read ~file_offset:Int63.minus_one;;
 - : [ `Read ] Uring.job option = Some <abstr>
@@ -598,8 +601,8 @@ val read : Uring.Res.t = 3
 - : int = 1
 # let `Read, read = consume t;;
 val read : Uring.Res.t = 7
-# Cstruct.to_string b2;;
-- : string = "est fil"
+# b2;;
+- : Cstruct.t = "est fil"
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
@@ -612,8 +615,8 @@ Writing with write:
 val t : [ `Read | `Write ] Uring.t = <abstr>
 
 # let rb = Cstruct.create 10 and wb = Cstruct.of_string "Hello";;
-val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 10}
-val wb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
+val rb : Cstruct.t = "\000\000\000\000\000\000\000\000\000\000"
+val wb : Cstruct.t = "Hello"
 # let r, w = Unix.pipe ();;
 val r : Unix.file_descr = <abstr>
 val w : Unix.file_descr = <abstr>
@@ -635,9 +638,7 @@ val v : [ `Read | `Write ] = `Read
 val read : Uring.Res.t = 5
 
 # let rb = Cstruct.sub rb 0 5;;
-val rb : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 5}
-# Cstruct.to_string rb;;
-- : string = "Hello"
+val rb : Cstruct.t = "Hello"
 
 # let w : unit = Unix.close w;;
 val w : unit = ()
@@ -657,8 +658,8 @@ val fd : Unix.file_descr = <abstr>
 val b1_len : int = 3
 val b2_len : int = 7
 # let b1 = Cstruct.create b1_len and b2 = Cstruct.create b2_len;;
-val b1 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 3}
-val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
+val b1 : Cstruct.t = "\000\000\000"
+val b2 : Cstruct.t = "\000\000\000\000\000\000\000"
 # let iov = [b1; b2] in
   Uring.readv t fd iov `Readv ~file_offset:Int63.zero;;
 - : [ `Readv ] Uring.job option = Some <abstr>
@@ -668,10 +669,10 @@ val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 7}
 
 # let `Readv, read = consume t;;
 val read : Uring.Res.t = 10
-# Cstruct.to_string b1;;
-- : string = "A t"
-# Cstruct.to_string b2;;
-- : string = "est fil"
+# b1;;
+- : Cstruct.t = "A t"
+# b2;;
+- : Cstruct.t = "est fil"
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
@@ -683,7 +684,7 @@ Test using cstructs with offsets:
 # let fd = Unix.openfile Test_data.path [ O_RDONLY ] 0;;
 val fd : Unix.file_descr = <abstr>
 # let b = Cstruct.of_string "Gathered [    ] and [   ]";;
-val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 25}
+val b : Cstruct.t = "Gathered [    ] and [   ]"
 # let b1 = Cstruct.sub b 10 4 and b2 = Cstruct.sub b 21 3 in
   let iov = [b1; b2] in
   Uring.readv t fd iov `Readv ~file_offset:Int63.zero;;
@@ -692,8 +693,8 @@ val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 25}
 - : int = 1
 # consume t;;
 - : [ `Readv ] * Uring.Res.t = (`Readv, 7)
-# Cstruct.to_string b;;
-- : string = "Gathered [A te] and [st ]"
+# b;;
+- : Cstruct.t = "Gathered [A te] and [st ]"
 
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
@@ -713,7 +714,7 @@ val t : [ `Read | `Write ] Uring.t = <abstr>
 # let fd = Unix.openfile "rwf.txt" Unix.[O_RDWR; O_CREAT; O_TRUNC] 0o644;;
 val fd : Unix.file_descr = <abstr>
 # let b = Cstruct.of_string "durable data";;
-val b : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 12}
+val b : Cstruct.t = "durable data"
 # Uring.writev t ~file_offset:Int63.zero ~flags:Uring.Rw_flags.dsync fd [b] `Write;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
 # Uring.submit t;;
@@ -726,15 +727,15 @@ Read it back, also passing flags through `readv`:
 
 ```ocaml
 # let b2 = Cstruct.create 12;;
-val b2 : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 12}
+val b2 : Cstruct.t = "\000\000\000\000\000\000\000\000\000\000\000\000"
 # Uring.readv t ~file_offset:Int63.zero ~flags:Uring.Rw_flags.empty fd [b2] `Read;;
 - : [ `Read | `Write ] Uring.job option = Some <abstr>
 # Uring.submit t;;
 - : int = 1
 # consume_int ~fn:"readv" t;;
 - : [ `Read | `Write ] * int = (`Read, 12)
-# Cstruct.to_string b2;;
-- : string = "durable data"
+# b2;;
+- : Cstruct.t = "durable data"
 ```
 
 More than `iov_max` buffers are rejected before anything is queued:
@@ -1013,7 +1014,7 @@ val t : [ `Recv | `Send ] Uring.t = <abstr>
 val a : Unix.file_descr = <abstr>
 val b : Unix.file_descr = <abstr>
 # let bufs = [Cstruct.of_string "hi"];;
-val bufs : Cstruct.t list = [{Cstruct.buffer = <abstr>; off = 0; len = 2}]
+val bufs : Cstruct.t list = ["hi"]
 # Uring.send_msg t a ~fds:[r; w] bufs `Send;;
 - : [ `Recv | `Send ] Uring.job option = Some <abstr>
 # Uring.submit t;;
@@ -1026,7 +1027,7 @@ val sent : [ `Recv | `Send ] * Uring.Res.t = (`Send, 2)
     | _ -> fun _ _ -> failwith "Send failed";;
 val really_input_string : in_channel -> int -> string = <fun>
 # let recv_buf = Cstruct.of_string "XX";;
-val recv_buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 2}
+val recv_buf : Cstruct.t = "XX"
 # let recv = Uring.Msghdr.create_recv ~msg_name:false ~n_fds:2 [recv_buf];;
 val recv : Uring.Msghdr.t = <abstr>
 # List.length (Uring.Msghdr.get_fds recv);;
@@ -1037,8 +1038,8 @@ val recv : Uring.Msghdr.t = <abstr>
 - : int = 1
 # consume t;;
 - : [ `Recv | `Send ] * Uring.Res.t = (`Recv, 2)
-# Cstruct.to_string recv_buf;;
-- : string = "hi"
+# recv_buf;;
+- : Cstruct.t = "hi"
 # let r2, w2 =
     match Uring.Msghdr.get_fds recv with
     | [r2; w2] -> r2, w2
@@ -1099,7 +1100,7 @@ val sent : bool = true
 - : unit = ()
 
 # let buf = Cstruct.of_string "XXXX";;
-val buf : Cstruct.t = {Cstruct.buffer = <abstr>; off = 0; len = 4}
+val buf : Cstruct.t = "XXXX"
 # let msg = Uring.Msghdr.create_recv ~msg_name:true [buf];;
 val msg : Uring.Msghdr.t = <abstr>
 
@@ -1108,8 +1109,8 @@ val msg : Uring.Msghdr.t = <abstr>
 # consume_int ~fn:"recv_msg" t;;
 - : [ `Recv | `Send ] * int = (`Recv, 4)
 
-# Cstruct.to_string buf;;
-- : string = "Test"
+# buf;;
+- : Cstruct.t = "Test"
 
 # Uring.Msghdr.get_msg_name msg;;
 - : Unix.sockaddr = Unix.ADDR_UNIX "\000ocaml-uring-test-a.sock"
