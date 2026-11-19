@@ -367,7 +367,7 @@ val openat2 : 'a t ->
   'a -> 'a job option
 (** [openat2 t ~access ~flags ~perm ~resolve ~fd path d] opens [path], which is resolved relative to [fd]
     (or the current directory if [fd] is not given).
-    The user data [d] will be returned by {!wait} or {!peek} upon completion.
+    The user data [d] will be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
     @param access controls whether the file is opened for reading, writing, or both
     @param flags are the usual open flags
     @param perm sets the access control bits for newly created files (subject to the process's umask)
@@ -609,7 +609,7 @@ val read_fixed : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_de
 (** [read t ~file_offset fd ~off ~len d] will submit a [read(2)] request to uring [t].
     It reads up to [len] bytes from absolute [file_offset] on the [fd] file descriptor and
     writes the results into the fixed memory buffer associated with uring [t] at offset [off].
-    The user data [d] will be returned by {!wait} or {!peek} upon completion.
+    The user data [d] will be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
 
     @param flags Per-operation flags as for [preadv2(2)] (see {!Rw_flags}); defaults to none *)
 
@@ -621,7 +621,7 @@ val write_fixed : 'a t -> file_offset:offset -> ?flags:Rw_flags.t -> Unix.file_d
 (** [write_fixed t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
     It writes up to [len] bytes into absolute [file_offset] on the [fd] file descriptor
     from the fixed memory buffer associated with uring [t] at offset [off].
-    The user data [d] will be returned by {!wait} or {!peek} upon completion.
+    The user data [d] will be returned by {!wait} or {!get_cqe_nonblocking} upon completion.
 
     @param flags Per-operation flags as for [pwritev2(2)] (see {!Rw_flags}); defaults to none
 
@@ -981,9 +981,6 @@ val cancel : 'a t -> 'a job -> 'a -> 'a job option
 module Msghdr : sig
   type t
 
-  val create : ?n_fds:int -> ?addr:Sockaddr.t -> Cstruct.t list -> t
-  [@@deprecated "Use Msghdr.create_recv instead"]
-
   val create_recv : ?n_fds:int -> msg_name:bool -> Cstruct.t list -> t
   (** [create_recv ~msg_name:true buffs] makes a new [msghdr] for {!recv_msg}
       using the [buffs] for the underlying [iovec].
@@ -1132,12 +1129,12 @@ val op_supported : probe -> Op.t -> bool
 val submit : 'a t -> int
 (** [submit t] will submit all the outstanding queued requests on uring [t]
     to the kernel. Their results can subsequently be retrieved using {!wait}
-    or {!peek}. *)
+    or {!get_cqe_nonblocking}. *)
 
 type 'a completion_option =
   | None
   | Some of { result: Res.t; data: 'a } (**)
-(** The type of results of calling {!wait} and {!peek}. [None] denotes that
+(** The type of results of calling {!wait} and {!get_cqe_nonblocking}. [None] denotes that
     either there were no completions in the queue or an interrupt / timeout
     occurred. [Some] contains both the user data attached to the completed
     request and the integer syscall result. *)
@@ -1150,9 +1147,6 @@ val wait : ?timeout:float -> 'a t -> 'a completion_option
 val get_cqe_nonblocking : 'a t -> 'a completion_option
 (** [get_cqe_nonblocking t] returns the next completion entry from the uring [t].
     It is like {!wait} except that it returns [None] instead of blocking. *)
-
-val peek : 'a t -> 'a completion_option
-[@@deprecated "Renamed to Uring.get_cqe_nonblocking"]
 
 val register_eventfd : 'a t -> Unix.file_descr -> unit
 (** [register_eventfd t fd] will register an eventfd to the the uring [t].

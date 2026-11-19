@@ -316,28 +316,28 @@ end
 (* Used for the sendmsg/recvmsg calls. Liburing doesn't support sendto/recvfrom at the time of writing. *)
 module Msghdr = struct
   type msghdr
-  type t = msghdr * Sockaddr.t option * Cstruct.t list (* `Cstruct.t list` is here only for preventing it being GCed *)
-  external make_msghdr : int -> Unix.file_descr list -> Sockaddr.t option -> msghdr = "ocaml_uring_make_msghdr"
+  type t = msghdr * Cstruct.t list (* `Cstruct.t list` is here only for preventing it being GCed *)
+  external make_msghdr : int -> Unix.file_descr list -> bool -> msghdr = "ocaml_uring_make_msghdr"
   external get_msghdr_fds : msghdr -> Unix.file_descr list = "ocaml_uring_get_msghdr_fds"
   external get_msghdr_msg_name : msghdr -> Unix.sockaddr = "ocaml_uring_get_msghdr_msg_name"
+  external set_msghdr_msg_name : msghdr -> Unix.sockaddr -> unit = "ocaml_uring_set_msghdr_msg_name"
 
-  let get_fds (hdr, _, _) = get_msghdr_fds hdr
-  let get_msg_name (hdr, _, _) = get_msghdr_msg_name hdr
+  let get_fds (hdr, _) = get_msghdr_fds hdr
+  let get_msg_name (hdr, _) = get_msghdr_msg_name hdr
+  let set_msg_name (hdr, _) x = set_msghdr_msg_name hdr x
 
   (* Create a value with space for [n_fds] file descriptors.
      When sending, [fds] is used to fill those slots. When receiving, they can be left blank. *)
-  let create_with_addr ~n_fds ~fds ?addr buffs =
-    make_msghdr n_fds fds addr, addr, buffs
+  let create ~n_fds ~fds ~msg_name buffs =
+    make_msghdr n_fds fds msg_name, buffs
 
-  let create ?(n_fds=0) ?addr buffs =
-    create_with_addr ~n_fds ~fds:[] ?addr buffs
+  let create_with_addr ~n_fds ~fds ?addr buffs =
+    let t = create ~n_fds ~fds ~msg_name:(addr <> None) buffs in
+    Option.iter (set_msg_name t) addr;
+    t
 
   let create_recv ?(n_fds=0) ~msg_name buffs =
-    let addr =
-      if msg_name then Some (Sockaddr.create ())
-      else None
-    in
-    create_with_addr ~n_fds ~fds:[] ?addr buffs
+    create ~n_fds ~fds:[] ~msg_name buffs
 end
 
 type 'a job = 'a Heap.entry
@@ -767,16 +767,15 @@ let socket ?(flags=Sock_flags.cloexec) t domain socket_type protocol user_data =
   with_id t (fun id -> Uring.submit_socket t.uring id domain socket_type protocol flags) user_data
 
 let send_msg ?(fds=[]) ?dst t fd buffers user_data =
-  let addr = Option.map Sockaddr.of_unix dst in
   let n_fds = List.length fds in
-  let msghdr = Msghdr.create_with_addr ~n_fds ~fds ?addr buffers in
+  let msghdr = Msghdr.create_with_addr ~n_fds ~fds ?addr:dst buffers in
   (* NOTE: `msghdr` references `buffers`, so it's enough for `extra_data` *)
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
       Uring.submit_send_msg t.uring id fd msghdr iovec) user_data ~extra_data:msghdr
 
 let recv_msg t fd msghdr user_data =
-  let _, _, buffers = msghdr in
+  let _, buffers = msghdr in
   (* NOTE: `msghdr` references `buffers`, so it's enough for `extra_data` *)
   with_id_full t (fun id ->
       let iovec = Sketch.Iovec.alloc t.sketch buffers in
@@ -836,8 +835,6 @@ let get_cqe_nonblocking t =
   check t;
   gc_sketch t;
   fn_on_ring Uring.peek_cqe t
-
-let peek = get_cqe_nonblocking
 
 let register_eventfd t fd =
   check t;

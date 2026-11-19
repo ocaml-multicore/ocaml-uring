@@ -37,8 +37,7 @@ module Unix_sockets = struct
                 | `Send -> assert (Uring.Res.int_exn result "sendmsg" "" = 5)
                 | `Recv hdr ->
                   assert (Uring.Res.int_exn result "recvmsg" "" = 5);
-                  assert (Uring.Msghdr.get_msg_name hdr = (addr t.a));
-                  ignore (Sys.opaque_identity hdr)
+                  assert (Uring.Msghdr.get_msg_name hdr = (addr t.a))
               end;
               await (n - 1)
         in
