@@ -230,7 +230,7 @@ ocaml_uring_make_open_how(value v_flags, value v_mode, value v_resolve, value v_
   CAMLlocal1(v);
   if (!caml_string_is_c_safe(v_path))
     caml_invalid_argument("ocaml_uring_make_open_how: path is not C-safe");
-  int path_len = caml_string_length(v_path) + 1;
+  size_t path_len = caml_string_length(v_path) + 1;
   struct open_how_data *data;
   v = caml_alloc_custom_mem(&open_how_ops, sizeof(struct open_how_data *), sizeof(struct open_how_data) + path_len);
   Open_how_val(v) = NULL;
