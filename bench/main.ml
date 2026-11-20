@@ -41,10 +41,10 @@ module Unix_sockets = struct
               end;
               await (n - 1)
         in
+        let hdr = Uring.Msghdr.create_recv ~msg_name:true recv_buf in
         for _ = 1 to 1000 do
           let sent = Uring.send_msg t.uring (sock t.a) ~dst:(addr t.b) send_buf `Send in
           assert (sent <> None);
-          let hdr = Uring.Msghdr.create_recv ~msg_name:true recv_buf in
           let recv = Uring.recv_msg t.uring (sock t.b) hdr (`Recv hdr) in
           assert (recv <> None);
           let submitted = Uring.submit t.uring in
