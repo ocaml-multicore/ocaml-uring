@@ -7,6 +7,7 @@
   (language c)
   (names uring_stubs)
   (include_dirs include)
+  (flags (:standard -Wall))
   (extra_deps include/liburing/compat.h primitives.h)))
 
 ; "opam install lintcstubs-arity" to update primitives.h
