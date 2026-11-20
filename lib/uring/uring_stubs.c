@@ -62,7 +62,7 @@
 #endif
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
-#define Sketch_ptr_val(vsp) (Caml_ba_data_val(Field(vsp, 0)) + Long_val(Field(vsp, 1)))
+#define Sketch_ptr_val(vsp) ((void *) ((char *)Caml_ba_data_val(Field(vsp, 0)) + Long_val(Field(vsp, 1))))
 #define Sketch_ptr_len_val(vsp) Long_val(Field(vsp, 2))
 
 // Note that this does not free the ring data. You must not allow this to be
@@ -300,7 +300,7 @@ ocaml_uring_set_iovec(value v_sketch_ptr, value v_csl)
     value v_ba = Field(v_cs, 0);
     value v_off = Field(v_cs, 1);
     value v_len = Field(v_cs, 2);
-    iovs[i].iov_base = Caml_ba_data_val(v_ba) + Long_val(v_off);
+    iovs[i].iov_base = (char *)Caml_ba_data_val(v_ba) + Long_val(v_off);
     iovs[i].iov_len = Long_val(v_len);
   }
   return Val_unit;
@@ -365,7 +365,7 @@ value /* noalloc */
 ocaml_uring_submit_read_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = (char *)Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_read_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
@@ -392,7 +392,7 @@ value /* noalloc */
 ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff, value v_rw_flags) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = (char *)Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe)
     return (Val_false);
   dprintf("submit_write_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
@@ -460,7 +460,7 @@ ocaml_uring_submit_read_native(value v_uring, value v_fd, value v_id, value v_cs
   value v_ba = Field(v_cstruct, 0);
   value v_off = Field(v_cstruct, 1);
   value v_len = Field(v_cstruct, 2);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = (char *)Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_read: fd %d buff %p len %zd fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
@@ -488,7 +488,7 @@ ocaml_uring_submit_write_native(value v_uring, value v_fd, value v_id, value v_c
   value v_ba = Field(v_cstruct, 0);
   value v_off = Field(v_cstruct, 1);
   value v_len = Field(v_cstruct, 2);
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  void *buf = (char *)Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_write: fd %d buff %p len %zd fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
@@ -608,13 +608,13 @@ value ocaml_uring_statx_ ## field ## _bytes(value v_statx) { \
 }
 
 // Int64
-STATX_GETTER(blksize, int64_t, caml_copy_int64);
-STATX_GETTER(nlink, int64_t, caml_copy_int64);
-STATX_GETTER(uid, int64_t, caml_copy_int64);
-STATX_GETTER(gid, int64_t, caml_copy_int64);
-STATX_GETTER(ino, int64_t, caml_copy_int64);
-STATX_GETTER(size, int64_t, caml_copy_int64);
-STATX_GETTER(blocks, int64_t, caml_copy_int64);
+STATX_GETTER(blksize, int64_t, caml_copy_int64)
+STATX_GETTER(nlink, int64_t, caml_copy_int64)
+STATX_GETTER(uid, int64_t, caml_copy_int64)
+STATX_GETTER(gid, int64_t, caml_copy_int64)
+STATX_GETTER(ino, int64_t, caml_copy_int64)
+STATX_GETTER(size, int64_t, caml_copy_int64)
+STATX_GETTER(blocks, int64_t, caml_copy_int64)
 
 int64_t
 ocaml_uring_statx_rdev_native(value v_statx) {
@@ -697,16 +697,16 @@ value ocaml_uring_statx_##field##_nsec(value v_statx) { \
 }
 
 // Seconds and ns
-STATX_TIME_GETTER(atime);
-STATX_TIME_GETTER(btime);
-STATX_TIME_GETTER(ctime);
-STATX_TIME_GETTER(mtime);
+STATX_TIME_GETTER(atime)
+STATX_TIME_GETTER(btime)
+STATX_TIME_GETTER(ctime)
+STATX_TIME_GETTER(mtime)
 
 // Int
-STATX_GETTER(mode, intnat, Val_int);
-STATX_GETTER(attributes, intnat, Val_int);
-STATX_GETTER(attributes_mask, intnat, Val_int);
-STATX_GETTER(mask, intnat, Val_int);
+STATX_GETTER(mode, intnat, Val_int)
+STATX_GETTER(attributes, intnat, Val_int)
+STATX_GETTER(attributes_mask, intnat, Val_int)
+STATX_GETTER(mask, intnat, Val_int)
 
 intnat
 ocaml_uring_statx_perm_native(value v_statx) {
