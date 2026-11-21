@@ -700,6 +700,7 @@ let readv t ~file_offset ?(flags=Rw_flags.empty) fd buffers user_data =
       Uring.submit_readv t.uring fd id iovec file_offset flags) user_data ~extra_data:buffers
 
 let read_fixed t ~file_offset ?(flags=Rw_flags.empty) fd ~off ~len user_data =
+  if len < 0 then invalid_arg "Length cannot be negative";
   with_id t (fun id -> Uring.submit_read_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
 
 let read_chunk ?len t ~file_offset ?(flags=Rw_flags.empty) fd chunk user_data =
@@ -708,6 +709,7 @@ let read_chunk ?len t ~file_offset ?(flags=Rw_flags.empty) fd chunk user_data =
   with_id t (fun id -> Uring.submit_read_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
 
 let write_fixed t ~file_offset ?(flags=Rw_flags.empty) fd ~off ~len user_data =
+  if len < 0 then invalid_arg "Length cannot be negative";
   with_id t (fun id -> Uring.submit_write_fixed t.uring fd id t.fixed_iobuf off len file_offset flags) user_data
 
 let write_chunk ?len t ~file_offset ?(flags=Rw_flags.empty) fd chunk user_data =
@@ -751,6 +753,7 @@ let statx t ?fd ~mask path statx flags user_data =
   with_id_full t (fun id -> Uring.submit_statx t.uring id fd statx spath flags mask) user_data ~extra_data:statx
 
 let splice t ~src ~dst ~len user_data =
+  if len < 0 then invalid_arg "Length cannot be negative";
   with_id t (fun id -> Uring.submit_splice t.uring id src dst len) user_data
 
 let bind t fd addr user_data =
