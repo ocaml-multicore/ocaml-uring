@@ -39,7 +39,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
-#include <assert.h>
 // Check for something related to statx
 // this is needed for Alpine.
 #ifndef STATX_TYPE
@@ -1213,27 +1212,17 @@ value ocaml_uring_wait_cqe_timeout(value v_timeout, value v_uring)
 value ocaml_uring_wait_cqe(value v_uring)
 {
   CAMLparam1(v_uring);
-  long id;
   struct io_uring *ring = Ring_val(v_uring);
-  struct io_uring_cqe *cqe;
   int res;
   dprintf("cqe: waiting\n");
   caml_enter_blocking_section();
-  res = io_uring_submit_and_wait_timeout(ring, &cqe, 1, NULL, NULL);
+  res = io_uring_submit_and_wait(ring, io_uring_cq_ready(ring) ? 0 : 1);
   caml_leave_blocking_section();
-  if (res < 0) {
-    if (res == -EAGAIN || res == -EINTR) {
-      CAMLreturn(Val_cqe_none);
-    } else {
-      unix_error(-res, "io_uring_wait_cqe", Nothing);
-    }
-  } else {
-    assert (cqe != NULL);
-    id = (long)io_uring_cqe_get_data(cqe);
-    int cqe_res = cqe->res;
-    io_uring_cqe_seen(ring, cqe);
-    CAMLreturn(Val_cqe_some(Val_int(id), Val_int(cqe_res)));
-  }
+  if (res >= 0)
+    CAMLreturn(ocaml_uring_peek_cqe(v_uring));
+  if (res == -EAGAIN || res == -EINTR)
+    CAMLreturn(Val_cqe_none);
+  unix_error(-res, "io_uring_wait_cqe", Nothing);
 }
 
 value ocaml_uring_peek_cqe(value v_uring)

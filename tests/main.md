@@ -1693,6 +1693,38 @@ val job : [ `Cancel | `Timeout ] Uring.job option = Some <abstr>
 - : unit = ()
 ```
 
+A signal should interrupt `wait` even if there's something to submit:
+
+```ocaml
+# test_requires Uring.Op.mkdirat "Test fails with EINVAL on very old systems";;
+- : unit = ()
+
+# let t : [`Timeout | `Cancel] Uring.t = Uring.create ~queue_depth:1 ();;
+val t : [ `Cancel | `Timeout ] Uring.t = <abstr>
+
+# let job =
+    let ns = Int64.(mul 10L 1_000_000_000L) in
+    Uring.(timeout t Boottime ns `Timeout);;
+val job : [ `Cancel | `Timeout ] Uring.job option = Some <abstr>
+
+# Sys.set_signal Sys.sigalrm (Sys.Signal_handle ignore);
+  ignore Unix.(setitimer ITIMER_REAL { it_interval = 0.; it_value = 0.1 });
+  Uring.wait t;;
+- : [ `Cancel | `Timeout ] Uring.completion_option = Uring.None
+
+# Sys.set_signal Sys.sigalrm Sys.Signal_default;;
+- : unit = ()
+
+# Uring.cancel t (Option.get job) `Cancel;;
+- : [ `Cancel | `Timeout ] Uring.job option = Some <abstr>
+
+# ignore (Uring.wait ~timeout:10.0 t, Uring.wait ~timeout:10.0 t);;
+- : unit = ()
+
+# Uring.exit t;;
+- : unit = ()
+```
+
 
 ## Probing
 
