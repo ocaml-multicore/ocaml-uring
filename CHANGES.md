@@ -1,3 +1,51 @@
+## v2.15.2
+
+API changes:
+
+- Remove deprecated functions from the API (@talex5 #168).
+  This removes `Uring.peek` (use `Uring.get_cqe_nonblocking` instead) and
+  `Msghdr.create` (use `Msghdr.create_recv`). The old function was not safe for Unix-domain
+  sockets. The sender's address is also now stored inside the `Msghdr.t` allocation, avoiding
+  problems with lifetimes.
+
+Bug fixes:
+
+- `Uring.wait`: return on a signal received after a submission (@avsm #179).
+  Without a timeout, the first signal didnt interrupt `Uring.wait`, so a second
+  triggered an assertion failure. It now returns `None` if no completion is queued.
+
+- Clamp I/O lengths to what the SQE's 32-bit field can hold (@avsm @talex5 #171).
+  Negative lengths are now rejected with `Invalid_argument`,
+  and `fsync` syncs the whole file if the length is out-of-range.
+
+- Handle failing operations better (@avsm @talex5 #170).
+  `set_fixed_buffer` only registers the buffer once the kernel has accepted it,
+  so a retry after `Error ENOMEM` no longer fails with `ENXIO`.
+  `accept` now leaves the `Sockaddr.t` untouched if the submission queue is full.
+
+- Reset the `Msghdr.t` buffer sizes on every `recv_msg`, so that a `Msghdr.t`
+  can be reused (@avsm @talex5 #175).
+
+- Reject paths containing NUL bytes instead of truncating them (@avsm @talex5 #172).
+
+- Reject more than `iov_max` buffers before queuing anything (@avsm @talex5 #173).
+
+- Align sketch allocations to 8 bytes on 32-bit platforms too (@avsm @talex5 #181).
+
+- Zero-initialise the statx buffer (@avsm #180).
+
+- `path_len` must be a `size_t` (@avsm #176).
+
+Build and tests:
+
+- Compile the C stubs with the compiler's standard flags (@avsm #178).
+
+- Fix some minor compiler warnings (@talex5 #177).
+
+- Install a better Cstruct printer for the tests (@talex5 #174).
+
+- Benchmark Unix-domain datagram sockets (@talex5 #169).
+
 ## v2.15.1
 
 - Fix `Uring.send_msg ~dst` for Unix-domain addresses (@talex5 #165, reported by @samoht).  
