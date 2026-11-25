@@ -1135,6 +1135,9 @@ After a failed receive (here: a cancelled one) the header must not report the
 FDs from the previous successful receive again:
 
 ```ocaml
+# test_requires Uring.Op.mkdirat "Test fails with EINVAL on very old systems";;
+- : unit = ()
+
 # let job = Uring.recv_msg t b recv `Recv |> Option.get;;
 val job : [ `Cancel | `Recv | `Send ] Uring.job = <abstr>
 # Uring.cancel t job `Cancel;;
