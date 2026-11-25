@@ -492,6 +492,9 @@ val fd : Unix.file_descr = <abstr>
 # Cstruct.of_bigarray fbuf ~off ~len;;
 - : Cstruct.t = "test "
 
+# Uring.read_fixed t ~file_offset:Int63.zero fd ~off ~len:(-1) `Read;;
+Exception: Invalid_argument "Length cannot be negative".
+
 # let fd : unit = Unix.close fd;;
 val fd : unit = ()
 # Uring.exit t;;

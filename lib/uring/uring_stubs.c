@@ -39,6 +39,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <limits.h>
 // Check for something related to statx
 // this is needed for Alpine.
 #ifndef STATX_TYPE
@@ -61,6 +62,14 @@
 #endif
 
 #define Ring_val(v) *((struct io_uring**)Data_custom_val(v))
+
+/* SQE lengths are 32-bit and the kernel never transfers more than 2 GiB per
+   operation anyway, so clamp rather than letting a larger value wrap. */
+static unsigned clamp_rw_len(value v) {
+  intnat len = Long_val(v);
+  return len > INT_MAX ? (unsigned) INT_MAX : (unsigned) len;
+}
+
 #define Sketch_ptr_val(vsp) ((void *) ((char *)Caml_ba_data_val(Field(vsp, 0)) + Long_val(Field(vsp, 1))))
 #define Sketch_ptr_len_val(vsp) Long_val(Field(vsp, 2))
 
@@ -367,7 +376,7 @@ ocaml_uring_submit_read_fixed_native(value v_uring, value v_fd, value v_id, valu
   void *buf = (char *)Caml_ba_data_val(v_ba) + Long_val(v_off);
   if (!sqe) return (Val_false);
   dprintf("submit_read_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
-  io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
+  io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, clamp_rw_len(v_len), Int63_val(v_fileoff), 0);
   sqe->rw_flags = Int_val(v_rw_flags);  /* no io_uring_prep_read_fixed2 in liburing */
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -395,7 +404,7 @@ ocaml_uring_submit_write_fixed_native(value v_uring, value v_fd, value v_id, val
   if (!sqe)
     return (Val_false);
   dprintf("submit_write_fixed: buf %p off %d len %d fileoff %ld\n", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
-  io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
+  io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, clamp_rw_len(v_len), Int63_val(v_fileoff), 0);
   sqe->rw_flags = Int_val(v_rw_flags);  /* no io_uring_prep_write_fixed2 in liburing */
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -463,7 +472,7 @@ ocaml_uring_submit_read_native(value v_uring, value v_fd, value v_id, value v_cs
   if (!sqe) return (Val_false);
   dprintf("submit_read: fd %d buff %p len %zd fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
-  io_uring_prep_read(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
+  io_uring_prep_read(sqe, Int_val(v_fd), buf, clamp_rw_len(v_len), Int63_val(v_fileoff));
   sqe->rw_flags = Int_val(v_rw_flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -491,7 +500,7 @@ ocaml_uring_submit_write_native(value v_uring, value v_fd, value v_id, value v_c
   if (!sqe) return (Val_false);
   dprintf("submit_write: fd %d buff %p len %zd fileoff %ld\n",
 	  Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
-  io_uring_prep_write(sqe, Int_val(v_fd), buf, Long_val(v_len), Int63_val(v_fileoff));
+  io_uring_prep_write(sqe, Int_val(v_fd), buf, clamp_rw_len(v_len), Int63_val(v_fileoff));
   sqe->rw_flags = Int_val(v_rw_flags);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
@@ -516,7 +525,7 @@ ocaml_uring_submit_splice(value v_uring, value v_id, value v_fd_in, value v_fd_o
   io_uring_prep_splice(sqe,
 		       Int_val(v_fd_in), (int64_t) -1,
 		       Int_val(v_fd_out), (int64_t) -1,
-		       Int_val(v_nbytes), 0);
+		       clamp_rw_len(v_nbytes), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -1089,10 +1098,13 @@ ocaml_uring_submit_fsync(value v_uring, value v_id, value v_fd, value v_off, val
 {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  intnat len = Long_val(v_len);
   if (!sqe) return (Val_false);
   io_uring_prep_fsync(sqe, Int_val(v_fd), 0);
-  sqe->off = Int64_val(v_off);
-  sqe->len = Int_val(v_len);
+  if (len >= 0 && len <= UINT_MAX) {
+    sqe->off = Int64_val(v_off);
+    sqe->len = len;
+  } // else just sync the whole file
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
@@ -1102,10 +1114,13 @@ ocaml_uring_submit_fdatasync(value v_uring, value v_id, value v_fd, value v_off,
 {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  intnat len = Long_val(v_len);
   if (!sqe) return (Val_false);
   io_uring_prep_fsync(sqe, Int_val(v_fd), IORING_FSYNC_DATASYNC);
-  sqe->off = Int64_val(v_off);
-  sqe->len = Int_val(v_len);
+  if (len >= 0 && len <= UINT_MAX) {
+    sqe->off = Int64_val(v_off);
+    sqe->len = len;
+  } // else just sync the whole file
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
   return (Val_true);
 }
