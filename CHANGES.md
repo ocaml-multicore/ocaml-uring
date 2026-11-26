@@ -2,7 +2,7 @@
 
 API changes:
 
-- Remove deprecated functions from the API (@talex5 #168).
+- Remove deprecated functions from the API (@talex5 #168).  
   This removes `Uring.peek` (use `Uring.get_cqe_nonblocking` instead) and
   `Msghdr.create` (use `Msghdr.create_recv`). The old function was not safe for Unix-domain
   sockets. The sender's address is also now stored inside the `Msghdr.t` allocation, avoiding
@@ -10,15 +10,15 @@ API changes:
 
 Bug fixes:
 
-- `Uring.wait`: return on a signal received after a submission (@avsm #179).
-  Without a timeout, the first signal didnt interrupt `Uring.wait`, so a second
+- `Uring.wait`: return on a signal received after a submission (@avsm #179).  
+  Without a timeout, the first signal didn't interrupt `Uring.wait`, so a second
   triggered an assertion failure. It now returns `None` if no completion is queued.
 
-- Clamp I/O lengths to what the SQE's 32-bit field can hold (@avsm @talex5 #171).
+- Clamp I/O lengths to what the SQE's 32-bit field can hold (@avsm @talex5 #171).  
   Negative lengths are now rejected with `Invalid_argument`,
   and `fsync` syncs the whole file if the length is out-of-range.
 
-- Handle failing operations better (@avsm @talex5 #170).
+- Handle failing operations better (@avsm @talex5 #170).  
   `set_fixed_buffer` only registers the buffer once the kernel has accepted it,
   so a retry after `Error ENOMEM` no longer fails with `ENXIO`.
   `accept` now leaves the `Sockaddr.t` untouched if the submission queue is full.
